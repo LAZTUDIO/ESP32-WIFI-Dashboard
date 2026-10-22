@@ -4,9 +4,11 @@
  * 没有 SDL / 没有窗口，因此可以在任何环境（含 CI）里跑，
  * 让 agent 能自己截图、自己判断视觉效果。
  *
- *   ./dash_sim out/dashboard.png [page] [scenario]
+ *   ./dash_sim out/dashboard.png [page] [scenario] [theme] [rot180]
  *     page     0=概览 1=曲线 2=系统 3=设置 4=配网浮层
  *     scenario live(默认) | offline | empty
+ *     theme    0=经典 320×480  1=STRIX 480×320  2=TUF 320×480
+ *     rot180   0=正装 1=倒装（出图翻转，模拟屏幕 180°）
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +18,10 @@
 #include "lvgl.h"
 #include "ui.h"
 #include "png_writer.h"
+#include "ui_audit.h"
 
-/* 320×480 RGB565 = 300KB，直接当 LVGL 的 DIRECT 渲染缓冲 */
-static uint8_t g_fb[UI_SCREEN_W * UI_SCREEN_H * 2];
+/* 两种朝向字节数相同：320×480 或 480×320，均 300KB */
+static uint8_t g_fb[UI_STRIX_W * UI_STRIX_H * 2];
 
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
@@ -122,24 +125,52 @@ static void mock_tick(dash_metrics_t * m, int i, int n)
 
 /* ============================== 入口 ============================== */
 
+static void flip180(uint16_t * px, int w, int h)
+{
+    for (int y = 0; y < h / 2; y++) {
+        uint16_t * a = px + (size_t)y * w;
+        uint16_t * b = px + (size_t)(h - 1 - y) * w;
+        for (int x = 0; x < w; x++) {
+            uint16_t t = a[x];
+            a[x] = b[w - 1 - x];
+            b[w - 1 - x] = t;
+        }
+    }
+    if (h & 1) {
+        uint16_t * m = px + (size_t)(h / 2) * w;
+        for (int x = 0; x < w / 2; x++) {
+            uint16_t t = m[x];
+            m[x] = m[w - 1 - x];
+            m[w - 1 - x] = t;
+        }
+    }
+}
+
 int main(int argc, char ** argv)
 {
     const char * out = (argc > 1) ? argv[1] : "out/dashboard.png";
     int page = (argc > 2) ? atoi(argv[2]) : 0;
     const char * scenario = (argc > 3) ? argv[3] : "live";
+    int theme = (argc > 4) ? atoi(argv[4]) : 0;
+    bool rot180 = (argc > 5) ? atoi(argv[5]) != 0 : false;
+    if (theme < 0 || theme >= DASH_THEME_COUNT) theme = 0;
+
+    int sw = (theme == DASH_THEME_STRIX) ? UI_STRIX_W : UI_SCREEN_W;
+    int sh = (theme == DASH_THEME_STRIX) ? UI_STRIX_H : UI_SCREEN_H;
 
     lv_init();
 
-    lv_display_t * disp = lv_display_create(UI_SCREEN_W, UI_SCREEN_H);
+    lv_display_t * disp = lv_display_create(sw, sh);
     if (!disp) {
         fprintf(stderr, "display create failed\n");
         return 1;
     }
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(disp, g_fb, NULL, sizeof(g_fb),
+    lv_display_set_buffers(disp, g_fb, NULL, (size_t)sw * sh * 2,
                            LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
 
+    dashboard_ui_set_prefs((dash_theme_t)theme, rot180);
     dashboard_ui_create();
 
     dash_metrics_t m;
@@ -174,7 +205,9 @@ int main(int argc, char ** argv)
         dashboard_ui_show_provisioning(true, "ESP32-LLM-Setup", "llm123456",
                                        "192.168.4.1");
     } else {
-        dashboard_ui_set_page(page >= 0 && page <= 3 ? page : 0);
+        int maxpage = (theme == DASH_THEME_STRIX) ? 1 :
+                      (theme == DASH_THEME_TUF) ? 2 : 3;
+        dashboard_ui_set_page(page >= 0 && page <= maxpage ? page : 0);
     }
 
     /* 再跑几轮定时器，让布局/图表落到稳定帧 */
@@ -184,13 +217,16 @@ int main(int argc, char ** argv)
     }
     lv_refr_now(disp);
 
-    int rc = png_write_rgb565(out, (const uint16_t *)g_fb,
-                              UI_SCREEN_W, UI_SCREEN_H);
+    ui_audit_run(sw, sh);
+
+    if (rot180) flip180((uint16_t *)g_fb, sw, sh);
+
+    int rc = png_write_rgb565(out, (const uint16_t *)g_fb, sw, sh);
     if (rc) {
         fprintf(stderr, "PNG write failed (%s)\n", out);
         return 1;
     }
-    printf("rendered %dx%d page=%d scenario=%s -> %s\n",
-           UI_SCREEN_W, UI_SCREEN_H, page, scenario, out);
+    printf("rendered %dx%d page=%d scenario=%s theme=%d rot180=%d -> %s\n",
+           sw, sh, page, scenario, theme, rot180 ? 1 : 0, out);
     return 0;
 }

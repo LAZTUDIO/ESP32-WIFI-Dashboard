@@ -27,6 +27,17 @@ lv_display_t *display_init(void);
  */
 uint32_t display_get_frame_count(void);
 
+/**
+ * @brief 运行时旋转屏幕（0/90/180/270）
+ *
+ * 由 esp_lvgl_port 走硬件 MADCTL（swap_xy + mirror），不占 CPU。
+ * 必须在 LVGL 锁内调用；触摸坐标由 LVGL 自动换算。
+ */
+void display_set_rotation(int deg);
+
+/** 诊断用：临时跳过 SPI 发送，用于分离「渲染耗时」和「传输耗时」 */
+void display_flush_bypass(bool bypass);
+
 #if CONFIG_DEMO_LCD_ENABLE && CONFIG_DEMO_EXPANDER_ENABLE
 
 /**

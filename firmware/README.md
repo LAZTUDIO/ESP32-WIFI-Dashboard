@@ -19,13 +19,15 @@ idf.py -p <串口> flash
 
 | 路径 | 说明 |
 | --- | --- |
-| `main/display.c` | ST7796 + TCA9554 复位 + LEDC 背光 |
+| `main/display.c` | ST7796 + TCA9554 复位 + LEDC 背光；内部 DMA 双缓冲、运行时 0/90/180/270 旋转 |
 | `main/board_touch.c` | FT6336 触摸 |
 | `main/wifi_mgr.c` | STA 连接、自动重连、SoftAP |
 | `main/portal.c` | 手机配网页 + DNS 劫持 |
 | `main/metrics.c` | 多 provider 指标采集（Prometheus / Strata / LM Studio / Ollama） |
 | `main/app_config.c` | NVS 配置读写 |
-| `main/debug_console.c` | 串口抓帧与调试命令 |
+| `main/debug_console.c` | 串口抓帧、主题/方向切换、渲染与动画帧率基准 |
+| `../ui/src/ui_theme_strix.c` | STRIX 横屏主题（480×320） |
+| `../ui/src/ui_theme_tuf.c` | TUF 竖屏主题（320×480） |
 | `components/` | 板载 ST7796 / FT6336 驱动 |
 | `tools/capture.py` | 串口抓帧（PNG） |
 | `tools/host_agent.py` | 主机功耗/温度/内存监控小服务 |
@@ -33,4 +35,12 @@ idf.py -p <串口> flash
 
 ## 串口调试
 
-`?` 帮助、`h` 状态、`s` 抓帧、`p 0-3` 切页、`w <ssid>|<pass>` 配网、`c <url>|<key>` 配服务。
+`?` 帮助、`h` 状态、`s` 抓帧、`p <n>` 切页、`t 0-2` 切主题、`r` 翻转 180°、
+`b` 整屏耗时、`B` 渲染/传输拆分、`C` 空白屏基线、`a`/`A` 动画帧率、
+`w <ssid>|<pass>` 配网、`c <url>|<key>` 配服务。
+
+## 性能相关
+
+- 编译选项：`-O2`、CPU 240MHz、32KB 指令缓存（`sdkconfig.defaults`）
+- 绘制缓冲：内部 SRAM + DMA，1/12 屏 ×2，避免 PSRAM bounce buffer 导致的 flush 卡死
+- 实测：整屏重绘约 50ms（≈20fps），局部动画 47fps；详见根目录 README 的「性能」章节

@@ -74,6 +74,19 @@ lv_obj_t * ui_chart_create(lv_obj_t * parent, int32_t height,
                            uint32_t color1, uint32_t color2,
                            lv_chart_series_t ** s1, lv_chart_series_t ** s2);
 
+/* ============================== 主题 ============================== */
+
+/** 三套主题：经典竖屏 / ROG 风横屏 / 军工琥珀竖屏 */
+typedef enum {
+    DASH_THEME_CLASSIC = 0,     /* 320×480 石墨蓝 */
+    DASH_THEME_STRIX  = 1,      /* 480×320 红黑斜切 */
+    DASH_THEME_TUF    = 2,      /* 320×480 石墨琥珀 */
+    DASH_THEME_COUNT
+} dash_theme_t;
+
+#define UI_STRIX_W 480
+#define UI_STRIX_H 320
+
 /* ============================== 页面 ============================== */
 
 typedef enum {
@@ -81,15 +94,26 @@ typedef enum {
     DASH_ACTION_REFRESH,
     DASH_ACTION_REBOOT,
     DASH_ACTION_CLEAR_PEAK,
+    DASH_ACTION_THEME_CLASSIC,
+    DASH_ACTION_THEME_STRIX,
+    DASH_ACTION_THEME_TUF,
+    DASH_ACTION_TOGGLE_ROT180,
 } dash_action_t;
 
 typedef void (* dash_action_cb_t)(dash_action_t action);
 
+/* 必须在 dashboard_ui_create() 之前调用，决定首次创建哪套主题 */
+void dashboard_ui_set_prefs(dash_theme_t theme, bool rot180);
+dash_theme_t dashboard_ui_theme(void);
+bool dashboard_ui_rot180(void);
+
 void dashboard_ui_create(void);
 void dashboard_ui_apply(const dash_metrics_t * m, bool new_sample);
 void dashboard_ui_set_action_cb(dash_action_cb_t cb);
+void dashboard_ui_set_theme(dash_theme_t theme);
 void dashboard_ui_set_page(int page);
 int  dashboard_ui_page(void);
+int  dashboard_ui_page_count(void);
 void dashboard_ui_show_provisioning(bool show, const char * ssid,
                                     const char * password, const char * ip);
 void dashboard_ui_show_toast(const char * text);

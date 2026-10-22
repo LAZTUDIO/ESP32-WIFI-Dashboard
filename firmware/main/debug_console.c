@@ -32,6 +32,12 @@
 #include "ui.h"
 
 static const char *TAG = "dbg";
+static dbg_view_cb_t s_view_cb;
+
+void debug_console_set_view_cb(dbg_view_cb_t cb)
+{
+    s_view_cb = cb;
+}
 
 #define B64_LINE 76
 
@@ -188,12 +194,13 @@ static void print_stats(const char *prefix)
     char ip[16] = "--";
     wifi_mgr_sta_ip(ip, sizeof(ip));
 
-    printf("%s fps=%.1f frames=%lu heap=%u min_heap=%u psram=%u "
+    printf("%s fps=%.1f frames=%lu heap=%u min_heap=%u psram=%u int_free=%u "
            "wifi=%s ip=%s rssi=%d\n",
            prefix, fps, (unsigned long)frames,
            (unsigned)esp_get_free_heap_size(),
            (unsigned)esp_get_minimum_free_heap_size(),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            wifi_mgr_sta_connected() ? "up" : "down", ip, (int)wifi_mgr_rssi());
     fflush(stdout);
 }
@@ -271,6 +278,74 @@ static void cmd_server(char *arg)
     save_and_reboot(&cfg);
 }
 
+/* ============================ 动画帧率基准 ============================ */
+
+static void anim_x_cb(void *var, int32_t v)
+{
+    lv_obj_set_x((lv_obj_t *)var, v);
+}
+
+static void anim_color_cb(void *var, int32_t v)
+{
+    lv_obj_set_style_bg_color((lv_obj_t *)var,
+                              lv_color_hsv_to_rgb((uint16_t)(v % 360), 80, 60), 0);
+}
+
+static void anim_fps_bench(bool fullscreen)
+{
+    lv_obj_t *o = NULL;
+
+    if (lvgl_port_lock(1500)) {
+        o = lv_obj_create(lv_screen_active());
+        lv_obj_remove_style_all(o);
+        lv_obj_set_style_bg_color(o, lv_color_hex(0xFF2A45), 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, o);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_time(&a, 2000);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+
+        if (fullscreen) {
+            lv_display_t *d = lv_display_get_default();
+            lv_obj_set_pos(o, 0, 0);
+            lv_obj_set_size(o, lv_display_get_horizontal_resolution(d),
+                            lv_display_get_vertical_resolution(d));
+            lv_anim_set_exec_cb(&a, anim_color_cb);
+            lv_anim_set_values(&a, 0, 359);
+        } else {
+            lv_obj_set_size(o, 64, 64);
+            lv_obj_set_pos(o, 0, 80);
+            lv_anim_set_exec_cb(&a, anim_x_cb);
+            lv_anim_set_values(&a, 0, 400);
+        }
+        lv_anim_start(&a);
+        lvgl_port_unlock();
+    }
+
+    uint32_t f0 = display_get_frame_count();
+    int64_t t0 = esp_timer_get_time();
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    int64_t dt = esp_timer_get_time() - t0;
+    uint32_t f1 = display_get_frame_count();
+
+    if (lvgl_port_lock(1500)) {
+        if (o) {
+            lv_anim_del(o, NULL);
+            lv_obj_delete(o);
+        }
+        lvgl_port_unlock();
+    }
+
+    printf("[I] dbg: %s anim fps=%.1f frames=%u dt=%lldms\n",
+           fullscreen ? "fullscreen" : "small",
+           (double)(f1 - f0) * 1e6 / (double)dt, (unsigned)(f1 - f0),
+           (long long)(dt / 1000));
+    fflush(stdout);
+}
+
 /* ============================ 命令解析 ============================ */
 
 static void handle_line(char *line)
@@ -281,8 +356,75 @@ static void handle_line(char *line)
     switch (*line) {
     case 's': cmd_snapshot(); break;
     case 'h': print_stats("STATS"); break;
+    case 'b':
+        if (lvgl_port_lock(2000)) {
+            int64_t t0 = esp_timer_get_time();
+            lv_obj_invalidate(lv_screen_active());
+            lv_refr_now(lv_display_get_default());
+            int64_t dt = (esp_timer_get_time() - t0) / 1000;
+            printf("[I] dbg: full refresh %lld ms (%dx%d)\n", (long long)dt,
+                   (int)lv_display_get_horizontal_resolution(lv_display_get_default()),
+                   (int)lv_display_get_vertical_resolution(lv_display_get_default()));
+            fflush(stdout);
+            lvgl_port_unlock();
+        }
+        break;
+    case 'B':
+        if (lvgl_port_lock(2000)) {
+            lv_display_t *d = lv_display_get_default();
+            int64_t t0;
+
+            display_flush_bypass(true);
+            t0 = esp_timer_get_time();
+            lv_obj_invalidate(lv_screen_active());
+            lv_refr_now(d);
+            int64_t render_ms = (esp_timer_get_time() - t0) / 1000;
+            display_flush_bypass(false);
+
+            t0 = esp_timer_get_time();
+            lv_obj_invalidate(lv_screen_active());
+            lv_refr_now(d);
+            int64_t full_ms = (esp_timer_get_time() - t0) / 1000;
+
+            printf("[I] dbg: render=%lld ms  full=%lld ms  transfer~%lld ms\n",
+                   (long long)render_ms, (long long)full_ms,
+                   (long long)(full_ms - render_ms));
+            fflush(stdout);
+            lvgl_port_unlock();
+        }
+        break;
+    case 'C': {
+        if (lvgl_port_lock(2000)) {
+            lv_display_t *d = lv_display_get_default();
+            lv_obj_t *prev = lv_screen_active();
+            lv_obj_t *blank = lv_obj_create(NULL);
+            lv_obj_set_style_bg_color(blank, lv_color_hex(0x101010), 0);
+            lv_obj_set_style_bg_opa(blank, LV_OPA_COVER, 0);
+            lv_screen_load(blank);
+
+            int64_t t0 = esp_timer_get_time();
+            lv_obj_invalidate(blank);
+            lv_refr_now(d);
+            int64_t full_ms = (esp_timer_get_time() - t0) / 1000;
+            printf("[I] dbg: blank full=%lld ms\n", (long long)full_ms);
+            fflush(stdout);
+
+            lv_screen_load(prev);
+            lv_obj_delete(blank);
+            lvgl_port_unlock();
+        }
+        break;
+    }
+    case 'a': anim_fps_bench(false); break;
+    case 'A': anim_fps_bench(true); break;
     case 'w': cmd_wifi(line + 1); break;
     case 'c': cmd_server(line + 1); break;
+    case 't':
+        if (s_view_cb) s_view_cb(atoi(line + 1), -1);
+        break;
+    case 'r':
+        if (s_view_cb) s_view_cb(-1, 2);
+        break;
     case 'p':
         if (lvgl_port_lock(300)) {
             dashboard_ui_set_page(atoi(line + 1));
@@ -290,8 +432,10 @@ static void handle_line(char *line)
         }
         break;
     case '?':
-        printf("commands: s=snapshot  h=stats  p <0-3>=page  "
-               "w <ssid>|<pass>=wifi  c <url>|<key>=server\n");
+        printf("commands: s=snapshot  h=stats  b=bench refresh  B=render/transfer  "
+               "a=small anim fps  A=full anim fps  p <0-3>=page  "
+               "t <0-2>=theme  r=flip 180  w <ssid>|<pass>=wifi  "
+               "c <url>|<key>=server\n");
         break;
     default:
         printf("[W] dbg: unknown command '%c'\n", *line);

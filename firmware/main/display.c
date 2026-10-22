@@ -44,12 +44,6 @@
 #else
 #define DEMO_LCD_MIRROR_Y 0
 #endif
-#ifdef CONFIG_DEMO_LCD_USE_PSRAM
-#define DEMO_LCD_USE_PSRAM 1
-#else
-#define DEMO_LCD_USE_PSRAM 0
-#endif
-
 #define LCD_HOST            ((spi_host_device_t)CONFIG_DEMO_LCD_SPI_HOST)
 #define BL_LEDC_TIMER       LEDC_TIMER_1
 #define BL_LEDC_CHANNEL     LEDC_CHANNEL_0
@@ -64,6 +58,7 @@
 static const char *TAG = "display";
 
 static volatile uint32_t s_frame_cnt;
+static lv_display_t *s_lv_disp;
 
 static void on_render_ready(lv_event_t *e)
 {
@@ -182,7 +177,9 @@ static esp_err_t lcd_hw_init(void)
         .sclk_io_num = CONFIG_DEMO_LCD_PIN_SCLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = CONFIG_DEMO_LCD_H_RES * 80 * sizeof(uint16_t),
+        /* 覆盖单次 flush 的最大块（1/12 屏，约 26KB）。
+           过大的 max_transfer 会逼 SPI 驱动申请巨大的 DMA 私有缓冲。 */
+        .max_transfer_sz = CONFIG_DEMO_LCD_H_RES * 60 * sizeof(uint16_t),
     };
     ESP_RETURN_ON_ERROR(spi_bus_initialize(LCD_HOST, &bus_cfg, SPI_DMA_CH_AUTO), TAG, "spi_bus_initialize failed");
 
@@ -240,7 +237,9 @@ static lv_display_t *init_lcd(void)
     lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = s_io,
         .panel_handle = s_panel,
-        .buffer_size = CONFIG_DEMO_LCD_H_RES * CONFIG_DEMO_LCD_V_RES / 8,
+        /* 1/12 屏 ×2：内部 DMA 缓冲约 51KB，给 WiFi/HTTP 和 32KB 指令缓存留出余量；
+           整屏约 12 次 SPI 传输，实测传输只占 ~5ms */
+        .buffer_size = CONFIG_DEMO_LCD_H_RES * CONFIG_DEMO_LCD_V_RES / 12,
         .double_buffer = true,
         .hres = CONFIG_DEMO_LCD_H_RES,
         .vres = CONFIG_DEMO_LCD_V_RES,
@@ -250,12 +249,15 @@ static lv_display_t *init_lcd(void)
             .mirror_x = DEMO_LCD_MIRROR_X,
             .mirror_y = DEMO_LCD_MIRROR_Y,
         },
-        .color_format = LV_COLOR_FORMAT_RGB565,
+        /* 直接让 LVGL 输出字节序已交换的 RGB565，省掉每帧 300KB 的 CPU swap */
+        .color_format = LV_COLOR_FORMAT_RGB565_SWAPPED,
         .flags = {
-            .buff_dma = 0,
-            .buff_spiram = DEMO_LCD_USE_PSRAM,
+            /* 内部 SRAM + DMA：SPI 可直接发送，不再经过 PSRAM→内部 bounce buffer。
+               之前缓冲在 PSRAM 时，旋转 270° 会因 DMA 私有缓冲分配失败而永久卡在 flush。 */
+            .buff_dma = 1,
+            .buff_spiram = 0,
             .sw_rotate = 0,
-            .swap_bytes = 1,
+            .swap_bytes = 0,
             .full_refresh = 0,
             .direct_mode = 0,
         },
@@ -325,7 +327,50 @@ lv_display_t *display_init(void)
         return NULL;
     }
 
+    s_lv_disp = disp;
     lv_display_add_event_cb(disp, on_render_ready, LV_EVENT_RENDER_READY, NULL);
     ESP_LOGI(TAG, "display ready");
     return disp;
+}
+
+static void bypass_flush_cb(lv_display_t *disp, const lv_area_t *area,
+                            uint8_t *px_map)
+{
+    (void)area;
+    (void)px_map;
+    lv_display_flush_ready(disp);
+}
+
+static lv_display_flush_cb_t s_orig_flush_cb;
+
+void display_flush_bypass(bool bypass)
+{
+    if (!s_lv_disp) return;
+    if (bypass) {
+        if (!s_orig_flush_cb) {
+            s_orig_flush_cb = lv_display_get_flush_cb(s_lv_disp);
+            lv_display_set_flush_cb(s_lv_disp, bypass_flush_cb);
+        }
+    } else if (s_orig_flush_cb) {
+        lv_display_set_flush_cb(s_lv_disp, s_orig_flush_cb);
+        s_orig_flush_cb = NULL;
+    }
+}
+
+void display_set_rotation(int deg)
+{
+    if (!s_lv_disp) return;
+
+    lv_display_rotation_t r = LV_DISPLAY_ROTATION_0;
+    switch (deg) {
+    case 90:  r = LV_DISPLAY_ROTATION_90;  break;
+    case 180: r = LV_DISPLAY_ROTATION_180; break;
+    case 270: r = LV_DISPLAY_ROTATION_270; break;
+    default:  r = LV_DISPLAY_ROTATION_0;   break;
+    }
+    if (lv_display_get_rotation(s_lv_disp) == r) return;
+    lv_display_set_rotation(s_lv_disp, r);
+    ESP_LOGI(TAG, "rotation -> %d (%dx%d)", deg,
+             (int)lv_display_get_horizontal_resolution(s_lv_disp),
+             (int)lv_display_get_vertical_resolution(s_lv_disp));
 }

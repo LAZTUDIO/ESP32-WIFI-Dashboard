@@ -51,6 +51,38 @@ static void action_cb(dash_action_t action)
     if (s_actions) xQueueSend(s_actions, &action, 0);
 }
 
+/** 主题默认方向 + 用户 180° 翻转 */
+static int theme_rotation(void)
+{
+    int deg = (s_cfg.theme == DASH_THEME_STRIX) ? 90 : 0;
+    if (s_cfg.rot180) deg = (deg + 180) % 360;
+    return deg;
+}
+
+/** 应用主题与方向；调用方必须已持有 LVGL 锁 */
+static void apply_view(bool rebuild)
+{
+    display_set_rotation(theme_rotation());
+    dashboard_ui_set_prefs((dash_theme_t)s_cfg.theme, s_cfg.rot180);
+    if (rebuild) dashboard_ui_set_theme((dash_theme_t)s_cfg.theme);
+}
+
+/** 串口 t / r 命令：直接切主题或翻转，便于无触摸时验证 */
+static void dbg_view_cb(int theme, int rot180)
+{
+    if (theme >= 0 && theme < DASH_THEME_COUNT) s_cfg.theme = (uint8_t)theme;
+    if (rot180 == 2) s_cfg.rot180 = !s_cfg.rot180;
+    else if (rot180 >= 0) s_cfg.rot180 = (rot180 != 0);
+
+    config_save(&s_cfg);
+    if (lvgl_port_lock(1500)) {
+        apply_view(true);
+        lvgl_port_unlock();
+    }
+    ESP_LOGI(TAG, "view theme=%u rot180=%d rot=%d", s_cfg.theme,
+             s_cfg.rot180, theme_rotation());
+}
+
 /* ============================ 时间同步 ============================ */
 
 static void time_sync_start(void)
@@ -124,6 +156,31 @@ static void app_task(void *arg)
                     lvgl_port_unlock();
                 }
                 break;
+
+            case DASH_ACTION_THEME_CLASSIC:
+            case DASH_ACTION_THEME_STRIX:
+            case DASH_ACTION_THEME_TUF: {
+                uint8_t t = (act == DASH_ACTION_THEME_STRIX) ? 1 :
+                            (act == DASH_ACTION_THEME_TUF) ? 2 : 0;
+                if (t != s_cfg.theme) {
+                    s_cfg.theme = t;
+                    config_save(&s_cfg);
+                    if (lvgl_port_lock(800)) {
+                        apply_view(true);
+                        lvgl_port_unlock();
+                    }
+                }
+                break;
+            }
+
+            case DASH_ACTION_TOGGLE_ROT180:
+                s_cfg.rot180 = !s_cfg.rot180;
+                config_save(&s_cfg);
+                if (lvgl_port_lock(800)) {
+                    apply_view(false);
+                    lvgl_port_unlock();
+                }
+                break;
             }
         }
 
@@ -141,8 +198,11 @@ static void app_task(void *arg)
         }
 
         if (lvgl_port_lock(300)) {
+            int64_t t0 = esp_timer_get_time();
             dashboard_ui_apply(&m, true);
+            int64_t dt_ms = (esp_timer_get_time() - t0) / 1000;
             lvgl_port_unlock();
+            if (dt_ms > 30) ESP_LOGI(TAG, "ui apply %lld ms", (long long)dt_ms);
         }
     }
 }
@@ -160,6 +220,7 @@ void app_main(void)
     }
 
     config_load(&s_cfg);
+    if (s_cfg.theme >= DASH_THEME_COUNT) s_cfg.theme = DASH_THEME_CLASSIC;
     metrics_init();
 
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -175,6 +236,8 @@ void app_main(void)
     (void)touch_init(disp);
 
     if (lvgl_port_lock(2000)) {
+        display_set_rotation(theme_rotation());
+        dashboard_ui_set_prefs((dash_theme_t)s_cfg.theme, s_cfg.rot180);
         dashboard_ui_create();
         dashboard_ui_set_action_cb(action_cb);
         lvgl_port_unlock();
@@ -210,6 +273,7 @@ void app_main(void)
     s_actions = xQueueCreate(8, sizeof(dash_action_t));
     xTaskCreate(app_task, "dash_app", 8192, NULL, 5, NULL);
 
+    debug_console_set_view_cb(dbg_view_cb);
     debug_console_start();
 
     while (true) {

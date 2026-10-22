@@ -8,6 +8,7 @@
  *   设置  网络 74 + 8 + API 86 + 8 + 按钮 40 + 8 + 按钮 40 + 8 + 版本 62 = 334
  */
 #include "ui.h"
+#include "ui_theme.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,11 @@ static dash_metrics_t s_m;
 static dash_history_t s_h;
 static int s_page = 0;
 static dash_action_cb_t s_action_cb;
+static dash_theme_t s_theme = DASH_THEME_CLASSIC;
+static bool s_rot180;
+static lv_obj_t * s_scr;
+static lv_obj_t * s_strix_root;
+static lv_obj_t * s_tuf_root;
 
 static lv_obj_t * s_pages[4];
 static lv_obj_t * s_nav_btn[4];
@@ -105,6 +111,9 @@ static lv_obj_t * s_set_endpoint;
 static lv_obj_t * s_set_key;
 static lv_obj_t * s_set_host;
 static lv_obj_t * s_set_version;
+static lv_obj_t * s_cls_theme_pill[3];
+static lv_obj_t * s_cls_theme_lbl[3];
+static lv_obj_t * s_cls_rot_lbl;
 
 /* 配网浮层 */
 static lv_obj_t * s_overlay;
@@ -121,12 +130,19 @@ static lv_timer_t * s_toast_timer;
 
 static void label_text(lv_obj_t * l, const char * text)
 {
-    if (l && text) lv_label_set_text(l, text);
+    if (!l || !text) return;
+    const char * cur = lv_label_get_text(l);
+    if (cur && strcmp(cur, text) == 0) return;
+    lv_label_set_text(l, text);
 }
 
 static void label_color(lv_obj_t * l, uint32_t color)
 {
-    if (l) lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
+    if (!l) return;
+    lv_color_t c = lv_color_hex(color);
+    if (lv_color_to_u32(lv_obj_get_style_text_color(l, 0)) ==
+        lv_color_to_u32(c)) return;
+    lv_obj_set_style_text_color(l, c, 0);
 }
 
 static void update_top_right(void)
@@ -787,7 +803,7 @@ static lv_obj_t * build_kv_row(lv_obj_t * parent, const char * key,
                                lv_obj_t ** value, uint32_t color)
 {
     lv_obj_t * row = ui_group_create(parent);
-    lv_obj_set_size(row, LV_PCT(100), 21);
+    lv_obj_set_size(row, LV_PCT(100), 18);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -803,49 +819,111 @@ static lv_obj_t * build_kv_row(lv_obj_t * parent, const char * key,
     return row;
 }
 
+static void cls_theme_event_cb(lv_event_t * e)
+{
+    intptr_t v = (intptr_t)lv_event_get_user_data(e);
+    if (v == 0) dashboard_ui_emit(DASH_ACTION_THEME_CLASSIC);
+    else if (v == 1) dashboard_ui_emit(DASH_ACTION_THEME_STRIX);
+    else dashboard_ui_emit(DASH_ACTION_THEME_TUF);
+}
+
+static lv_obj_t * cls_theme_pill(lv_obj_t * parent, const char * text, int idx)
+{
+    lv_obj_t * b = ui_group_create(parent);
+    lv_obj_set_size(b, LV_PCT(33) - 5, 30);
+    lv_obj_set_style_radius(b, UI_R_S, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(UI_ACCENT), 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(UI_ACCENT), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_TRANSP, 0);
+    lv_obj_set_flex_flow(b, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(b, cls_theme_event_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)idx);
+
+    lv_obj_t * l = lv_label_create(b);
+    lv_obj_set_style_text_font(l, UI_F_CJK, 0);
+    lv_label_set_text(l, text);
+    label_color(l, UI_TEXT_DIM);
+    s_cls_theme_pill[idx] = b;
+    s_cls_theme_lbl[idx] = l;
+    return b;
+}
+
 static void build_settings(lv_obj_t * page)
 {
     lv_obj_t * net = ui_card_create(page);
-    lv_obj_set_size(net, LV_PCT(100), 100);
-    lv_obj_set_style_pad_all(net, 8, 0);
+    lv_obj_set_size(net, LV_PCT(100), 80);
+    lv_obj_set_style_pad_all(net, 4, 0);
     lv_obj_set_style_pad_row(net, 0, 0);
     build_kv_row(net, "Wi-Fi", &s_set_ssid, UI_TEXT);
     build_kv_row(net, "IP 地址", &s_set_ip, UI_TEXT_DIM);
     build_kv_row(net, "信号", &s_set_rssi, UI_TEXT_DIM);
     s_set_net_state = ui_cjk_create(net, "未连接");
-    lv_obj_set_size(s_set_net_state, LV_PCT(100), 21);
+    lv_obj_set_size(s_set_net_state, LV_PCT(100), 18);
     lv_obj_set_style_text_font(s_set_net_state, UI_F_CJK, 0);
     label_color(s_set_net_state, UI_TEXT_MUT);
 
     lv_obj_t * api = ui_card_create(page);
-    lv_obj_set_size(api, LV_PCT(100), 100);
-    lv_obj_set_style_pad_all(api, 8, 0);
+    lv_obj_set_size(api, LV_PCT(100), 80);
+    lv_obj_set_style_pad_all(api, 4, 0);
     lv_obj_set_style_pad_row(api, 0, 0);
     build_kv_row(api, "服务端", &s_set_provider, UI_ACCENT);
     build_kv_row(api, "地址", &s_set_endpoint, UI_TEXT_DIM);
     build_kv_row(api, "密钥", &s_set_key, UI_TEXT_MUT);
     build_kv_row(api, "主机监控", &s_set_host, UI_TEXT_MUT);
 
-    lv_obj_t * row1 = ui_group_create(page);
-    lv_obj_set_size(row1, LV_PCT(100), 40);
-    lv_obj_set_flex_flow(row1, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row1, 8, 0);
-    lv_obj_t * b1 = build_action_btn(row1, "重新配网", UI_ACCENT, DASH_ACTION_PROVISION);
-    lv_obj_set_size(b1, LV_PCT(50) - 4, 40);
-    lv_obj_t * b2 = build_action_btn(row1, "立即刷新", UI_CYAN, DASH_ACTION_REFRESH);
-    lv_obj_set_size(b2, LV_PCT(50) - 4, 40);
+    /* 主题与方向 */
+    lv_obj_t * theme = ui_card_create(page);
+    lv_obj_set_size(theme, LV_PCT(100), 94);
+    lv_obj_set_style_pad_all(theme, 6, 0);
+    lv_obj_set_style_pad_row(theme, 4, 0);
 
-    lv_obj_t * row2 = ui_group_create(page);
-    lv_obj_set_size(row2, LV_PCT(100), 40);
-    lv_obj_set_flex_flow(row2, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(row2, 8, 0);
-    lv_obj_t * b3 = build_action_btn(row2, "重启设备", UI_ERR, DASH_ACTION_REBOOT);
-    lv_obj_set_size(b3, LV_PCT(50) - 4, 40);
-    lv_obj_t * b4 = build_action_btn(row2, "清空峰值", UI_WARN, DASH_ACTION_CLEAR_PEAK);
-    lv_obj_set_size(b4, LV_PCT(50) - 4, 40);
+    lv_obj_t * pills = ui_group_create(theme);
+    lv_obj_set_size(pills, LV_PCT(100), 30);
+    lv_obj_set_flex_flow(pills, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(pills, 6, 0);
+    cls_theme_pill(pills, "CLASSIC", 0);
+    cls_theme_pill(pills, "STRIX", 1);
+    cls_theme_pill(pills, "TUF", 2);
+
+    lv_obj_t * dir = ui_group_create(theme);
+    lv_obj_set_size(dir, LV_PCT(100), 28);
+    lv_obj_set_flex_flow(dir, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(dir, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t * dl = ui_group_create(dir);
+    lv_obj_set_size(dl, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(dl, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(dl, 6, 0);
+    lv_obj_t * dcap = ui_cjk_create(dl, "屏幕方向");
+    label_color(dcap, UI_TEXT_MUT);
+    s_cls_rot_lbl = ui_cjk_create(dl, "0");
+    label_color(s_cls_rot_lbl, UI_CYAN);
+
+    lv_obj_t * rot = build_action_btn(dir, "180", UI_CYAN,
+                                      DASH_ACTION_TOGGLE_ROT180);
+    lv_obj_set_size(rot, 104, 26);
+
+    /* 动作 */
+    lv_obj_t * acts = ui_group_create(page);
+    lv_obj_set_size(acts, LV_PCT(100), 34);
+    lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(acts, 6, 0);
+    lv_obj_t * b1 = build_action_btn(acts, "配网", UI_ACCENT, DASH_ACTION_PROVISION);
+    lv_obj_set_size(b1, LV_PCT(25) - 5, 34);
+    lv_obj_t * b2 = build_action_btn(acts, "刷新", UI_CYAN, DASH_ACTION_REFRESH);
+    lv_obj_set_size(b2, LV_PCT(25) - 5, 34);
+    lv_obj_t * b3 = build_action_btn(acts, "重启", UI_ERR, DASH_ACTION_REBOOT);
+    lv_obj_set_size(b3, LV_PCT(25) - 5, 34);
+    lv_obj_t * b4 = build_action_btn(acts, "清峰", UI_WARN, DASH_ACTION_CLEAR_PEAK);
+    lv_obj_set_size(b4, LV_PCT(25) - 5, 34);
 
     lv_obj_t * foot = ui_group_create(page);
-    lv_obj_set_size(foot, LV_PCT(100), 22);
+    lv_obj_set_size(foot, LV_PCT(100), 18);
     lv_obj_set_flex_flow(foot, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(foot, LV_FLEX_ALIGN_SPACE_BETWEEN,
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -875,8 +953,42 @@ static void nav_cb(lv_event_t * e)
     dashboard_ui_set_page(idx);
 }
 
+void dashboard_ui_emit(dash_action_t action)
+{
+    if (s_action_cb) s_action_cb(action);
+}
+
+void dashboard_ui_set_prefs(dash_theme_t theme, bool rot180)
+{
+    if (theme >= DASH_THEME_COUNT) theme = DASH_THEME_CLASSIC;
+    s_theme = theme;
+    s_rot180 = rot180;
+}
+
+dash_theme_t dashboard_ui_theme(void)
+{
+    return s_theme;
+}
+
+bool dashboard_ui_rot180(void)
+{
+    return s_rot180;
+}
+
 void dashboard_ui_set_page(int page)
 {
+    if (s_theme == DASH_THEME_STRIX) {
+        if (page < 0 || page >= ui_strix_page_count()) page = 0;
+        s_page = page;
+        ui_strix_set_page(page);
+        return;
+    }
+    if (s_theme == DASH_THEME_TUF) {
+        if (page < 0 || page >= ui_tuf_page_count()) page = 0;
+        s_page = page;
+        ui_tuf_set_page(page);
+        return;
+    }
     if (page < 0 || page > 3) return;
     s_page = page;
     for (int i = 0; i < 4; i++) {
@@ -1335,6 +1447,45 @@ static void update_settings(void)
     label_color(s_set_host, s_m.host_agent[0] ? UI_CYAN : UI_TEXT_MUT);
 
     label_text(s_set_version, DASH_FW_VERSION);
+
+    /* 主题选择状态 */
+    for (int i = 0; i < 3; i++) {
+        bool active = ((int)s_theme == i);
+        lv_obj_set_style_bg_opa(s_cls_theme_pill[i],
+                                active ? LV_OPA_20 : LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(s_cls_theme_pill[i], active ? 1 : 0, 0);
+        label_color(s_cls_theme_lbl[i], active ? UI_ACCENT : UI_TEXT_DIM);
+    }
+    label_text(s_cls_rot_lbl, s_rot180 ? "180" : "0");
+}
+
+void dashboard_ui_set_theme(dash_theme_t theme)
+{
+    if (theme >= DASH_THEME_COUNT) theme = DASH_THEME_CLASSIC;
+    s_theme = theme;
+
+    /* 按需创建独立 screen；切走后立刻删除，避免多棵 UI 树占用内部 RAM */
+    lv_obj_t *target = s_scr;
+    if (theme == DASH_THEME_STRIX) {
+        if (!s_strix_root) s_strix_root = ui_strix_create();
+        target = s_strix_root;
+    } else if (theme == DASH_THEME_TUF) {
+        if (!s_tuf_root) s_tuf_root = ui_tuf_create();
+        target = s_tuf_root;
+    }
+    if (target) lv_screen_load(target);
+
+    if (theme != DASH_THEME_STRIX && s_strix_root) {
+        lv_obj_delete(s_strix_root);
+        s_strix_root = NULL;
+    }
+    if (theme != DASH_THEME_TUF && s_tuf_root) {
+        lv_obj_delete(s_tuf_root);
+        s_tuf_root = NULL;
+    }
+
+    dashboard_ui_set_page(0);
+    update_settings();
 }
 
 void dashboard_ui_apply(const dash_metrics_t * m, bool new_sample)
@@ -1342,6 +1493,15 @@ void dashboard_ui_apply(const dash_metrics_t * m, bool new_sample)
     if (!m) return;
     s_m = *m;
     if (new_sample) history_push();
+
+    if (s_theme == DASH_THEME_STRIX) {
+        ui_strix_apply(&s_m, &s_h, new_sample);
+        return;
+    }
+    if (s_theme == DASH_THEME_TUF) {
+        ui_tuf_apply(&s_m, &s_h, new_sample);
+        return;
+    }
 
     update_header();
     update_overview();
@@ -1539,6 +1699,7 @@ void dashboard_ui_create(void)
     s_m.device_uptime_s = 0;
 
     lv_obj_t * scr = lv_screen_active();
+    s_scr = scr;
     lv_obj_remove_style_all(scr);
     lv_obj_set_size(scr, PAGE_W, UI_SCREEN_H);
     lv_obj_set_style_bg_color(scr, lv_color_hex(UI_BG), 0);
@@ -1571,10 +1732,16 @@ void dashboard_ui_create(void)
     build_charts(s_pages[1]);
     build_system(s_pages[2]);
     build_settings(s_pages[3]);
+    /* 设置页多了主题卡，行距收紧到 6 */
+    lv_obj_set_style_pad_row(s_pages[3], 6, 0);
 
     build_nav(scr);
 
-    dashboard_ui_set_page(0);
+    /* 新主题是独立 screen，首次切换时才创建 */
+    s_strix_root = NULL;
+    s_tuf_root = NULL;
+
     set_seg_active();
+    dashboard_ui_set_theme(s_theme);
     lv_timer_create(clock_timer_cb, 1000, NULL);
 }

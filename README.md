@@ -4,6 +4,8 @@
 
 把一块 3.5 寸触摸屏做成**本地大模型推理服务**的实时仪表盘：Wi-Fi 联网后轮询本机 LLM API，展示 TPS、并发、排队、KV 占用、MTP 接受率、用量与历史曲线；手机扫码式配网，支持 halogen / gufo / strata / LM Studio / Ollama 等主流服务。
 
+内置 **经典 / STRIX 横屏 / TUF 竖屏** 三套主题，可在设置页直接切换并支持 180° 翻转；UI 代码同时编译到 PC 无头模拟器，改布局不用反复烧板。
+
 > 硬件：微雪 **ESP32-S3-Touch-LCD-3.5-C**（ESP32-S3R8，16 MB Flash + 8 MB PSRAM，320×480 ST7796 SPI 屏 + FT6336 触摸）
 
 ## 界面
@@ -11,6 +13,12 @@
 | 概览 | 系统 | 设置 |
 | --- | --- | --- |
 | ![概览](docs/images/overview.png) | ![系统](docs/images/system.png) | ![设置](docs/images/settings.png) |
+
+两套电竞副屏风格主题（设置页可切换，STRIX 为 480×320 横屏）：
+
+| STRIX（横屏 ROG 风） | TUF（竖屏军工风） | 主题与方向设置 |
+| --- | --- | --- |
+| ![STRIX](docs/images/theme-strix.png) | ![TUF](docs/images/theme-tuf.png) | ![主题设置](docs/images/theme-switch.png) |
 
 配网浮层（无 Wi-Fi 时自动出现）：
 
@@ -23,8 +31,11 @@
 - **系统页**：功耗、GPU 温度、GPU 占用、内存、主机/模型/引擎运行时长、设备运行时长
 - **手机配网**：SoftAP + Captive Portal，扫 Wi-Fi 列表、填服务地址与密钥，保存后自动重启联网
 - **断线自愈**：上电连不上不会卡死，后台持续重连；联网后自动收起配网页
-- **PC 无头模拟器**：不用烧板就能出图迭代布局（同一份 UI 源码）
-- **串口调试**：抓帧成 PNG、状态统计、切页、串口配网
+- **三套主题**：经典（320×480）/ STRIX（480×320 横屏）/ TUF（320×480），设置页切换、NVS 持久化
+- **屏幕方向**：主题默认方向 + 180° 翻转，运行时硬件旋转，无需重刷固件
+- **PC 无头模拟器**：不用烧板就能出图迭代布局（同一份 UI 源码），内置越界/重叠/文字溢出/对比度自动巡检
+- **串口调试**：抓帧成 PNG、状态统计、切页/切主题、渲染耗时与动画帧率基准
+- **性能基准**：整屏约 50 ms（≈20fps），局部动画 47fps；详见下方「性能」
 
 ## 支持的 API
 
@@ -89,17 +100,37 @@ c <url>|<api-key>
 ```bash
 ./sim/fetch_lvgl.sh          # 拉取 LVGL 9.3 源码到 lvgl/
 ./render.sh out/dashboard.png
+
+# 指定页面 / 数据场景 / 主题 / 180° 翻转
+./render.sh out/strix.png 0 live 1 0      # STRIX 监控页
+./render.sh out/tuf_trend.png 1 live 2 0  # TUF 曲线页
 ```
 
-`render.sh` 用无头渲染把 4 页画到 PNG，改 UI 时不必反复烧板。
+`render.sh` 用无头渲染输出 PNG，改 UI 时不必反复烧板。参数：
+
+```
+render.sh <out.png> [page] [scenario] [theme] [rot180]
+  page      经典 0-3；STRIX 0-1；TUF 0-2
+  scenario  live | offline | empty
+  theme     0=经典 1=STRIX 2=TUF
+  rot180    0/1
+```
+
+每次渲染还会自动巡检越界、同级重叠、文字溢出和低对比度。
 
 ## 串口调试命令
 
 | 命令 | 作用 |
 | --- | --- |
 | `s` | 抓一帧，PNG base64 输出到串口 |
-| `h` | 打印 FPS / 堆 / PSRAM / Wi-Fi / IP / RSSI |
-| `p <0-3>` | 切换到第 N 页（0 概览 / 1 曲线 / 2 系统 / 3 设置） |
+| `h` | 打印 FPS / 堆 / PSRAM / 内部 RAM / Wi-Fi / IP / RSSI |
+| `p <n>` | 切换页面（编号随主题不同） |
+| `t <0-2>` | 切换主题（0 经典 / 1 STRIX / 2 TUF） |
+| `r` | 翻转 180° |
+| `b` | 测整屏刷新耗时（含 SPI） |
+| `B` | 分离渲染与传输：`render=… full=… transfer~…` |
+| `C` | 空白屏整屏耗时（SPI + 填充基线） |
+| `a` / `A` | 小区域 / 整屏动画持续帧率（5 秒） |
 | `w <ssid>\|<pass>` | 写入 Wi-Fi 并重启 |
 | `c <url>\|<key>` | 写入 API 服务地址与密钥并重启 |
 
@@ -110,15 +141,40 @@ c <url>|<api-key>
     --cmd "p 2" --out /tmp/board.png
 ```
 
+## 性能
+
+板子实测（480×320 逻辑分辨率）：
+
+| 场景 | 数值 |
+| --- | --- |
+| 整屏空白填充 + SPI 传输 | 31 ms |
+| 真实仪表盘整屏重绘 | 50–53 ms（渲染 42 ms + SPI 7 ms，约 20fps） |
+| 局部 / 整屏纯色动画 | 47 fps |
+| UI 数据 apply | < 30 ms |
+| 内部 RAM 空闲 | 33–38 KB |
+
+关键配置（`firmware/sdkconfig.defaults` 与 `firmware/main/display.c`）：
+
+- `CONFIG_COMPILER_OPTIMIZATION_PERF=y`（不要用默认 `-Og`）
+- CPU 240 MHz + **32 KB 指令缓存**（16 KB 时渲染会慢 3 倍）
+- LVGL 绘制缓冲放内部 SRAM + DMA，1/12 屏 ×2，`max_transfer_sz` 只覆盖单块
+- `LV_COLOR_FORMAT_RGB565_SWAPPED`，省掉每帧 300KB 的 CPU 字节交换
+- `LV_DEF_REFR_PERIOD=16`，触摸与小区域更新更跟手
+
+> SPI 屏每帧 300KB，80 MHz 理论上限约 32fps；复杂仪表盘整屏重绘约 20fps 属于合理区间，
+> 局部更新可到 47fps。全帧 PSRAM 缓冲 + DMA 在 ESP32-S3 的 SPI 屏上不可行（DMA 不能直接读 PSRAM）。
+
 ## 目录结构
 
 ```
 .
-├── ui/                 # 共享 UI：设计 token、控件、4 页仪表盘（不含驱动）
+├── ui/                 # 共享 UI：设计 token、控件、经典/STRIX/TUF 主题（不含驱动）
 │   ├── include/ui.h
+│   ├── include/ui_theme.h
 │   ├── include/dash_model.h
-│   └── src/{ui_widgets,ui_dashboard,font_cjk_16}.c
+│   └── src/{ui_widgets,ui_dashboard,ui_theme_strix,ui_theme_tuf,font_cjk_16}.c
 ├── sim/                # PC 无头模拟器（LVGL → 内存帧缓冲 → PNG）
+│                        # main.c 支持主题/翻转参数，ui_audit.c 做布局巡检
 ├── firmware/           # ESP-IDF 工程
 │   ├── main/           # 显示/触摸驱动、Wi-Fi、配网、指标采集、调试台
 │   ├── components/     # 板载 ST7796 / FT6336 驱动（随仓库提供）
@@ -148,10 +204,11 @@ c <url>|<api-key>
 
 ## 已知限制
 
-- SPI 屏全屏刷新约 60 ms，界面按"局部刷新 + 1~2 FPS 数据更新"设计，动画克制
+- 整屏重绘约 50 ms（≈20fps），局部更新 47fps；切页/切主题是一次性全屏绘制
 - 缺少主机监控脚本时，功耗/温度/GPU/内存与主机 uptime 显示「无数据」
 - 中文字体内置 415 个常用字（`ui/src/font_cjk_16.c`），生僻字会缺字
 - `sim/` 使用 LVGL 9.3，固件使用 LVGL 9.6；两者 API 兼容，但模拟器会打印少量弃用警告
+- 切换主题会重建 LVGL screen，耗时数百毫秒，属于一次性成本
 
 ## License
 

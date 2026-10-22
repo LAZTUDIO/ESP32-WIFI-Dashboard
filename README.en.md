@@ -4,6 +4,8 @@ English | [简体中文](README.md)
 
 A 3.5-inch touch screen dashboard for a local LLM inference server. Once connected to Wi-Fi, the board polls your LLM API and shows decode/prefill TPS, concurrency, queue depth, KV cache usage, MTP acceptance rate, token usage and history charts. Provisioning is done from a phone browser, and the firmware speaks to halogen / gufo / strata / LM Studio / Ollama out of the box.
 
+It ships with three themes — **Classic / STRIX (480×320 landscape) / TUF (portrait)** — switchable from the settings page, plus a runtime 180° flip. The same UI sources compile into a headless PC simulator, so layout work does not require flashing.
+
 > Hardware: Waveshare **ESP32-S3-Touch-LCD-3.5-C** (ESP32-S3R8, 16 MB flash + 8 MB PSRAM, 320×480 ST7796 SPI panel + FT6336 touch)
 
 ## Screenshots
@@ -11,6 +13,12 @@ A 3.5-inch touch screen dashboard for a local LLM inference server. Once connect
 | Overview | System | Settings |
 | --- | --- | --- |
 | ![Overview](docs/images/overview.png) | ![System](docs/images/system.png) | ![Settings](docs/images/settings.png) |
+
+Two esports-style themes (switchable in settings; STRIX is 480×320 landscape):
+
+| STRIX (landscape, ROG-inspired) | TUF (portrait, industrial amber) | Theme & orientation settings |
+| --- | --- | --- |
+| ![STRIX](docs/images/theme-strix.png) | ![TUF](docs/images/theme-tuf.png) | ![Theme settings](docs/images/theme-switch.png) |
 
 Provisioning overlay (shown automatically when Wi-Fi is unavailable):
 
@@ -23,8 +31,11 @@ Provisioning overlay (shown automatically when Wi-Fi is unavailable):
 - **System page** — power draw, GPU temperature, GPU utilisation, RAM, host/model/engine uptime, device uptime
 - **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan, server URL, API key; saves to NVS and reboots
 - **Self-healing Wi-Fi** — keeps retrying in the background after a failed boot connect, and hides the provisioning overlay once online
-- **Headless PC simulator** — iterate on layout without flashing the board; the UI sources are shared
-- **Serial console** — frame capture as PNG, stats, page switching, serial provisioning
+- **Three themes** — Classic (320×480) / STRIX (480×320 landscape) / TUF (320×480), switchable in settings and persisted in NVS
+- **Orientation** — theme default plus 180° flip, applied as a runtime hardware rotation
+- **Headless PC simulator** — iterate on layout without flashing; includes automatic checks for out-of-bounds, overlapping siblings, text overflow and low contrast
+- **Serial console** — frame capture, stats, page/theme switching, render and animation benchmarks
+- **Performance** — ~50 ms full-screen redraw (~20 fps), 47 fps partial updates; see “Performance” below
 
 ## Supported APIs
 
@@ -86,17 +97,37 @@ c <url>|<api-key>
 ```bash
 ./sim/fetch_lvgl.sh          # clones LVGL 9.3 into lvgl/
 ./render.sh out/dashboard.png
+
+# page / scenario / theme / 180° flip
+./render.sh out/strix.png 0 live 1 0      # STRIX monitor page
+./render.sh out/tuf_trend.png 1 live 2 0  # TUF trend page
 ```
 
-`render.sh` renders all four pages to PNG through a headless LVGL framebuffer, so you can iterate on the UI without flashing.
+Arguments:
+
+```
+render.sh <out.png> [page] [scenario] [theme] [rot180]
+  page      Classic 0-3; STRIX 0-1; TUF 0-2
+  scenario  live | offline | empty
+  theme     0=Classic 1=STRIX 2=TUF
+  rot180    0/1
+```
+
+Each render also audits out-of-bounds objects, overlapping siblings, text overflow and low contrast.
 
 ## Serial console commands
 
 | Command | Action |
 | --- | --- |
 | `s` | Capture one frame, output as base64 PNG |
-| `h` | Print FPS / heap / PSRAM / Wi-Fi / IP / RSSI |
-| `p <0-3>` | Switch page (0 overview, 1 charts, 2 system, 3 settings) |
+| `h` | Print FPS / heap / PSRAM / internal RAM / Wi-Fi / IP / RSSI |
+| `p <n>` | Switch page (numbering depends on theme) |
+| `t <0-2>` | Switch theme (0 Classic, 1 STRIX, 2 TUF) |
+| `r` | Flip 180° |
+| `b` | Benchmark a full-screen refresh (including SPI) |
+| `B` | Split render/transfer: `render=… full=… transfer~…` |
+| `C` | Blank-screen baseline (fill + SPI) |
+| `a` / `A` | Small-area / full-screen animation FPS over 5 s |
 | `w <ssid>\|<pass>` | Write Wi-Fi credentials and reboot |
 | `c <url>\|<key>` | Write API base URL and key, then reboot |
 
@@ -107,15 +138,41 @@ Companion capture script (uses the pyserial bundled with ESP-IDF):
     --cmd "p 2" --out /tmp/board.png
 ```
 
+## Performance
+
+Measured on the board (480×320 logical resolution):
+
+| Scenario | Result |
+| --- | --- |
+| Blank full-screen fill + SPI | 31 ms |
+| Real dashboard full redraw | 50–53 ms (42 ms render + 7 ms SPI, ~20 fps) |
+| Partial / full-screen solid animation | 47 fps |
+| UI data apply | < 30 ms |
+| Free internal RAM | 33–38 KB |
+
+Key settings (`firmware/sdkconfig.defaults` and `firmware/main/display.c`):
+
+- `CONFIG_COMPILER_OPTIMIZATION_PERF=y` (do not keep the default `-Og`)
+- 240 MHz CPU + **32 KB instruction cache** (16 KB makes rendering 3× slower)
+- LVGL draw buffers in internal SRAM with DMA, 1/12 screen ×2, `max_transfer_sz` sized to one chunk
+- `LV_COLOR_FORMAT_RGB565_SWAPPED`, removing the 300 KB/frame CPU byte swap
+- `LV_DEF_REFR_PERIOD=16` for snappier touch and small-area updates
+
+> A 480×320 RGB565 frame is 300 KB; 80 MHz SPI caps out around 32 fps. A complex dashboard
+> full redraw at ~20 fps is expected, while partial updates reach 47 fps. A full-frame PSRAM
+> buffer with direct DMA is not viable for SPI panels on ESP32-S3 (DMA cannot read PSRAM).
+
 ## Repository layout
 
 ```
 .
-├── ui/                 # Shared UI: design tokens, widgets, four pages (no drivers)
+├── ui/                 # Shared UI: design tokens, widgets, Classic/STRIX/TUF themes
 │   ├── include/ui.h
+│   ├── include/ui_theme.h
 │   ├── include/dash_model.h
-│   └── src/{ui_widgets,ui_dashboard,font_cjk_16}.c
+│   └── src/{ui_widgets,ui_dashboard,ui_theme_strix,ui_theme_tuf,font_cjk_16}.c
 ├── sim/                # Headless PC simulator (LVGL → framebuffer → PNG)
+│                        # main.c takes theme/flip args, ui_audit.c checks layout defects
 ├── firmware/           # ESP-IDF project
 │   ├── main/           # display/touch drivers, Wi-Fi, portal, metrics, console
 │   ├── components/     # on-board ST7796 / FT6336 drivers
@@ -145,10 +202,11 @@ Bring-up notes, PSRAM framebuffer strategy and serial capture troubleshooting li
 
 ## Known limitations
 
-- A full SPI refresh costs ~60 ms; the UI is designed for partial redraws with 1–2 FPS data updates and restrained animation
+- A full-screen redraw costs ~50 ms (~20 fps); partial updates reach 47 fps. Page/theme switches are one-off full draws
 - Without the host agent, power/temperature/GPU/RAM and host uptime show "no data"
 - The bundled CJK font covers 415 common characters (`ui/src/font_cjk_16.c`); rare glyphs will be missing
 - `sim/` uses LVGL 9.3 while the firmware uses LVGL 9.6; the APIs are compatible but the simulator prints a few deprecation warnings
+- Switching themes rebuilds the LVGL screen, which takes a few hundred milliseconds
 
 ## License
 
