@@ -1,0 +1,156 @@
+# ESP32-S3 LLM 服务监控看板
+
+把一块 3.5 寸触摸屏做成**本地大模型推理服务**的实时仪表盘：Wi-Fi 联网后轮询本机 LLM API，展示 TPS、并发、排队、KV 占用、MTP 接受率、用量与历史曲线；手机扫码式配网，支持 halogen / gufo / strata / LM Studio / Ollama 等主流服务。
+
+> 硬件：微雪 **ESP32-S3-Touch-LCD-3.5-C**（ESP32-S3R8，16 MB Flash + 8 MB PSRAM，320×480 ST7796 SPI 屏 + FT6336 触摸）
+
+## 界面
+
+| 概览 | 系统 | 设置 |
+| --- | --- | --- |
+| ![概览](docs/images/overview.png) | ![系统](docs/images/system.png) | ![设置](docs/images/settings.png) |
+
+配网浮层（无 Wi-Fi 时自动出现）：
+
+![配网](docs/images/provisioning.png)
+
+## 功能
+
+- **实时指标**：解码/预填 TPS（区间差分，非 gauge）、平均与峰值速度、并发数、排队数、KV 占用、MTP 接受率、累计 token/请求、提示缓存命中与容量
+- **历史曲线**：速度 / KV / 并发 / 功耗四类曲线，触摸切换
+- **系统页**：功耗、GPU 温度、GPU 占用、内存、主机/模型/引擎运行时长、设备运行时长
+- **手机配网**：SoftAP + Captive Portal，扫 Wi-Fi 列表、填服务地址与密钥，保存后自动重启联网
+- **断线自愈**：上电连不上不会卡死，后台持续重连；联网后自动收起配网页
+- **PC 无头模拟器**：不用烧板就能出图迭代布局（同一份 UI 源码）
+- **串口调试**：抓帧成 PNG、状态统计、切页、串口配网
+
+## 支持的 API
+
+| 服务 | 探测端点 | 能取到的指标 |
+| --- | --- | --- |
+| **halogen** | `/health` + `/metrics` | 模型/版本、slots、上下文、in_flight/queued、KV 池、token 计数器、MTP、缓存 |
+| **gufo** | `/health` + `/v1/slots` | 同上；无 metrics 时用 slots 的 `n_decoded` 差分 |
+| **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / 引擎启动时间 |
+| **LM Studio** | `/api/v0/models` | 模型、量化、上下文 |
+| **Ollama** | `/api/ps` | 已加载模型、大小、上下文 |
+| **OpenAI 兼容** | `/v1/models` | 模型列表 |
+
+服务类型默认 `auto`，按上表顺序探测；也可在配网页手动指定。
+
+> TPS 说明：`llamacpp:predicted_tokens_seconds` 这类 gauge 在部分服务里恒为 0，因此本项目统一用
+> `tokens_predicted_total` 与 `tokens_predicted_seconds_total` 的区间差分计算实时速度。
+
+## 硬件指标从哪来
+
+LLM API **不提供** GPU 功耗、温度、占用率、内存等数据（halogen 的 `/metrics` 全是推理计数器），
+这些字段由主机侧的小脚本提供。在跑模型的机器上执行：
+
+```bash
+python3 firmware/tools/host_agent.py --port 8732 --model-match halogen
+```
+
+然后配网页填「主机监控地址」`http://<主机IP>:8732`。脚本只用标准库：有 NVIDIA 显卡时走 `nvidia-smi`
+（功耗/温度/占用/显存），否则读 Linux `hwmon` 与 `/proc/meminfo`。不填也能用，系统页对应卡片显示「无数据」。
+
+## 快速开始
+
+### 1. 编译烧录固件
+
+需要 ESP-IDF v5.5.x（本项目在 v5.5.6 上验证）：
+
+```bash
+. ~/esp/esp-idf/export.sh
+cd firmware
+idf.py set-target esp32s3
+idf.py build
+idf.py -p /dev/cu.usbmodem21401 flash
+```
+
+首次构建会由组件管理器自动下载 LVGL 9.6、`esp_lvgl_port` 等依赖（`main/idf_component.yml`）。
+
+### 2. 配网
+
+1. 手机连接热点 `ESP32-LLM-Setup`（密码 `llm123456`）
+2. 浏览器打开 `http://192.168.4.1`（Captive Portal 会自动弹出）
+3. 选择 Wi-Fi、填写 API 服务地址与密钥，可选填主机监控地址
+4. 保存，设备自动重启并连接
+
+也可以在串口直接写入（见下方调试命令）：
+
+```
+w <ssid>|<password>
+c <url>|<api-key>
+```
+
+### 3. PC 模拟器预览（可选）
+
+```bash
+./sim/fetch_lvgl.sh          # 拉取 LVGL 9.3 源码到 lvgl/
+./render.sh out/dashboard.png
+```
+
+`render.sh` 用无头渲染把 4 页画到 PNG，改 UI 时不必反复烧板。
+
+## 串口调试命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `s` | 抓一帧，PNG base64 输出到串口 |
+| `h` | 打印 FPS / 堆 / PSRAM / Wi-Fi / IP / RSSI |
+| `p <0-3>` | 切换到第 N 页（0 概览 / 1 曲线 / 2 系统 / 3 设置） |
+| `w <ssid>\|<pass>` | 写入 Wi-Fi 并重启 |
+| `c <url>\|<key>` | 写入 API 服务地址与密钥并重启 |
+
+配套抓帧脚本（依赖 IDF 自带的 pyserial）：
+
+```bash
+~/.espressif/python_env/idf5.5_py3.12_env/bin/python firmware/tools/capture.py \
+    --cmd "p 2" --out /tmp/board.png
+```
+
+## 目录结构
+
+```
+.
+├── ui/                 # 共享 UI：设计 token、控件、4 页仪表盘（不含驱动）
+│   ├── include/ui.h
+│   ├── include/dash_model.h
+│   └── src/{ui_widgets,ui_dashboard,font_cjk_16}.c
+├── sim/                # PC 无头模拟器（LVGL → 内存帧缓冲 → PNG）
+├── firmware/           # ESP-IDF 工程
+│   ├── main/           # 显示/触摸驱动、Wi-Fi、配网、指标采集、调试台
+│   ├── components/     # 板载 ST7796 / FT6336 驱动（随仓库提供）
+│   ├── tools/          # capture.py 抓帧、host_agent.py 主机监控
+│   ├── docs/DEBUGGING.md
+│   ├── partitions.csv
+│   └── sdkconfig.defaults
+├── docs/images/        # README 截图
+├── render.sh           # 模拟器一键出图
+└── LICENSE
+```
+
+`ui/` 同时被固件（`firmware/main/CMakeLists.txt` 引用 `../../ui`）和 PC 模拟器使用，保证"模拟器看到的"就是"板子上跑的"。
+
+## 板级要点
+
+| 功能 | 引脚 / 参数 |
+| --- | --- |
+| LCD SPI | MOSI=GPIO1，SCLK=GPIO5，DC=GPIO3，**CS/RST 未接** |
+| LCD 复位 | 经 TCA9554（I2C 0x20）第 1 脚，上电拉低 120 ms 再释放 |
+| 背光 | GPIO6，LEDC PWM 5 kHz |
+| 触摸 | FT6336（I2C 0x38），SDA=GPIO8，SCL=GPIO7 |
+| 面板 | 320×480，RGB565，BGR + 反色 + `mirror_x`，`sw_rotate=0` |
+
+驱动初始化、PSRAM 帧缓冲策略、串口抓帧排障等实测记录见
+[firmware/docs/DEBUGGING.md](firmware/docs/DEBUGGING.md)。
+
+## 已知限制
+
+- SPI 屏全屏刷新约 60 ms，界面按"局部刷新 + 1~2 FPS 数据更新"设计，动画克制
+- 缺少主机监控脚本时，功耗/温度/GPU/内存与主机 uptime 显示「无数据」
+- 中文字体内置 415 个常用字（`ui/src/font_cjk_16.c`），生僻字会缺字
+- `sim/` 使用 LVGL 9.3，固件使用 LVGL 9.6；两者 API 兼容，但模拟器会打印少量弃用警告
+
+## License
+
+[MIT](LICENSE)

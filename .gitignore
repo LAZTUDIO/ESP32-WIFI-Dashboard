@@ -1,0 +1,28 @@
+# 构建产物
+build/
+out/
+firmware/build/
+firmware/.cache/
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/sdkconfig
+firmware/sdkconfig.old
+
+# PC 模拟器依赖的 LVGL 源码（用 sim/fetch_lvgl.sh 拉取）
+lvgl/
+
+# 归档的旧实验代码，不参与开源发布
+.attic/
+
+# 编辑器 / 系统
+.DS_Store
+.vscode/
+.idea/
+.trae/
+*.swp
+__pycache__/
+*.pyc
+
+# 本地抓帧与调试图片（保留文档截图）
+*.png
+!docs/images/*.png

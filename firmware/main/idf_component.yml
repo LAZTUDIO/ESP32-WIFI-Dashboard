@@ -1,0 +1,6 @@
+## 由 ESP-IDF 组件管理器（idf.py reconfigure 时）自动下载
+dependencies:
+  idf: ">=5.3"
+  lvgl/lvgl: "~9.6.0"
+  espressif/esp_lvgl_port: "^2.9.0"
+  espressif/esp_lcd_touch: "^1.2.1"

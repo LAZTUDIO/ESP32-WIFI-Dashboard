@@ -1,0 +1,126 @@
+menu "LLM Dashboard Configuration"
+
+    config DEMO_LCD_ENABLE
+        bool "Drive the on-board ST7796 LCD (Waveshare ESP32-S3-Touch-LCD-3.5)"
+        default y
+        help
+            关闭后 LVGL 以 headless 方式运行，只通过串口输出刷新率。
+
+    if DEMO_LCD_ENABLE
+
+        config DEMO_LCD_H_RES
+            int "LCD horizontal resolution"
+            default 320
+
+        config DEMO_LCD_V_RES
+            int "LCD vertical resolution"
+            default 480
+
+        config DEMO_LCD_SPI_HOST
+            int "SPI host (1 = SPI2_HOST, 2 = SPI3_HOST)"
+            default 1
+
+        config DEMO_LCD_PIN_MOSI
+            int "GPIO MOSI"
+            default 1
+
+        config DEMO_LCD_PIN_SCLK
+            int "GPIO SCLK"
+            default 5
+
+        config DEMO_LCD_PIN_DC
+            int "GPIO DC"
+            default 3
+
+        config DEMO_LCD_PIN_CS
+            int "GPIO CS (-1 = not connected)"
+            default -1
+
+        config DEMO_LCD_PIN_RST
+            int "GPIO RESET (-1 = via IO expander)"
+            default -1
+
+        config DEMO_LCD_PIN_BL
+            int "GPIO backlight PWM (-1 = disabled)"
+            default 6
+
+        config DEMO_LCD_PIXEL_CLOCK
+            int "SPI pixel clock in Hz"
+            default 80000000
+
+        config DEMO_LCD_BRIGHTNESS
+            int "Backlight brightness (%)"
+            range 0 100
+            default 80
+
+        config DEMO_LCD_SWAP_XY
+            bool "Swap X/Y"
+            default n
+
+        config DEMO_LCD_MIRROR_X
+            bool "Mirror X"
+            default y
+
+        config DEMO_LCD_MIRROR_Y
+            bool "Mirror Y"
+            default n
+
+        config DEMO_LCD_BGR
+            bool "Use BGR element order"
+            default y
+
+        config DEMO_LCD_INVERT
+            bool "Invert colors"
+            default y
+
+        config DEMO_LCD_USE_PSRAM
+            bool "Allocate LVGL draw buffers in PSRAM"
+            default y
+
+        menu "IO expander (TCA9554, drives LCD reset)"
+
+            config DEMO_EXPANDER_ENABLE
+                bool "Use TCA9554 IO expander"
+                default y
+
+            if DEMO_EXPANDER_ENABLE
+
+                config DEMO_EXPANDER_I2C_SDA
+                    int "I2C SDA GPIO"
+                    default 8
+
+                config DEMO_EXPANDER_I2C_SCL
+                    int "I2C SCL GPIO"
+                    default 7
+
+                config DEMO_EXPANDER_ADDR
+                    hex "I2C address"
+                    default 0x20
+
+                config DEMO_EXPANDER_RST_PIN
+                    int "Expander pin index used as LCD reset (0-7)"
+                    range 0 7
+                    default 1
+
+                config DEMO_EXPANDER_RST_ACTIVE_LOW
+                    bool "LCD reset is active low"
+                    default y
+
+            endif
+        endmenu
+
+    endif
+
+    if !DEMO_LCD_ENABLE
+
+        config DEMO_HEADLESS_H_RES
+            int "Headless virtual resolution - width"
+            default 320
+
+        config DEMO_HEADLESS_V_RES
+            int "Headless virtual resolution - height"
+            default 240
+
+    endif
+
+endmenu
