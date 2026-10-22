@@ -1,5 +1,7 @@
 # ESP32-S3 LLM 服务监控看板
 
+简体中文 | [English](README.en.md)
+
 把一块 3.5 寸触摸屏做成**本地大模型推理服务**的实时仪表盘：Wi-Fi 联网后轮询本机 LLM API，展示 TPS、并发、排队、KV 占用、MTP 接受率、用量与历史曲线；手机扫码式配网，支持 halogen / gufo / strata / LM Studio / Ollama 等主流服务。
 
 > 硬件：微雪 **ESP32-S3-Touch-LCD-3.5-C**（ESP32-S3R8，16 MB Flash + 8 MB PSRAM，320×480 ST7796 SPI 屏 + FT6336 触摸）
