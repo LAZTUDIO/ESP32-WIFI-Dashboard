@@ -203,7 +203,8 @@ static esp_err_t handle_root(httpd_req_t *req)
         ssid_esc, pass_esc, server_esc, key_esc);
 
     static const char *provs[][2] = {
-        {"auto", "自动识别"}, {"halogen", "Halogen"}, {"gufo", "Gufo"},
+        {"auto", "自动识别"}, {"panel", "Halogen 面板 (8800)"},
+        {"halogen", "Halogen"}, {"gufo", "Gufo"},
         {"strata", "Strata"}, {"lmstudio", "LM Studio"},
         {"ollama", "Ollama"}, {"openai", "OpenAI 兼容"},
     };
@@ -216,8 +217,8 @@ static esp_err_t handle_root(httpd_req_t *req)
 
     append(&html, &used, cap,
         "</select>"
-        "<label>主机监控地址（可选，提供功耗/温度/uptime）</label>"
-        "<input name=\"host\" placeholder=\"http://192.168.1.100:8001\" value=\"%s\">"
+        "<label>主机监控地址（可选，也可直接填 8800 面板地址）</label>"
+        "<input name=\"host\" placeholder=\"http://192.168.1.100:8800\" value=\"%s\">"
         "<button type=\"submit\">保存并重启</button>"
         "</form><p class=\"f\">保存后设备会自动重启并连接</p>"
         "</div></body></html>", host_esc);

@@ -278,6 +278,26 @@ static void cmd_server(char *arg)
     save_and_reboot(&cfg);
 }
 
+/* o <主机监控/面板地址>  —— 串口配 host_agent（可填 8800 面板） */
+static void cmd_host(char *arg)
+{
+    app_config_t cfg;
+    config_load(&cfg);
+    if (!*arg) {
+        printf("[W] dbg: 用法 o <url>  例如 o http://192.168.1.100:8800；o - 清空\n");
+        return;
+    }
+    if (strcmp(trim_tail(trim_head(arg)), "-") == 0) {
+        cfg.host_agent[0] = '\0';
+    } else {
+        snprintf(cfg.host_agent, sizeof(cfg.host_agent), "%s",
+                 trim_tail(trim_head(arg)));
+    }
+    config_normalize(&cfg);
+    printf("[I] dbg: host_agent='%s'\n", cfg.host_agent);
+    save_and_reboot(&cfg);
+}
+
 /* ============================ 动画帧率基准 ============================ */
 
 static void anim_x_cb(void *var, int32_t v)
@@ -419,6 +439,7 @@ static void handle_line(char *line)
     case 'A': anim_fps_bench(true); break;
     case 'w': cmd_wifi(line + 1); break;
     case 'c': cmd_server(line + 1); break;
+    case 'o': cmd_host(line + 1); break;
     case 't':
         if (s_view_cb) s_view_cb(atoi(line + 1), -1);
         break;
@@ -435,7 +456,7 @@ static void handle_line(char *line)
         printf("commands: s=snapshot  h=stats  b=bench refresh  B=render/transfer  "
                "a=small anim fps  A=full anim fps  p <0-3>=page  "
                "t <0-2>=theme  r=flip 180  w <ssid>|<pass>=wifi  "
-               "c <url>|<key>=server\n");
+               "c <url>|<key>=server  o <url>=host/panel\n");
         break;
     default:
         printf("[W] dbg: unknown command '%c'\n", *line);

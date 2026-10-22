@@ -21,6 +21,7 @@ typedef enum {
     DASH_PROV_LMSTUDIO,
     DASH_PROV_OLLAMA,
     DASH_PROV_OPENAI,
+    DASH_PROV_PANEL,            /* halogen-panel 8800 /api/status */
 } dash_provider_t;
 
 typedef struct {

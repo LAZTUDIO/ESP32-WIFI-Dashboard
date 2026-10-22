@@ -76,6 +76,7 @@ static lv_obj_t * s_rot_lbl;
 static lv_obj_t * s_set_provider;
 static lv_obj_t * s_set_endpoint;
 static lv_obj_t * s_set_key;
+static lv_obj_t * s_set_version;
 static lv_obj_t * s_about_model;
 static lv_obj_t * s_about_up;
 
@@ -553,14 +554,15 @@ static void build_page_settings(lv_obj_t * page)
 
     /* 连接 */
     lv_obj_t * conn = card(page);
-    lv_obj_set_size(conn, LV_PCT(100), 96);
+    lv_obj_set_size(conn, LV_PCT(100), 116);
     lv_obj_set_style_pad_all(conn, 8, 0);
     lv_obj_set_style_pad_row(conn, 0, 0);
     lv_obj_t * ch = row(conn, 16);
     cap(ch, "ENDPOINT");
-    const char * keys[3] = {"服务", "地址", "密钥"};
-    lv_obj_t ** vals[3] = {&s_set_provider, &s_set_endpoint, &s_set_key};
-    for (int i = 0; i < 3; i++) {
+    const char * keys[4] = {"服务", "地址", "密钥", "版本"};
+    lv_obj_t ** vals[4] = {&s_set_provider, &s_set_endpoint, &s_set_key,
+                           &s_set_version};
+    for (int i = 0; i < 4; i++) {
         lv_obj_t * r = row(conn, 20);
         mk_label(r, keys[i], UI_F_CJK, TF_MUT);
         lv_obj_t * v = mk_label(r, "--", UI_F_CJK, i == 0 ? TF_AMBER : TF_DIM);
@@ -766,7 +768,7 @@ void ui_tuf_apply(const dash_metrics_t * m, const dash_history_t * h,
         set_dec_segments(0);
     }
 
-    if (m->has_tps && m->tps_peak_pre > 0) {
+    if (m->has_tps && (m->tps_peak_pre > 0 || m->tps_avg_pre > 0)) {
         if (m->tps_pre > 0) {
             fmt_num(b, sizeof(b), m->tps_pre, m->tps_pre >= 100 ? 0 : 1);
             txt(s_pre_now, b);
@@ -834,6 +836,12 @@ void ui_tuf_apply(const dash_metrics_t * m, const dash_history_t * h,
     txt(s_set_provider, m->provider_name[0] ? m->provider_name : "自动识别");
     txt(s_set_endpoint, m->endpoint[0] ? m->endpoint : "未设置");
     txt(s_set_key, m->api_key_mask[0] ? m->api_key_mask : "未设置");
+    if (m->version[0]) {
+        snprintf(b, sizeof(b), "v%s", m->version);
+        txt(s_set_version, b);
+    } else {
+        txt(s_set_version, "--");
+    }
     txt(s_about_model, m->model[0] ? m->model : "未知");
     if (m->has_host_uptime) {
         snprintf(b, sizeof(b), "%ud %uh",

@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md)
 
-A 3.5-inch touch screen dashboard for a local LLM inference server. Once connected to Wi-Fi, the board polls your LLM API and shows decode/prefill TPS, concurrency, queue depth, KV cache usage, MTP acceptance rate, token usage and history charts. Provisioning is done from a phone browser, and the firmware speaks to halogen / gufo / strata / LM Studio / Ollama out of the box.
+A 3.5-inch touch screen dashboard for a local LLM inference server. Once connected to Wi-Fi, the board polls your LLM API and shows decode/prefill TPS, concurrency, queue depth, KV cache usage, MTP acceptance rate, token usage and history charts. Provisioning is done from a phone browser, and the firmware speaks to halogen / gufo / strata / LM Studio / Ollama out of the box — or reads the public **halogen-panel (port 8800)** API directly, no key required.
 
 It ships with three themes — **Classic / STRIX (480×320 landscape) / TUF (portrait)** — switchable from the settings page, plus a runtime 180° flip. The same UI sources compile into a headless PC simulator, so layout work does not require flashing.
 
@@ -27,6 +27,7 @@ Provisioning overlay (shown automatically when Wi-Fi is unavailable):
 ## Features
 
 - **Live metrics** — decode/prefill TPS (computed from counter deltas, not gauges), average & peak speed, in-flight requests, queue depth, KV usage, MTP acceptance, cumulative tokens/requests, prompt-cache hit rate and size
+- **Panel direct mode** — read halogen-panel's public `/api/status` on `:8800` (no key) for model/version, TPS, KV, concurrency and hardware in one request; the panel URL can also be used as the host monitor address to fill gaps for a 8731 primary source
 - **History charts** — speed / KV / concurrency / power, switchable by touch
 - **System page** — power draw, GPU temperature, GPU utilisation, RAM, host/model/engine uptime, device uptime
 - **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan, server URL, API key; saves to NVS and reboots
@@ -41,6 +42,7 @@ Provisioning overlay (shown automatically when Wi-Fi is unavailable):
 
 | Service | Probe endpoints | Metrics available |
 | --- | --- | --- |
+| **halogen-panel (8800)** | `/api/status` | model/version, live & average TPS, slots/context, in_flight/queued, KV, MTP, GPU/RAM/uptime (public, no key) |
 | **halogen** | `/health` + `/metrics` | model/version, slots, context, in_flight/queued, KV pool, token counters, MTP, cache |
 | **gufo** | `/health` + `/v1/slots` | same as above; falls back to `n_decoded` deltas when `/metrics` is absent |
 | **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / engine start time |
@@ -48,7 +50,8 @@ Provisioning overlay (shown automatically when Wi-Fi is unavailable):
 | **Ollama** | `/api/ps` | loaded models, size, context |
 | **OpenAI-compatible** | `/v1/models` | model list |
 
-The provider defaults to `auto` (probed in the order above) and can be pinned in the provisioning page.
+The provider defaults to `auto` (probed in the order above) and can be pinned in the provisioning page (`panel` for port 8800).
+The panel's `/api/usage`, `/api/params`, `/api/logs` and TTS/embedding endpoints remain password-protected and are never read by the firmware.
 
 > TPS note: gauges such as `llamacpp:predicted_tokens_seconds` read 0 on some servers, so the dashboard always derives live speed from the deltas of `tokens_predicted_total` and `tokens_predicted_seconds_total`.
 
@@ -61,6 +64,8 @@ python3 firmware/tools/host_agent.py --port 8732 --model-match halogen
 ```
 
 Then fill in the host monitor address `http://<host-ip>:8732` on the provisioning page. The agent uses the standard library only: with an NVIDIA GPU it shells out to `nvidia-smi` (power/temperature/utilisation/VRAM), otherwise it reads Linux `hwmon` and `/proc/meminfo`. Without it the corresponding cards simply show "no data".
+
+If **halogen-panel (`:8800`)** is already running on that machine, you do not need `host_agent.py`: put the panel URL `http://<ip>:8800` into the host monitor field. The firmware tries `/stats` first, then falls back to the panel's `/api/status`, filling power, temperature, GPU, RAM and uptime; when the primary source's `/metrics` needs a key (e.g. 8731), TPS / KV / MTP are taken from the panel as well. To use the panel as the only source, set the API base URL to `http://<ip>:8800`, pick provider `panel`, and leave the key empty.
 
 ## Quick start
 
@@ -90,6 +95,7 @@ Serial provisioning is also available:
 ```
 w <ssid>|<password>
 c <url>|<api-key>
+o <url>          # optional host monitor, may point at the 8800 panel
 ```
 
 ### 3. PC simulator (optional)
@@ -130,6 +136,7 @@ Each render also audits out-of-bounds objects, overlapping siblings, text overfl
 | `a` / `A` | Small-area / full-screen animation FPS over 5 s |
 | `w <ssid>\|<pass>` | Write Wi-Fi credentials and reboot |
 | `c <url>\|<key>` | Write API base URL and key, then reboot |
+| `o <url>` | Write host monitor URL (or the 8800 panel) and reboot; `o -` clears it |
 
 Companion capture script (uses the pyserial bundled with ESP-IDF):
 
@@ -203,7 +210,8 @@ Bring-up notes, PSRAM framebuffer strategy and serial capture troubleshooting li
 ## Known limitations
 
 - A full-screen redraw costs ~50 ms (~20 fps); partial updates reach 47 fps. Page/theme switches are one-off full draws
-- Without the host agent, power/temperature/GPU/RAM and host uptime show "no data"
+- Without the host agent, power/temperature/GPU/RAM and host uptime show "no data"; pointing the host field at the 8800 panel removes the need for that agent
+- In panel mode `TOKENS` and `CACHE HIT` show "—": those values live in the panel's login-protected `/api/usage` or the engine's key-protected `/metrics`
 - The bundled CJK font covers 415 common characters (`ui/src/font_cjk_16.c`); rare glyphs will be missing
 - `sim/` uses LVGL 9.3 while the firmware uses LVGL 9.6; the APIs are compatible but the simulator prints a few deprecation warnings
 - Switching themes rebuilds the LVGL screen, which takes a few hundred milliseconds

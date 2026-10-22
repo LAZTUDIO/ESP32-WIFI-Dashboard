@@ -74,6 +74,7 @@ static lv_obj_t * s_rot_lbl;
 static lv_obj_t * s_set_provider;
 static lv_obj_t * s_set_endpoint;
 static lv_obj_t * s_set_key;
+static lv_obj_t * s_set_version;
 
 /* ============================== 工具 ============================== */
 
@@ -455,11 +456,11 @@ static void build_page_monitor(lv_obj_t * page)
 static void build_page_settings(lv_obj_t * page)
 {
     lv_obj_t * disp = card(page);
-    lv_obj_set_size(disp, LV_PCT(100), 108);
-    lv_obj_set_style_pad_all(disp, 10, 0);
-    lv_obj_set_style_pad_row(disp, 4, 0);
+    lv_obj_set_size(disp, LV_PCT(100), 96);
+    lv_obj_set_style_pad_all(disp, 8, 0);
+    lv_obj_set_style_pad_row(disp, 3, 0);
 
-    lv_obj_t * trow = row(disp, 18);
+    lv_obj_t * trow = row(disp, 16);
     cap(trow, "THEME / ORIENTATION");
     mk_label(trow, "立即", UI_F_CJK, SX_MUT);
 
@@ -496,15 +497,16 @@ static void build_page_settings(lv_obj_t * page)
 
     /* 连接信息 */
     lv_obj_t * conn = card(page);
-    lv_obj_set_size(conn, LV_PCT(100), 96);
+    lv_obj_set_size(conn, LV_PCT(100), 112);
     lv_obj_set_style_pad_all(conn, 8, 0);
     lv_obj_set_style_pad_row(conn, 0, 0);
     lv_obj_t * ch = row(conn, 16);
     cap(ch, "ENDPOINT");
 
-    const char * keys[3] = {"服务", "地址", "密钥"};
-    lv_obj_t ** vals[3] = {&s_set_provider, &s_set_endpoint, &s_set_key};
-    for (int i = 0; i < 3; i++) {
+    const char * keys[4] = {"服务", "地址", "密钥", "版本"};
+    lv_obj_t ** vals[4] = {&s_set_provider, &s_set_endpoint, &s_set_key,
+                           &s_set_version};
+    for (int i = 0; i < 4; i++) {
         lv_obj_t * r = row(conn, 20);
         mk_label(r, keys[i], UI_F_CJK, SX_MUT);
         lv_obj_t * v = mk_label(r, "--", UI_F_CJK, i == 0 ? SX_RED : SX_DIM);
@@ -515,15 +517,15 @@ static void build_page_settings(lv_obj_t * page)
     }
 
     lv_obj_t * acts = ui_group_create(page);
-    lv_obj_set_size(acts, LV_PCT(100), 38);
+    lv_obj_set_size(acts, LV_PCT(100), 34);
     lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(acts, SX_GAP, 0);
     action_btn(acts, "立即刷新", SX_CYAN, DASH_ACTION_REFRESH);
-    lv_obj_set_size(lv_obj_get_child(acts, 0), LV_PCT(33) - 6, 38);
+    lv_obj_set_size(lv_obj_get_child(acts, 0), LV_PCT(33) - 6, 34);
     action_btn(acts, "重新配网", SX_RED, DASH_ACTION_PROVISION);
-    lv_obj_set_size(lv_obj_get_child(acts, 1), LV_PCT(33) - 6, 38);
+    lv_obj_set_size(lv_obj_get_child(acts, 1), LV_PCT(33) - 6, 34);
     action_btn(acts, "重启设备", SX_AMBER, DASH_ACTION_REBOOT);
-    lv_obj_set_size(lv_obj_get_child(acts, 2), LV_PCT(33) - 6, 38);
+    lv_obj_set_size(lv_obj_get_child(acts, 2), LV_PCT(33) - 6, 34);
 }
 
 /* ============================== 导航 ============================== */
@@ -746,7 +748,7 @@ void ui_strix_apply(const dash_metrics_t * m, const dash_history_t * h,
     }
 
     /* 预填充三值 */
-    if (m->has_tps && m->tps_peak_pre > 0) {
+    if (m->has_tps && (m->tps_peak_pre > 0 || m->tps_avg_pre > 0)) {
         if (m->tps_pre > 0) {
             fmt_num(b, sizeof(b), m->tps_pre, m->tps_pre >= 100 ? 0 : 1);
             txt(s_pre_now, b);
@@ -809,6 +811,12 @@ void ui_strix_apply(const dash_metrics_t * m, const dash_history_t * h,
     txt(s_set_provider, m->provider_name[0] ? m->provider_name : "自动识别");
     txt(s_set_endpoint, m->endpoint[0] ? m->endpoint : "未设置");
     txt(s_set_key, m->api_key_mask[0] ? m->api_key_mask : "未设置");
+    if (m->version[0]) {
+        snprintf(b, sizeof(b), "v%s", m->version);
+        txt(s_set_version, b);
+    } else {
+        txt(s_set_version, "--");
+    }
 
     /* sparkline */
     if (new_sample && h->count > 0) {
