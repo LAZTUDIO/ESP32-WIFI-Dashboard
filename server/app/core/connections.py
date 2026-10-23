@@ -38,6 +38,13 @@ class ConnectionManager:
             except Exception:
                 self.disconnect(websocket)
 
+    async def broadcast_event(self, message: dict) -> None:
+        for websocket in list(self._connections):
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                self.disconnect(websocket)
+
     async def run(self, store: MetricStore, interval: float = 1.0) -> None:
         while True:
             await asyncio.sleep(interval)

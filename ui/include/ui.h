@@ -108,6 +108,7 @@ dash_theme_t dashboard_ui_theme(void);
 bool dashboard_ui_rot180(void);
 
 void dashboard_ui_create(void);
+void dashboard_ui_destroy(void);
 void dashboard_ui_apply(const dash_metrics_t * m, bool new_sample);
 void dashboard_ui_set_action_cb(dash_action_cb_t cb);
 void dashboard_ui_set_theme(dash_theme_t theme);

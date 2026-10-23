@@ -39,6 +39,7 @@ void dash_metric_store_set_number(const char *id, double value, bool available);
 void dash_metric_store_set_bool(const char *id, bool value, bool available);
 void dash_metric_store_set_string(const char *id, const char *value, bool available);
 void dash_metric_store_mark_unavailable(const char *id);
+void dash_metric_store_dump(void);
 
 #ifdef __cplusplus
 }

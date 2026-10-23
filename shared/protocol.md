@@ -45,6 +45,7 @@
 ```
 
 - 订阅列表只影响该连接；固件只订阅布局里用到的指标。
+- 服务端保存布局后向所有连接广播 `{"type":"layout_changed","profile":"320x480"}`；设备应重新拉取 `resolved=1` 布局并重载 UI，无需重启。
 - 服务端回复 `{"type":"pong"}`。
 - 连接断开后客户端每 2 秒重连，重连后需要重新订阅。
 
@@ -88,8 +89,8 @@
 }
 ```
 
-- `pages` 1..4 页；每页组件 ≤40，总组件 ≤64；页面内不得重叠，组件 id 全局唯一。
-- `page_animation`：`slide` / `fade` / `none`。
+- `pages` 1..4 页；每页组件 ≤40，总组件 ≤20（设备内部 RAM 实测上限）；页面内不得重叠，组件 id 全局唯一。
+- `page_animation`：`slide` / `fade` / `stack` / `zoom` / `flip` / `rotate` / `none`。
 - v1 布局仍兼容；编辑器加载 v1 后按单页 v2 处理，保存时升级为 v2。
 
 ## 指标列表组件（metric_list）
@@ -109,6 +110,8 @@
 ## 配置包（规划，0.2.2）
 
 `layout.json + theme.json + fonts/*.bin + assets/*` 打包，带 manifest 和 SHA-256；通过局域网推送到设备 LittleFS，校验后重载界面。配置下发与固件 OTA 分开：前者用于布局/主题/字体，后者只用于固件升级。
+
+当前 M2b 先实现布局热更新：设备 HTTP 拉取 `resolved=1` 布局，缓存到 `/spiffs/layout.json`；保存布局时服务端广播 `layout_changed`，设备重新拉取并重载。主题/字体/资源包仍待后续。
 
 ## 版本
 

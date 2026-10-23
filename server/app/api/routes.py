@@ -100,7 +100,7 @@ def get_layout(
 
 
 @router.put("/layout")
-def save_layout(layout: dict[str, Any], request: Request) -> dict[str, Any]:
+async def save_layout(layout: dict[str, Any], request: Request) -> dict[str, Any]:
     catalog = request.app.state.catalog
     try:
         validate_layout(layout, catalog)
@@ -114,6 +114,9 @@ def save_layout(layout: dict[str, Any], request: Request) -> dict[str, Any]:
         json.dumps(layout, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     log.info("layout saved: %s", path)
+    await request.app.state.connections.broadcast_event(
+        {"type": "layout_changed", "profile": profile}
+    )
     return {"ok": True, "profile": profile, "layout": layout}
 
 
@@ -148,9 +151,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 raw = message.get("metrics")
                 if isinstance(raw, list) and raw:
                     ids = {item for item in raw if isinstance(item, str)}
+                    log.info(
+                        "ws subscribe: %d metrics: %s",
+                        len(ids),
+                        ", ".join(sorted(ids)),
+                    )
                     manager.set_subscription(websocket, ids or None)
                     await websocket.send_json(store.snapshot(ids or None))
                 else:
+                    log.info("ws subscribe: all metrics")
                     manager.set_subscription(websocket, None)
                     await websocket.send_json(store.snapshot())
             elif kind == "ping":

@@ -81,3 +81,25 @@ void dash_metric_store_mark_unavailable(const char *id)
     dash_metric_t *m = dash_metric_store_get(id);
     if (m) m->available = false;
 }
+
+void dash_metric_store_dump(void)
+{
+    if (!s_metrics) {
+        printf("store not ready\n");
+        return;
+    }
+    printf("metric store: %d entries\n", s_count);
+    for (int i = 0; i < s_count; i++) {
+        dash_metric_t *m = &s_metrics[i];
+        if (m->type == DASH_METRIC_NUMBER) {
+            printf("  %-30s a=%d type=num value=%.3f\n",
+                   m->id, m->available, m->number);
+        } else if (m->type == DASH_METRIC_BOOL) {
+            printf("  %-30s a=%d type=bool value=%d\n",
+                   m->id, m->available, m->boolean);
+        } else {
+            printf("  %-30s a=%d type=str value=%s\n",
+                   m->id, m->available, m->text);
+        }
+    }
+}

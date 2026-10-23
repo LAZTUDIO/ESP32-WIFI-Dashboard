@@ -5,9 +5,11 @@ from typing import Any
 from .catalog import Catalog
 
 MAX_PAGE_WIDGETS = 40
-MAX_TOTAL_WIDGETS = 64
+# 实测 320x480 板：25 个混合组件冷启动后内部最大连续块仅 3.4KB，
+# WebSocket 断线重建会失败；20 个以内可保留约 7KB 余量。
+MAX_TOTAL_WIDGETS = 20
 MAX_PAGES = 4
-PAGE_ANIMATIONS = {"slide", "fade", "none"}
+PAGE_ANIMATIONS = {"slide", "fade", "none", "stack", "zoom", "flip", "rotate"}
 
 
 class LayoutError(ValueError):

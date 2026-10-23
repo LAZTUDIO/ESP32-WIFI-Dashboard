@@ -104,7 +104,7 @@
       if (!layout.pages.length) {
         layout.pages = [{ name: '第 1 页', widgets: [] }];
       }
-      if (!['slide', 'fade', 'none'].includes(layout.page_animation)) {
+      if (!['slide', 'fade', 'none', 'stack', 'zoom', 'flip', 'rotate'].includes(layout.page_animation)) {
         layout.page_animation = 'slide';
       }
       return layout;
@@ -1053,8 +1053,8 @@
     if (!state.layout) return;
     const def = widgetDef(type);
     if (!def) return;
-    if (totalWidgets() >= 64) {
-      toast('总组件数量超过 64');
+    if (totalWidgets() >= 20) {
+      toast('总组件数量超过 20（设备内存限制）');
       return;
     }
     if (currentWidgets().length >= 40) {
@@ -1368,8 +1368,8 @@
     const page = currentPage();
     if (!page) return;
     const copiedWidgets = page.widgets.map((widget) => cloneWidget(widget));
-    if (totalWidgets() + copiedWidgets.length > 64) {
-      toast('总组件数量超过 64');
+    if (totalWidgets() + copiedWidgets.length > 20) {
+      toast('总组件数量超过 20（设备内存限制）');
       return;
     }
     const insertAt = state.activePage + 1;
@@ -1432,6 +1432,17 @@
       } catch {
         return;
       }
+      if (message.type === 'layout_changed') {
+        if (state.lastSaveAt && Date.now() - state.lastSaveAt < 2000) return;
+        if (state.dirty) {
+          toast('服务端布局已更新，点击「重载」获取最新版本');
+          return;
+        }
+        loadLayout().catch((error) =>
+          toast(`自动重载失败：${error.message}`)
+        );
+        return;
+      }
       if (message.type !== 'snapshot' || !message.values) return;
       state.values = message.values;
       collectHistory();
@@ -1475,6 +1486,7 @@
     button.textContent = '保存中…';
     try {
       state.layout.v = 2;
+      state.lastSaveAt = Date.now();
       await api('/api/v1/layout', {
         method: 'PUT',
         body: JSON.stringify(state.layout),
