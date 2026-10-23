@@ -1,9 +1,11 @@
 idf_component_register(
     SRCS "main.c" "display.c" "board_touch.c" "debug_console.c"
          "app_config.c" "wifi_mgr.c" "portal.c" "api_client.c" "metrics.c"
+         "dashboard_client.c"
          "../../ui/src/ui_widgets.c" "../../ui/src/ui_dashboard.c"
          "../../ui/src/ui_theme_strix.c" "../../ui/src/ui_theme_tuf.c"
          "../../ui/src/font_cjk_16.c"
+         "../../ui/src/dash_metric_store.c" "../../ui/src/ui_dynamic.c"
     INCLUDE_DIRS "." "../../ui/include"
     REQUIRES esp_lcd esp_timer esp_driver_spi esp_driver_gpio esp_driver_i2c
              esp_driver_ledc esp_driver_tsens spi_flash esp_lcd_st7796

@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "profile": "320x480",
+  "theme": "classic",
+  "widgets": [
+    {"id": "w-status", "type": "status_pill", "x": 0, "y": 0, "w": 12, "h": 2, "bindings": {"online": "llm.online", "model": "llm.model", "phase": "llm.phase"}, "options": {}},
+    {"id": "w-dec", "type": "kpi", "x": 0, "y": 2, "w": 6, "h": 3, "bindings": {"value": "llm.decode_tps"}, "options": {"title": "解码速度"}},
+    {"id": "w-pre", "type": "kpi", "x": 6, "y": 2, "w": 6, "h": 3, "bindings": {"value": "llm.prefill_tps"}, "options": {"title": "预填充"}},
+    {"id": "w-spark", "type": "sparkline", "x": 0, "y": 5, "w": 12, "h": 4, "bindings": {"value": "llm.decode_tps"}, "options": {"title": "解码速度趋势"}},
+    {"id": "w-kv", "type": "kpi", "x": 0, "y": 9, "w": 6, "h": 3, "bindings": {"value": "llm.kv_pct"}, "options": {"title": "KV 占用"}},
+    {"id": "w-queue", "type": "kpi", "x": 6, "y": 9, "w": 6, "h": 3, "bindings": {"value": "llm.requests_deferred"}, "options": {"title": "排队"}},
+    {"id": "w-server", "type": "server_card", "x": 0, "y": 12, "w": 12, "h": 4, "bindings": {"cpu": "host.cpu_pct", "ram_used": "host.ram_used_mb", "ram_total": "host.ram_total_mb", "gpu_temp": "host.gpu_temp_c", "ip": "host.lan_ip"}, "options": {"title": "服务器"}}
+  ]
+}

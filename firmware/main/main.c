@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,11 +37,22 @@
 #include "wifi_mgr.h"
 #include "portal.h"
 #include "metrics.h"
+#include "dashboard_client.h"
+#include "ui_dynamic.h"
+
+#include "cJSON.h"
 
 static const char *TAG = "app";
 
 static app_config_t s_cfg;
 static QueueHandle_t s_actions;
+
+/* 0.2 动态看板的 JSON 全部走 PSRAM，给内部 RAM 留出余量 */
+static void *json_psram_malloc(size_t size)
+{
+    void *p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : malloc(size);
+}
 static temperature_sensor_handle_t s_tsens;
 static bool s_portal_wait_online;   /* 配网层是在"没网"时打开的，联网后自动退出 */
 
@@ -188,6 +200,9 @@ static void app_task(void *arg)
             leave_portal();
         }
 
+        /* 动态看板接管屏幕后，停掉旧版轮询和绘制 */
+        if (ui_dynamic_active()) continue;
+
         metrics_poll(&s_cfg, &m);
 
         if (s_tsens) {
@@ -221,6 +236,14 @@ void app_main(void)
 
     config_load(&s_cfg);
     if (s_cfg.theme >= DASH_THEME_COUNT) s_cfg.theme = DASH_THEME_CLASSIC;
+
+    cJSON_Hooks json_hooks = {
+        .malloc_fn = json_psram_malloc,
+        .free_fn = heap_caps_free,
+    };
+    cJSON_InitHooks(&json_hooks);
+
+    s_actions = xQueueCreate(8, sizeof(dash_action_t));
     metrics_init();
 
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -243,8 +266,6 @@ void app_main(void)
         lvgl_port_unlock();
     }
 
-    s_actions = xQueueCreate(8, sizeof(dash_action_t));
-
     temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
     if (temperature_sensor_install(&tsens_cfg, &s_tsens) != ESP_OK ||
         temperature_sensor_enable(s_tsens) != ESP_OK) {
@@ -253,6 +274,10 @@ void app_main(void)
     }
 
     wifi_mgr_init();
+
+    if (s_cfg.dashboard_url[0]) {
+        dashboard_client_start(s_cfg.dashboard_url, s_cfg.rot180);
+    }
 
     bool connected = false;
     if (s_cfg.wifi_ssid[0]) {
@@ -270,7 +295,6 @@ void app_main(void)
         enter_portal();
     }
 
-    s_actions = xQueueCreate(8, sizeof(dash_action_t));
     xTaskCreate(app_task, "dash_app", 8192, NULL, 5, NULL);
 
     debug_console_set_view_cb(dbg_view_cb);

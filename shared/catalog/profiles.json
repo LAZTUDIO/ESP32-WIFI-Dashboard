@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "profiles": {
+    "320x480": {
+      "label": "竖屏 320×480",
+      "width": 320,
+      "height": 480,
+      "cols": 12,
+      "rows": 16,
+      "gap": 6,
+      "padding": 8
+    },
+    "480x320": {
+      "label": "横屏 480×320",
+      "width": 480,
+      "height": 320,
+      "cols": 16,
+      "rows": 10,
+      "gap": 6,
+      "padding": 8
+    }
+  }
+}

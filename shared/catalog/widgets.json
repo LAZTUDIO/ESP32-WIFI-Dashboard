@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "widgets": [
+    {
+      "type": "status_pill",
+      "label": "状态条",
+      "category": "基础",
+      "description": "在线状态、模型名和引擎阶段",
+      "default_size": [12, 2],
+      "min_size": [6, 2],
+      "bindings": [
+        {"key": "online", "label": "在线状态", "types": ["bool"], "required": true, "default": "llm.online"},
+        {"key": "model", "label": "模型", "types": ["string"], "required": true, "default": "llm.model"},
+        {"key": "phase", "label": "阶段", "types": ["string"], "required": false, "default": "llm.phase"}
+      ],
+      "options": []
+    },
+    {
+      "type": "kpi",
+      "label": "大数字",
+      "category": "基础",
+      "description": "单个指标的大号数值卡片",
+      "default_size": [6, 3],
+      "min_size": [3, 3],
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "指标"}
+      ]
+    },
+    {
+      "type": "sparkline",
+      "label": "迷你曲线",
+      "category": "图表",
+      "description": "单个指标的实时趋势",
+      "default_size": [12, 4],
+      "min_size": [6, 4],
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "趋势"}
+      ]
+    },
+    {
+      "type": "server_card",
+      "label": "服务器卡",
+      "category": "系统",
+      "description": "CPU、内存、GPU 温度和主机 IP",
+      "default_size": [12, 4],
+      "min_size": [8, 4],
+      "bindings": [
+        {"key": "cpu", "label": "CPU", "types": ["number"], "required": true, "default": "host.cpu_pct"},
+        {"key": "ram_used", "label": "内存已用", "types": ["number"], "required": true, "default": "host.ram_used_mb"},
+        {"key": "ram_total", "label": "内存总量", "types": ["number"], "required": true, "default": "host.ram_total_mb"},
+        {"key": "gpu_temp", "label": "GPU 温度", "types": ["number"], "required": false, "default": "host.gpu_temp_c"},
+        {"key": "ip", "label": "主机 IP", "types": ["string"], "required": false, "default": "host.lan_ip"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "服务器"}
+      ]
+    },
+    {
+      "type": "metric_list",
+      "label": "指标列表",
+      "category": "基础",
+      "description": "可增删行的状态/指标列表，支持多组在线状态、多模型和自定义标签",
+      "default_size": [12, 4],
+      "min_size": [6, 3],
+      "bindings": [],
+      "rows": {
+        "min": 1,
+        "max": 8,
+        "default": [
+          {"label": "服务", "binding": "llm.online", "kind": "status", "format": ""},
+          {"label": "模型", "binding": "llm.model", "kind": "text", "format": ""},
+          {"label": "阶段", "binding": "llm.phase", "kind": "text", "format": ""}
+        ]
+      },
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "指标列表"},
+        {"key": "show_labels", "label": "显示行标签", "type": "bool", "default": true},
+        {"key": "font_size", "label": "字号档位", "type": "select", "options": ["S", "M", "L"], "default": "M"},
+        {"key": "row_height", "label": "行高(px)", "type": "number", "default": 22, "min": 14, "max": 40},
+        {"key": "label_width", "label": "标签宽度(px)", "type": "number", "default": 60, "min": 30, "max": 120}
+      ]
+    }
+  ]
+}

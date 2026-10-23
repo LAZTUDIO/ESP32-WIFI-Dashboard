@@ -144,6 +144,7 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 | `w <ssid>\|<pass>` | 写入 Wi-Fi 并重启 |
 | `c <url>\|<key>` | 写入 API 服务地址与密钥并重启 |
 | `o <url>` | 写入主机监控地址（也可填 8800 面板）并重启，`o -` 清空 |
+| `d <url>` | 写入 Dashboard 服务地址并重启，`d -` 清空（回到直连模式） |
 
 配套抓帧脚本（依赖 IDF 自带的 pyserial）：
 
@@ -151,6 +152,17 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 ~/.espressif/python_env/idf5.5_py3.12_env/bin/python firmware/tools/capture.py \
     --cmd "p 2" --out /tmp/board.png
 ```
+
+## 0.2 动态看板（开发中）
+
+仓库新增 `server/` 动态看板链路：服务端负责采集和布局编辑，ESP32 只负责渲染。
+
+- 配网页填写 Dashboard 服务地址，或串口执行 `d http://<PC>:8080` 启用；`d -` 回到直连模式
+- 设备启动时拉取服务端 `resolved` 布局，通过 WebSocket 订阅布局用到的指标
+- 已支持状态条、KPI、服务器卡、指标列表和隐藏标题
+- 旧版直连 provider 模式保留
+
+启动服务和编辑布局见 [server/README.md](server/README.md)。当前布局只在设备启动时拉取，编辑器修改后需要重启设备；配置包下发、多页滑动和 BOOT 配网在后续里程碑。
 
 ## 性能
 
@@ -218,7 +230,7 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 - 整屏重绘约 50 ms（≈20fps），局部更新 47fps；切页/切主题是一次性全屏绘制
 - 缺少主机监控脚本时，功耗/温度/GPU/内存与主机 uptime 显示「无数据」；若用 8800 面板代替则无需该脚本
 - 面板模式下 `TOKENS` 与 `CACHE HIT` 显示「—」：对应数据在面板登录接口 `/api/usage` 或引擎受保护的 `/metrics` 中
-- 中文字体内置 415 个常用字（`ui/src/font_cjk_16.c`），生僻字会缺字
+- 中文字体内置 498 个常用字（Noto Sans SC，OFL，`ui/src/font_cjk_16.c`），生僻字会缺字
 - `sim/` 使用 LVGL 9.3，固件使用 LVGL 9.6；两者 API 兼容，但模拟器会打印少量弃用警告
 - 切换主题会重建 LVGL screen，耗时数百毫秒，属于一次性成本
 

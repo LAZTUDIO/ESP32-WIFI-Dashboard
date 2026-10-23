@@ -130,11 +130,13 @@ static esp_err_t handle_root(httpd_req_t *req)
     int found = wifi_mgr_scan(scan, sizeof(scan), 16);
 
     char ssid_esc[160], pass_esc[160], server_esc[220], key_esc[260], host_esc[220];
+    char dashboard_esc[220];
     html_escape(cfg.wifi_ssid, ssid_esc, sizeof(ssid_esc));
     html_escape(cfg.wifi_pass, pass_esc, sizeof(pass_esc));
     html_escape(cfg.server_url, server_esc, sizeof(server_esc));
     html_escape(cfg.api_key, key_esc, sizeof(key_esc));
     html_escape(cfg.host_agent, host_esc, sizeof(host_esc));
+    html_escape(cfg.dashboard_url, dashboard_esc, sizeof(dashboard_esc));
 
     size_t used = 0;
     html[0] = '\0';
@@ -219,9 +221,11 @@ static esp_err_t handle_root(httpd_req_t *req)
         "</select>"
         "<label>主机监控地址（可选，也可直接填 8800 面板地址）</label>"
         "<input name=\"host\" placeholder=\"http://192.168.1.100:8800\" value=\"%s\">"
+        "<label>Dashboard 服务地址（0.2 动态看板，可选）</label>"
+        "<input name=\"dashboard\" placeholder=\"http://192.168.1.100:8080\" value=\"%s\">"
         "<button type=\"submit\">保存并重启</button>"
         "</form><p class=\"f\">保存后设备会自动重启并连接</p>"
-        "</div></body></html>", host_esc);
+        "</div></body></html>", host_esc, dashboard_esc);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     esp_err_t err = httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
@@ -231,7 +235,7 @@ static esp_err_t handle_root(httpd_req_t *req)
 
 static esp_err_t handle_save(httpd_req_t *req)
 {
-    char body[1024];
+    char body[1536];
     int total = 0;
     int len = req->content_len;
     if (len >= (int)sizeof(body)) return httpd_resp_send_err(req, 400, "too large");
@@ -274,10 +278,16 @@ static esp_err_t handle_save(httpd_req_t *req)
         snprintf(cfg.host_agent, sizeof(cfg.host_agent), "%.*s",
                  (int)sizeof(cfg.host_agent) - 1, v);
     }
+    if (form_value(body, "dashboard", v, sizeof(v))) {
+        snprintf(cfg.dashboard_url, sizeof(cfg.dashboard_url), "%.*s",
+                 (int)sizeof(cfg.dashboard_url) - 1, v);
+    }
     config_normalize(&cfg);
     config_save(&cfg);
 
-    ESP_LOGI(TAG, "provisioned: ssid=%s server=%s", cfg.wifi_ssid, cfg.server_url);
+    ESP_LOGI(TAG, "provisioned: ssid=%s server=%s dashboard=%s",
+             cfg.wifi_ssid, cfg.server_url,
+             cfg.dashboard_url[0] ? cfg.dashboard_url : "(legacy)");
 
     const char *page =
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"

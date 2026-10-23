@@ -298,6 +298,26 @@ static void cmd_host(char *arg)
     save_and_reboot(&cfg);
 }
 
+/* d <url>  —— 配置 0.2 动态看板服务端 */
+static void cmd_dashboard(char *arg)
+{
+    app_config_t cfg;
+    config_load(&cfg);
+    if (!*arg) {
+        printf("[W] dbg: 用法 d <url>  例如 d http://192.168.1.100:8080；d - 清空\n");
+        return;
+    }
+    if (strcmp(trim_tail(trim_head(arg)), "-") == 0) {
+        cfg.dashboard_url[0] = '\0';
+    } else {
+        snprintf(cfg.dashboard_url, sizeof(cfg.dashboard_url), "%s",
+                 trim_tail(trim_head(arg)));
+    }
+    config_normalize(&cfg);
+    printf("[I] dbg: dashboard='%s'\n", cfg.dashboard_url);
+    save_and_reboot(&cfg);
+}
+
 /* ============================ 动画帧率基准 ============================ */
 
 static void anim_x_cb(void *var, int32_t v)
@@ -440,6 +460,7 @@ static void handle_line(char *line)
     case 'w': cmd_wifi(line + 1); break;
     case 'c': cmd_server(line + 1); break;
     case 'o': cmd_host(line + 1); break;
+    case 'd': cmd_dashboard(line + 1); break;
     case 't':
         if (s_view_cb) s_view_cb(atoi(line + 1), -1);
         break;
@@ -456,7 +477,8 @@ static void handle_line(char *line)
         printf("commands: s=snapshot  h=stats  b=bench refresh  B=render/transfer  "
                "a=small anim fps  A=full anim fps  p <0-3>=page  "
                "t <0-2>=theme  r=flip 180  w <ssid>|<pass>=wifi  "
-               "c <url>|<key>=server  o <url>=host/panel\n");
+               "c <url>|<key>=server  o <url>=host/panel  "
+               "d <url>=dashboard\n");
         break;
     default:
         printf("[W] dbg: unknown command '%c'\n", *line);

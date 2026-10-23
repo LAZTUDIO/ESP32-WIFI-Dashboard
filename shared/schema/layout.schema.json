@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LLM Dashboard Layout",
+  "oneOf": [
+    {"$ref": "#/definitions/v1"},
+    {"$ref": "#/definitions/v2"}
+  ],
+  "definitions": {
+    "widget": {
+      "type": "object",
+      "required": ["id", "type", "x", "y", "w", "h", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 48},
+        "type": {"type": "string"},
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "w": {"type": "integer", "minimum": 1},
+        "h": {"type": "integer", "minimum": 1},
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "options": {"type": "object"}
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {"$ref": "#/definitions/widget"}
+    },
+    "v1": {
+      "type": "object",
+      "required": ["v", "profile", "widgets"],
+      "additionalProperties": false,
+      "properties": {
+        "v": {"type": "integer", "const": 1},
+        "profile": {"type": "string"},
+        "theme": {"type": "string"},
+        "widgets": {"$ref": "#/definitions/widgets"}
+      }
+    },
+    "v2": {
+      "type": "object",
+      "required": ["v", "profile", "pages"],
+      "additionalProperties": false,
+      "properties": {
+        "v": {"type": "integer", "const": 2},
+        "profile": {"type": "string"},
+        "theme": {"type": "string"},
+        "page_animation": {
+          "type": "string",
+          "enum": ["slide", "fade", "none"]
+        },
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["name", "widgets"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "widgets": {"$ref": "#/definitions/widgets"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
