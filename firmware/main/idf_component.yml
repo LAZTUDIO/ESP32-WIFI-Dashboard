@@ -4,3 +4,4 @@ dependencies:
   lvgl/lvgl: "~9.6.0"
   espressif/esp_lvgl_port: "^2.9.0"
   espressif/esp_lcd_touch: "^1.2.1"
+  espressif/esp_websocket_client: "^1.8.0"

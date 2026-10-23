@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>LLM Dashboard 0.2 · 布局编辑器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-dot"></span> LLM Dashboard <span class="brand-ver">0.2</span></div>
+    <div class="toolbar">
+      <span id="conn" class="conn">连接中…</span>
+      <label class="profile-label">画布
+        <select id="profile-select"></select>
+      </label>
+      <button id="reload-btn" class="btn ghost" type="button">重载</button>
+      <button id="save-btn" class="btn primary" type="button">保存布局</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="side-panel palette-panel">
+      <div class="panel-head"><h2>组件库</h2><span class="muted">点击添加</span></div>
+      <div id="palette" class="palette"></div>
+      <div class="panel-note">也可以把组件拖到画布指定位置。</div>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-head">
+        <div><span id="canvas-title">320 × 480</span><span id="dirty" class="dirty hidden">未保存</span></div>
+        <span class="muted">拖动边框移动 · 右下角缩放</span>
+      </div>
+      <div class="page-bar">
+        <div id="page-tabs" class="page-tabs"></div>
+        <div class="page-actions">
+          <select id="page-animation" title="翻页动画">
+            <option value="slide">滑动（跟手）</option>
+            <option value="fade">淡入</option>
+            <option value="stack">层叠</option>
+            <option value="zoom">缩放</option>
+            <option value="flip">翻转</option>
+            <option value="rotate">旋转</option>
+            <option value="none">无</option>
+          </select>
+          <button id="add-page" class="btn small" type="button">+ 页面</button>
+          <button id="copy-page" class="btn small" type="button">复制页</button>
+          <button id="delete-page" class="btn small" type="button">删除页</button>
+        </div>
+      </div>
+      <div class="canvas-scroll">
+        <div class="canvas-wrap" id="canvas-wrap">
+          <div class="canvas" id="canvas"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side-panel inspector-panel">
+      <div class="panel-head"><h2>属性</h2></div>
+      <div id="inspector" class="inspector">
+        <p class="muted">选中画布里的组件后在这里绑定指标。</p>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

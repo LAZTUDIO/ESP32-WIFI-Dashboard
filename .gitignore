@@ -27,6 +27,11 @@ local/
 __pycache__/
 *.pyc
 
+# 服务端本地环境与配置
+server/.venv/
+server/config.json
+server/data/layouts/
+
 # 本地抓帧与调试图片（保留文档截图）
 *.png
 !docs/images/*.png

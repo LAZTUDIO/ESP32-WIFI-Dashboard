@@ -125,6 +125,7 @@ static lv_obj_t * s_prov_state;
 /* Toast */
 static lv_obj_t * s_toast;
 static lv_timer_t * s_toast_timer;
+static lv_timer_t * s_clock_timer;
 
 /* ============================== 小工具 ============================== */
 
@@ -1743,5 +1744,36 @@ void dashboard_ui_create(void)
 
     set_seg_active();
     dashboard_ui_set_theme(s_theme);
-    lv_timer_create(clock_timer_cb, 1000, NULL);
+    s_clock_timer = lv_timer_create(clock_timer_cb, 1000, NULL);
+}
+
+void dashboard_ui_destroy(void)
+{
+    bool had_legacy = (s_scr != NULL) || (s_strix_root != NULL) ||
+                      (s_tuf_root != NULL) || (s_clock_timer != NULL) ||
+                      (s_toast_timer != NULL);
+    if (s_clock_timer) {
+        lv_timer_del(s_clock_timer);
+        s_clock_timer = NULL;
+    }
+    if (s_toast_timer) {
+        lv_timer_del(s_toast_timer);
+        s_toast_timer = NULL;
+    }
+    if (s_strix_root) {
+        lv_obj_delete(s_strix_root);
+        s_strix_root = NULL;
+    }
+    if (s_tuf_root) {
+        lv_obj_delete(s_tuf_root);
+        s_tuf_root = NULL;
+    }
+    if (s_scr) {
+        lv_obj_delete(s_scr);
+        s_scr = NULL;
+    }
+    if (had_legacy) {
+        lv_obj_t *top = lv_layer_top();
+        if (top) lv_obj_clean(top);
+    }
 }

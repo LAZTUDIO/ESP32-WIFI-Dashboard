@@ -14,6 +14,8 @@
 #include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 
 #include "esp_log.h"
@@ -30,9 +32,13 @@
 #include "wifi_mgr.h"
 #include "app_config.h"
 #include "ui.h"
+#include "ui_dynamic.h"
+#include "dash_metric_store.h"
+#include "app_actions.h"
 
 static const char *TAG = "dbg";
 static dbg_view_cb_t s_view_cb;
+static QueueHandle_t s_perf_q;
 
 void debug_console_set_view_cb(dbg_view_cb_t cb)
 {
@@ -195,13 +201,23 @@ static void print_stats(const char *prefix)
     wifi_mgr_sta_ip(ip, sizeof(ip));
 
     printf("%s fps=%.1f frames=%lu heap=%u min_heap=%u psram=%u int_free=%u "
-           "wifi=%s ip=%s rssi=%d\n",
+           "int_max=%u wifi=%s ip=%s rssi=%d\n",
            prefix, fps, (unsigned long)frames,
            (unsigned)esp_get_free_heap_size(),
            (unsigned)esp_get_minimum_free_heap_size(),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
            wifi_mgr_sta_connected() ? "up" : "down", ip, (int)wifi_mgr_rssi());
+    if (ui_dynamic_active()) {
+        ui_dynamic_perf_t p;
+        ui_dynamic_perf(&p);
+        printf("  ui: apply last/avg/max=%lld/%lld/%lld us n=%lu "
+               "page=%lld ms\n",
+               (long long)p.apply_last_us, (long long)p.apply_avg_us,
+               (long long)p.apply_max_us, (unsigned long)p.apply_count,
+               (long long)p.page_last_ms);
+    }
     fflush(stdout);
 }
 
@@ -298,6 +314,26 @@ static void cmd_host(char *arg)
     save_and_reboot(&cfg);
 }
 
+/* d <url>  —— 配置 0.2 动态看板服务端 */
+static void cmd_dashboard(char *arg)
+{
+    app_config_t cfg;
+    config_load(&cfg);
+    if (!*arg) {
+        printf("[W] dbg: 用法 d <url>  例如 d http://192.168.1.100:8080；d - 清空\n");
+        return;
+    }
+    if (strcmp(trim_tail(trim_head(arg)), "-") == 0) {
+        cfg.dashboard_url[0] = '\0';
+    } else {
+        snprintf(cfg.dashboard_url, sizeof(cfg.dashboard_url), "%s",
+                 trim_tail(trim_head(arg)));
+    }
+    config_normalize(&cfg);
+    printf("[I] dbg: dashboard='%s'\n", cfg.dashboard_url);
+    save_and_reboot(&cfg);
+}
+
 /* ============================ 动画帧率基准 ============================ */
 
 static void anim_x_cb(void *var, int32_t v)
@@ -366,17 +402,9 @@ static void anim_fps_bench(bool fullscreen)
     fflush(stdout);
 }
 
-/* ============================ 命令解析 ============================ */
-
-static void handle_line(char *line)
+static void run_render_cmd(char cmd)
 {
-    while (*line == ' ' || *line == '\r' || *line == '\n') line++;
-    if (*line == '\0') return;
-
-    switch (*line) {
-    case 's': cmd_snapshot(); break;
-    case 'h': print_stats("STATS"); break;
-    case 'b':
+    if (cmd == 'b') {
         if (lvgl_port_lock(2000)) {
             int64_t t0 = esp_timer_get_time();
             lv_obj_invalidate(lv_screen_active());
@@ -388,8 +416,7 @@ static void handle_line(char *line)
             fflush(stdout);
             lvgl_port_unlock();
         }
-        break;
-    case 'B':
+    } else if (cmd == 'B') {
         if (lvgl_port_lock(2000)) {
             lv_display_t *d = lv_display_get_default();
             int64_t t0;
@@ -412,8 +439,7 @@ static void handle_line(char *line)
             fflush(stdout);
             lvgl_port_unlock();
         }
-        break;
-    case 'C': {
+    } else if (cmd == 'C') {
         if (lvgl_port_lock(2000)) {
             lv_display_t *d = lv_display_get_default();
             lv_obj_t *prev = lv_screen_active();
@@ -433,30 +459,225 @@ static void handle_line(char *line)
             lv_obj_delete(blank);
             lvgl_port_unlock();
         }
-        break;
     }
+}
+
+static void perf_task(void *arg)
+{
+    (void)arg;
+    char cmd;
+    while (1) {
+        if (xQueueReceive(s_perf_q, &cmd, portMAX_DELAY) == pdTRUE) {
+            run_render_cmd(cmd);
+        }
+    }
+}
+
+static bool ensure_perf_task(void)
+{
+    if (s_perf_q) return true;
+    s_perf_q = xQueueCreate(2, sizeof(char));
+    if (!s_perf_q) return false;
+    if (xTaskCreateWithCaps(perf_task, "dbgperf", 12288, NULL, 3, NULL,
+                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+        vQueueDelete(s_perf_q);
+        s_perf_q = NULL;
+        printf("[E] dbg: perf task create failed (internal free=%u largest=%u)\n",
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+        return false;
+    }
+    return true;
+}
+
+/* ============================ 合成滑动手势 ============================ */
+
+static lv_indev_t *s_test_indev;
+static int64_t s_test_t0;
+
+static void test_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+    int64_t dt = (esp_timer_get_time() - s_test_t0) / 1000;
+    if (dt < 120) {
+        data->point.x = 270;
+        data->point.y = 240;
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else if (dt < 520) {
+        data->point.x = 270 - (int32_t)((dt - 120) * 210 / 400);
+        data->point.y = 240;
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->point.x = 60;
+        data->point.y = 240;
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+    data->continue_reading = false;
+}
+
+static void test_indev_del_cb(lv_timer_t *t)
+{
+    if (s_test_indev) {
+        lv_indev_delete(s_test_indev);
+        s_test_indev = NULL;
+    }
+    lv_timer_delete(t);
+}
+
+static void test_swipe_start(void)
+{
+    if (s_test_indev) return;
+    s_test_t0 = esp_timer_get_time();
+    s_test_indev = lv_indev_create();
+    lv_indev_set_type(s_test_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_test_indev, test_read_cb);
+    lv_timer_create(test_indev_del_cb, 1000, NULL);
+    printf("[I] dbg: synthetic swipe started\n");
+}
+
+/* ============================ 命令解析 ============================ */
+
+static void handle_line(char *line)
+{
+    while (*line == ' ' || *line == '\r' || *line == '\n') line++;
+    if (*line == '\0') return;
+
+    switch (*line) {
+    case 's': cmd_snapshot(); break;
+    case 'h': print_stats("STATS"); break;
+    case 'b':
+    case 'B':
+    case 'C':
+        if (ensure_perf_task()) {
+            char cmd = *line;
+            if (xQueueSend(s_perf_q, &cmd, 0) == pdTRUE) {
+                printf("[I] dbg: render bench queued (%c)\n", cmd);
+                fflush(stdout);
+                break;
+            }
+        }
+        printf("[E] dbg: render bench unavailable\n");
+        break;
     case 'a': anim_fps_bench(false); break;
     case 'A': anim_fps_bench(true); break;
     case 'w': cmd_wifi(line + 1); break;
     case 'c': cmd_server(line + 1); break;
     case 'o': cmd_host(line + 1); break;
+    case 'd': cmd_dashboard(line + 1); break;
     case 't':
-        if (s_view_cb) s_view_cb(atoi(line + 1), -1);
+        if (ui_dynamic_engaged()) {
+            printf("[I] dbg: dynamic mode, theme is controlled by server\n");
+        } else if (s_view_cb) {
+            s_view_cb(atoi(line + 1), -1);
+        }
         break;
     case 'r':
-        if (s_view_cb) s_view_cb(-1, 2);
+        if (ui_dynamic_engaged()) {
+            printf("[I] dbg: dynamic mode, rotation is fixed by layout\n");
+        } else if (s_view_cb) {
+            s_view_cb(-1, 2);
+        }
+        break;
+    case 'm':
+        dash_metric_store_dump();
+        break;
+    case 'P':
+        printf("[I] dbg: requesting provisioning mode\n");
+        app_request_provisioning();
         break;
     case 'p':
         if (lvgl_port_lock(300)) {
-            dashboard_ui_set_page(atoi(line + 1));
+            if (ui_dynamic_active()) {
+                ui_dynamic_set_page(atoi(line + 1));
+            } else if (!ui_dynamic_engaged()) {
+                dashboard_ui_set_page(atoi(line + 1));
+            }
             lvgl_port_unlock();
         }
         break;
+    case 'T': {
+        int target = 1, delay_ms = 80;
+        sscanf(line + 1, "%d %d", &target, &delay_ms);
+        if (delay_ms < 20) delay_ms = 20;
+        if (delay_ms > 2000) delay_ms = 2000;
+        if (lvgl_port_lock(500)) {
+            ui_dynamic_set_page(target);
+            lvgl_port_unlock();
+        }
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        cmd_snapshot();
+        break;
+    }
+    case 'v':
+        if (lvgl_port_lock(300)) {
+            ui_dynamic_set_page_anim(atoi(line + 1));
+            lvgl_port_unlock();
+        }
+        printf("[I] dbg: page anim=%d (0 none/1 slide/2 fade/3 stack/4 zoom/5 flip/6 rotate)\n",
+               ui_dynamic_page_anim());
+        fflush(stdout);
+        break;
+    case 'S':
+        if (lvgl_port_lock(500)) {
+            test_swipe_start();
+            lvgl_port_unlock();
+        }
+        break;
+    case 'f': {
+        if (!ui_dynamic_active()) {
+            printf("[W] dbg: dynamic UI not active\n");
+            break;
+        }
+        int count = ui_dynamic_page_count();
+        if (count < 2) {
+            printf("[W] dbg: layout has only %d page\n", count);
+            break;
+        }
+        int target = 1;
+        const char *arg = line + 1;
+        while (*arg == ' ' || *arg == '\t' || *arg == '\r' || *arg == '\n') {
+            arg++;
+        }
+        if (*arg) target = atoi(arg);
+        if (target < 0 || target >= count) target = count - 1;
+
+        ui_dynamic_perf_t p0, p1;
+        int mode = ui_dynamic_page_anim();
+        ui_dynamic_perf(&p0);
+        uint32_t f0 = display_get_frame_count();
+        int64_t t0 = esp_timer_get_time();
+        if (lvgl_port_lock(500)) {
+            ui_dynamic_set_page(target);
+            lvgl_port_unlock();
+        }
+        do {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            ui_dynamic_perf(&p1);
+        } while (p1.page_swaps == p0.page_swaps &&
+                 esp_timer_get_time() - t0 < 1500000);
+        if (mode != 0 && mode != 1) {
+            vTaskDelay(pdMS_TO_TICKS(400));
+            ui_dynamic_perf(&p1);
+        }
+        int64_t dt = esp_timer_get_time() - t0;
+        uint32_t f1 = display_get_frame_count();
+        printf("[I] dbg: page->%d/%d fps=%.1f frames=%u dt=%lldms anim=%lldms"
+               " trans=%lldms\n",
+               target, count, (double)(f1 - f0) * 1e6 / (double)dt,
+               (unsigned)(f1 - f0),
+               (long long)(dt / 1000), (long long)p1.page_last_ms,
+               (long long)p1.trans_last_ms);
+        fflush(stdout);
+        break;
+    }
     case '?':
         printf("commands: s=snapshot  h=stats  b=bench refresh  B=render/transfer  "
                "a=small anim fps  A=full anim fps  p <0-3>=page  "
+               "f <page>=page-flip fps  T <page> <ms>=mid-transition snapshot  "
+               "v <0-6>=page anim  S=synthetic swipe  "
                "t <0-2>=theme  r=flip 180  w <ssid>|<pass>=wifi  "
-               "c <url>|<key>=server  o <url>=host/panel\n");
+               "c <url>|<key>=server  o <url>=host/panel  "
+               "d <url>=dashboard  m=dump metrics  P=provision\n");
         break;
     default:
         printf("[W] dbg: unknown command '%c'\n", *line);

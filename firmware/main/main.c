@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,6 +22,7 @@
 #include "esp_sntp.h"
 #include "nvs_flash.h"
 
+#include "driver/gpio.h"
 #include "driver/temperature_sensor.h"
 
 #include "lvgl.h"
@@ -36,18 +38,37 @@
 #include "wifi_mgr.h"
 #include "portal.h"
 #include "metrics.h"
+#include "dashboard_client.h"
+#include "ui_dynamic.h"
+#include "app_actions.h"
+
+#include "cJSON.h"
 
 static const char *TAG = "app";
 
 static app_config_t s_cfg;
 static QueueHandle_t s_actions;
+
+/* 0.2 动态看板的 JSON 全部走 PSRAM，给内部 RAM 留出余量 */
+static void *json_psram_malloc(size_t size)
+{
+    void *p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : malloc(size);
+}
 static temperature_sensor_handle_t s_tsens;
 static bool s_portal_wait_online;   /* 配网层是在"没网"时打开的，联网后自动退出 */
+static bool s_portal_active;
 
 /* ============================ 动作 ============================ */
 
 static void action_cb(dash_action_t action)
 {
+    if (s_actions) xQueueSend(s_actions, &action, 0);
+}
+
+void app_request_provisioning(void)
+{
+    dash_action_t action = DASH_ACTION_PROVISION;
     if (s_actions) xQueueSend(s_actions, &action, 0);
 }
 
@@ -98,32 +119,42 @@ static void time_sync_start(void)
 
 /* ============================ 配网 ============================ */
 
+static void portal_overlay_show(bool show)
+{
+    if (!lvgl_port_lock(1000)) return;
+    if (ui_dynamic_engaged()) {
+        ui_dynamic_show_portal(show, WIFI_AP_SSID, WIFI_AP_PASS, WIFI_AP_IP);
+    } else {
+        dashboard_ui_show_provisioning(show,
+                                       show ? WIFI_AP_SSID : NULL,
+                                       show ? WIFI_AP_PASS : NULL,
+                                       show ? WIFI_AP_IP : NULL);
+    }
+    lvgl_port_unlock();
+}
+
 static void enter_portal(void)
 {
-    /* 只有在"当前没网"时才允许联网后自动退出；用户主动点重新配网则保留 */
+    if (s_portal_active) {
+        ESP_LOGI(TAG, "provisioning already active");
+        return;
+    }
+    s_portal_active = true;
+    /* 只有在"当前没网"时才允许联网后自动退出；用户主动进配网则保留 */
     s_portal_wait_online = !wifi_mgr_sta_connected();
     portal_start(&s_cfg);
-    for (int i = 0; i < 10; i++) {
-        if (lvgl_port_lock(1000)) {
-            dashboard_ui_show_provisioning(true, WIFI_AP_SSID, WIFI_AP_PASS, WIFI_AP_IP);
-            lvgl_port_unlock();
-            ESP_LOGI(TAG, "provisioning overlay shown");
-            return;
-        }
-    }
-    ESP_LOGE(TAG, "could not lock LVGL to show provisioning overlay");
+    portal_overlay_show(true);
+    ESP_LOGI(TAG, "provisioning mode: AP %s", WIFI_AP_SSID);
 }
 
 /** 配网期间后台 STA 重连成功：收起浮层、关热点、开始对时 */
 static void leave_portal(void)
 {
+    s_portal_active = false;
     s_portal_wait_online = false;
     portal_stop();
     time_sync_start();
-    if (lvgl_port_lock(500)) {
-        dashboard_ui_show_provisioning(false, NULL, NULL, NULL);
-        lvgl_port_unlock();
-    }
+    portal_overlay_show(false);
     ESP_LOGI(TAG, "Wi-Fi came up during provisioning, overlay hidden");
 }
 
@@ -138,6 +169,18 @@ static void app_task(void *arg)
         dash_action_t act;
 
         if (xQueueReceive(s_actions, &act, pdMS_TO_TICKS(2000)) == pdTRUE) {
+            /* 动态模式已接管屏幕：忽略旧 UI 的按钮动作，只保留重启 */
+            if (ui_dynamic_engaged()) {
+                if (act == DASH_ACTION_REBOOT) {
+                    ESP_LOGW(TAG, "reboot requested");
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    esp_restart();
+                }
+                if (act == DASH_ACTION_PROVISION) {
+                    enter_portal();
+                }
+                continue;
+            }
             switch (act) {
             case DASH_ACTION_PROVISION:
                 enter_portal();
@@ -188,6 +231,9 @@ static void app_task(void *arg)
             leave_portal();
         }
 
+        /* 动态看板接管屏幕后，停掉旧版轮询和绘制（重建期间也不回退） */
+        if (ui_dynamic_engaged()) continue;
+
         metrics_poll(&s_cfg, &m);
 
         if (s_tsens) {
@@ -198,12 +244,47 @@ static void app_task(void *arg)
         }
 
         if (lvgl_port_lock(300)) {
-            int64_t t0 = esp_timer_get_time();
-            dashboard_ui_apply(&m, true);
-            int64_t dt_ms = (esp_timer_get_time() - t0) / 1000;
+            if (!ui_dynamic_engaged()) {
+                int64_t t0 = esp_timer_get_time();
+                dashboard_ui_apply(&m, true);
+                int64_t dt_ms = (esp_timer_get_time() - t0) / 1000;
+                if (dt_ms > 30) {
+                    ESP_LOGI(TAG, "ui apply %lld ms", (long long)dt_ms);
+                }
+            }
             lvgl_port_unlock();
-            if (dt_ms > 30) ESP_LOGI(TAG, "ui apply %lld ms", (long long)dt_ms);
         }
+    }
+}
+
+/* BOOT (GPIO0) 低电平长按 3 秒进入配网 */
+static void boot_button_task(void *arg)
+{
+    (void)arg;
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << 0,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io);
+
+    int held_ms = 0;
+    bool fired = false;
+    while (1) {
+        if (gpio_get_level(0) == 0) {
+            held_ms += 50;
+            if (!fired && held_ms >= 3000) {
+                fired = true;
+                ESP_LOGW(TAG, "BOOT long press -> provisioning");
+                app_request_provisioning();
+            }
+        } else {
+            held_ms = 0;
+            fired = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -221,10 +302,18 @@ void app_main(void)
 
     config_load(&s_cfg);
     if (s_cfg.theme >= DASH_THEME_COUNT) s_cfg.theme = DASH_THEME_CLASSIC;
+
+    cJSON_Hooks json_hooks = {
+        .malloc_fn = json_psram_malloc,
+        .free_fn = heap_caps_free,
+    };
+    cJSON_InitHooks(&json_hooks);
+
+    s_actions = xQueueCreate(8, sizeof(dash_action_t));
     metrics_init();
 
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    port_cfg.task_stack = 8192;
+    port_cfg.task_stack = 12288;
     port_cfg.task_priority = 4;
     ESP_ERROR_CHECK(lvgl_port_init(&port_cfg));
 
@@ -243,8 +332,6 @@ void app_main(void)
         lvgl_port_unlock();
     }
 
-    s_actions = xQueueCreate(8, sizeof(dash_action_t));
-
     temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
     if (temperature_sensor_install(&tsens_cfg, &s_tsens) != ESP_OK ||
         temperature_sensor_enable(s_tsens) != ESP_OK) {
@@ -253,6 +340,10 @@ void app_main(void)
     }
 
     wifi_mgr_init();
+
+    if (s_cfg.dashboard_url[0]) {
+        dashboard_client_start(s_cfg.dashboard_url, s_cfg.rot180);
+    }
 
     bool connected = false;
     if (s_cfg.wifi_ssid[0]) {
@@ -270,8 +361,8 @@ void app_main(void)
         enter_portal();
     }
 
-    s_actions = xQueueCreate(8, sizeof(dash_action_t));
     xTaskCreate(app_task, "dash_app", 8192, NULL, 5, NULL);
+    xTaskCreate(boot_button_task, "boot_btn", 3072, NULL, 3, NULL);
 
     debug_console_set_view_cb(dbg_view_cb);
     debug_console_start();

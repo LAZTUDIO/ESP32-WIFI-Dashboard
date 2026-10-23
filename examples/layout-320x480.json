@@ -1,0 +1,219 @@
+{
+  "v": 2,
+  "profile": "320x480",
+  "theme": "classic",
+  "page_animation": "slide",
+  "pages": [
+    {
+      "name": "第 1 页",
+      "widgets": [
+        {
+          "id": "w-status",
+          "type": "status_pill",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 3,
+          "bindings": {
+            "online": "llm.online",
+            "model": "llm.model",
+            "phase": "llm.phase"
+          },
+          "options": {
+            "show_title": true
+          }
+        },
+        {
+          "id": "w-dec",
+          "type": "kpi",
+          "x": 0,
+          "y": 6,
+          "w": 4,
+          "h": 3,
+          "bindings": {
+            "value": "llm.decode_tps"
+          },
+          "options": {
+            "title": "解码速度",
+            "show_title": false
+          }
+        },
+        {
+          "id": "w-pre",
+          "type": "kpi",
+          "x": 0,
+          "y": 3,
+          "w": 4,
+          "h": 3,
+          "bindings": {
+            "value": "llm.prefill_tps"
+          },
+          "options": {
+            "title": "预填充",
+            "show_title": false
+          }
+        },
+        {
+          "id": "w-kv",
+          "type": "kpi",
+          "x": 0,
+          "y": 9,
+          "w": 6,
+          "h": 3,
+          "bindings": {
+            "value": "llm.prefill_tps"
+          },
+          "options": {
+            "title": "KV 占用"
+          }
+        },
+        {
+          "id": "w-queue",
+          "type": "kpi",
+          "x": 6,
+          "y": 9,
+          "w": 6,
+          "h": 3,
+          "bindings": {
+            "value": "llm.requests_deferred"
+          },
+          "options": {
+            "title": "排队"
+          }
+        },
+        {
+          "id": "w-server",
+          "type": "server_card",
+          "x": 0,
+          "y": 12,
+          "w": 12,
+          "h": 4,
+          "bindings": {
+            "cpu": "host.cpu_pct",
+            "ram_used": "host.ram_used_mb",
+            "ram_total": "host.ram_total_mb",
+            "gpu_temp": "host.gpu_temp_c",
+            "ip": "host.lan_ip"
+          },
+          "options": {
+            "title": "服务器"
+          }
+        },
+        {
+          "id": "w-mvkbb07g-egj8",
+          "type": "server_card",
+          "x": 4,
+          "y": 6,
+          "w": 8,
+          "h": 3,
+          "bindings": {
+            "cpu": "llm.prefill_peak",
+            "ram_used": "llm.kv_used_tokens",
+            "ram_total": "llm.cache_hit_tokens",
+            "gpu_temp": "tts.contexts",
+            "ip": "npu.status"
+          },
+          "options": {
+            "title": "服务器",
+            "show_title": false
+          }
+        },
+        {
+          "id": "w-mvklby1f-12x0",
+          "type": "kpi",
+          "x": 4,
+          "y": 3,
+          "w": 8,
+          "h": 3,
+          "bindings": {
+            "value": "llm.decode_tps"
+          },
+          "options": {
+            "title": "指标"
+          }
+        }
+      ]
+    },
+    {
+      "name": "第 1 页 副本",
+      "widgets": [
+        {
+          "id": "w-mvkojj4k-vuvzx",
+          "type": "kpi",
+          "x": 6,
+          "y": 4,
+          "w": 4,
+          "h": 3,
+          "bindings": {
+            "value": "llm.decode_tps"
+          },
+          "options": {
+            "title": "解码速度",
+            "show_title": false
+          }
+        },
+        {
+          "id": "w-mvkojj4k-3x75o",
+          "type": "kpi",
+          "x": 6,
+          "y": 1,
+          "w": 4,
+          "h": 3,
+          "bindings": {
+            "value": "llm.prefill_tps"
+          },
+          "options": {
+            "title": "预填充",
+            "show_title": false
+          }
+        },
+        {
+          "id": "w-mvkojj4k-qw6ef",
+          "type": "kpi",
+          "x": 0,
+          "y": 6,
+          "w": 6,
+          "h": 3,
+          "bindings": {
+            "value": "llm.prefill_tps"
+          },
+          "options": {
+            "title": "KV 占用"
+          }
+        },
+        {
+          "id": "w-mvkojj4k-5g8ue",
+          "type": "kpi",
+          "x": 6,
+          "y": 9,
+          "w": 6,
+          "h": 3,
+          "bindings": {
+            "value": "llm.requests_deferred"
+          },
+          "options": {
+            "title": "排队"
+          }
+        },
+        {
+          "id": "w-mvkojj4k-18dxb",
+          "type": "server_card",
+          "x": 0,
+          "y": 12,
+          "w": 12,
+          "h": 4,
+          "bindings": {
+            "cpu": "host.cpu_pct",
+            "ram_used": "host.ram_used_mb",
+            "ram_total": "host.ram_total_mb",
+            "gpu_temp": "host.gpu_temp_c",
+            "ip": "host.lan_ip"
+          },
+          "options": {
+            "title": "服务器"
+          }
+        }
+      ]
+    }
+  ]
+}
