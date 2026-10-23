@@ -202,6 +202,11 @@ def validate_layout(layout: Any, catalog: Catalog) -> dict[str, Any]:
     if profile is None:
         raise LayoutError(f"未知画布 profile: {profile_name}")
 
+    theme = layout.get("theme")
+    if theme is not None:
+        if not isinstance(theme, str) or theme not in catalog.themes:
+            raise LayoutError(f"未知主题: {theme}")
+
     if version == 1:
         _validate_widgets(
             layout.get("widgets"), profile, catalog, set()

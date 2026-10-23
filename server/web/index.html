@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>LLM Dashboard 0.2 · 布局编辑器</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=0.2.4">
 </head>
 <body>
   <header class="topbar">
@@ -13,6 +13,9 @@
       <span id="conn" class="conn">连接中…</span>
       <label class="profile-label">画布
         <select id="profile-select"></select>
+      </label>
+      <label class="profile-label">配色
+        <select id="theme-select"></select>
       </label>
       <button id="reload-btn" class="btn ghost" type="button">重载</button>
       <button id="save-btn" class="btn primary" type="button">保存布局</button>
@@ -23,7 +26,9 @@
     <aside class="side-panel palette-panel">
       <div class="panel-head"><h2>组件库</h2><span class="muted">点击添加</span></div>
       <div id="palette" class="palette"></div>
-      <div class="panel-note">也可以把组件拖到画布指定位置。</div>
+      <div class="panel-note">也可以把组件拖到画布指定位置。<br>
+        指标按来源分组：<b>传统 API</b>（halogen / gufo / strata / LM Studio / Ollama 直连）与
+        <b>专用 Server</b>（服务端本机 system / GPU）。</div>
     </aside>
 
     <section class="stage">
@@ -64,6 +69,6 @@
   </main>
 
   <div id="toast" class="toast"></div>
-  <script src="app.js"></script>
+  <script src="app.js?v=0.2.4"></script>
 </body>
 </html>

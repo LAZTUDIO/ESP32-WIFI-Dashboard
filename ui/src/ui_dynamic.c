@@ -3,6 +3,7 @@
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -33,7 +34,17 @@ enum {
     DYN_SPARK,
     DYN_SERVER,
     DYN_LIST,
+    DYN_PET,
     DYN_UNKNOWN,
+};
+
+enum {
+    PET_SLEEP = 0,
+    PET_IDLE,
+    PET_HAPPY,
+    PET_BUSY,
+    PET_ALERT,
+    PET_OFFLINE,
 };
 
 enum {
@@ -123,6 +134,30 @@ typedef struct {
     lv_obj_t *list_dot[DYN_MAX_ROWS];
     lv_obj_t *list_label[DYN_MAX_ROWS];
     lv_obj_t *list_value[DYN_MAX_ROWS];
+
+    /* 桌宠 */
+    dash_metric_t *pet_busy_metric;
+    int pet_sleep_below;
+    int pet_idle_below;
+    int pet_happy_below;
+    int pet_state;
+    uint32_t pet_t0;
+    int pet_base_x, pet_base_y;
+    int pet_eye_x1, pet_eye_x2, pet_eye_y, pet_eye_w, pet_eye_h;
+    int pet_mouth_x, pet_mouth_y, pet_mouth_w, pet_mouth_h;
+    int pet_tail_x, pet_tail_y;
+    lv_obj_t *pet_actor;
+    lv_obj_t *pet_head;
+    lv_obj_t *pet_torso;
+    lv_obj_t *pet_ear_l;
+    lv_obj_t *pet_ear_r;
+    lv_obj_t *pet_eye_l;
+    lv_obj_t *pet_eye_r;
+    lv_obj_t *pet_cheek_l;
+    lv_obj_t *pet_cheek_r;
+    lv_obj_t *pet_mouth;
+    lv_obj_t *pet_tail;
+    lv_obj_t *pet_fx;
 } dyn_widget_t;
 
 typedef struct {
@@ -145,7 +180,6 @@ static dyn_view_t *s_view;
 static dyn_view_t *s_staging;
 static lv_obj_t *s_pending_blank;
 static bool s_engaged;
-static bool s_engaged;
 static lv_obj_t *s_portal_overlay;
 static lv_obj_t *s_portal_ssid;
 static lv_obj_t *s_portal_pass;
@@ -160,6 +194,7 @@ static int64_t s_page_last_ms;
 static uint32_t s_page_swaps;
 static int64_t s_trans_last_ms;
 static uint32_t s_trans_t0;
+static lv_timer_t *s_pet_timer;
 
 /* ---------------- JSON helpers ---------------- */
 
@@ -187,6 +222,52 @@ static bool jbool(cJSON *obj, const char *key, bool def)
     return def;
 }
 
+static uint32_t parse_hex_color(const char *s, uint32_t def)
+{
+    if (!s || s[0] != '#') return def;
+    char *end = NULL;
+    unsigned long value = strtoul(s + 1, &end, 16);
+    if (end == s + 1) return def;
+    return (uint32_t)value & 0xFFFFFFu;
+}
+
+static uint32_t jhex(cJSON *obj, const char *key, uint32_t def)
+{
+    if (!obj) return def;
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (!cJSON_IsString(item) || !item->valuestring) return def;
+    return parse_hex_color(item->valuestring, def);
+}
+
+/** 主题配色由服务端注入布局：theme_tokens。缺字段时回退经典配色。 */
+static void parse_theme_tokens(cJSON *root)
+{
+    ui_theme_t theme;
+    ui_theme_default(&theme);
+    cJSON *tokens = cJSON_GetObjectItemCaseSensitive(root, "theme_tokens");
+    if (cJSON_IsObject(tokens)) {
+        theme.bg = jhex(tokens, "bg", theme.bg);
+        theme.surface = jhex(tokens, "surface", theme.surface);
+        theme.surface_2 = jhex(tokens, "surface_2", theme.surface_2);
+        theme.border = jhex(tokens, "border", theme.border);
+        theme.text = jhex(tokens, "text", theme.text);
+        theme.text_dim = jhex(tokens, "text_dim", theme.text_dim);
+        theme.text_mut = jhex(tokens, "text_mut", theme.text_mut);
+        theme.accent = jhex(tokens, "accent", theme.accent);
+        theme.accent_2 = jhex(tokens, "accent_2", theme.accent_2);
+        theme.cyan = jhex(tokens, "cyan", theme.cyan);
+        theme.ok = jhex(tokens, "ok", theme.ok);
+        theme.warn = jhex(tokens, "warn", theme.warn);
+        theme.err = jhex(tokens, "err", theme.err);
+        theme.pink = jhex(tokens, "pink", theme.pink);
+        theme.radius = jint(tokens, "radius", theme.radius);
+    }
+    ui_theme_set(&theme);
+    const char *id = jstr(root, "theme", "classic");
+    ESP_LOGI(TAG, "theme '%s' bg=#%06X accent=#%06X radius=%d", id,
+             (unsigned)theme.bg, (unsigned)theme.accent, theme.radius);
+}
+
 static void copy_str(char *dst, size_t cap, const char *src)
 {
     if (!dst || cap == 0) return;
@@ -206,6 +287,7 @@ static int type_from_name(const char *name)
     if (strcmp(name, "sparkline") == 0) return DYN_SPARK;
     if (strcmp(name, "server_card") == 0) return DYN_SERVER;
     if (strcmp(name, "metric_list") == 0) return DYN_LIST;
+    if (strcmp(name, "desktop_pet") == 0) return DYN_PET;
     return DYN_UNKNOWN;
 }
 
@@ -217,6 +299,7 @@ static const char *type_label(int type)
     case DYN_SPARK: return "迷你曲线";
     case DYN_SERVER: return "服务器";
     case DYN_LIST: return "指标列表";
+    case DYN_PET: return "桌宠";
     default: return "组件";
     }
 }
@@ -260,6 +343,10 @@ static bool parse_widget(cJSON *wj, dyn_widget_t *w)
     w->show_title = true;
     w->list_show_labels = true;
     w->list_font_size = 1; /* M */
+    w->pet_sleep_below = 20;
+    w->pet_idle_below = 60;
+    w->pet_happy_below = 85;
+    w->pet_state = -1;
 
     cJSON *options = cJSON_GetObjectItemCaseSensitive(wj, "options");
     cJSON *labels = NULL, *units = NULL, *precisions = NULL, *types = NULL;
@@ -287,7 +374,7 @@ static bool parse_widget(cJSON *wj, dyn_widget_t *w)
         }
     }
 
-    if (w->type == DYN_KPI || w->type == DYN_SPARK) {
+    if (w->type == DYN_KPI || w->type == DYN_SPARK || w->type == DYN_PET) {
         dyn_binding_t *b = find_binding(w, "value");
         if (!b) return false;
         w->value_metric = b->metric;
@@ -303,6 +390,15 @@ static bool parse_widget(cJSON *wj, dyn_widget_t *w)
             if (ml) copy_str(w->value_label, sizeof(w->value_label), ml);
             const char *mt = jstr(options, "metric_type", NULL);
             if (mt) copy_str(w->value_type, sizeof(w->value_type), mt);
+        }
+        if (w->type == DYN_PET) {
+            if (cJSON_IsObject(options)) {
+                w->pet_sleep_below = jint(options, "sleep_below", w->pet_sleep_below);
+                w->pet_idle_below = jint(options, "idle_below", w->pet_idle_below);
+                w->pet_happy_below = jint(options, "happy_below", w->pet_happy_below);
+            }
+            dyn_binding_t *busy = find_binding(w, "busy");
+            if (busy) w->pet_busy_metric = busy->metric;
         }
     } else if (w->type == DYN_STATUS) {
         dyn_binding_t *b;
@@ -430,6 +526,19 @@ static void grid_rect(int gx, int gy, int gw, int gh,
     *oh = (int)lroundf(gh * ch + (gh - 1) * GRID_GAP);
 }
 
+/* 运行时中文字体：服务端按布局文字下发的 binfont；失败时回退内置子集 */
+static const lv_font_t *s_cjk_font;
+
+static const lv_font_t *cjk_font(void)
+{
+    return s_cjk_font ? s_cjk_font : UI_F_CJK;
+}
+
+void ui_dynamic_set_cjk_font(const lv_font_t *font)
+{
+    s_cjk_font = font;
+}
+
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
                             const lv_font_t *font, uint32_t color)
 {
@@ -438,6 +547,15 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
     lv_obj_set_style_text_font(label, font, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
     return label;
+}
+
+/** 纯 ASCII 文案用 Montserrat，避免中文字库的拉丁字形发虚/挤在一起 */
+static bool text_is_ascii(const char *text)
+{
+    for (; text && *text; text++) {
+        if ((unsigned char)*text >= 0x80) return false;
+    }
+    return true;
 }
 
 static lv_obj_t *make_row(lv_obj_t *parent)
@@ -458,7 +576,7 @@ static lv_obj_t *make_dot(lv_obj_t *parent, int size)
     lv_obj_remove_style_all(dot);
     lv_obj_set_size(dot, size, size);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dot, lv_color_hex(UI_TEXT_MUT), 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(ui_theme()->text_mut), 0);
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
     lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
     return dot;
@@ -472,13 +590,13 @@ static void build_status(dyn_widget_t *w)
     lv_obj_set_style_pad_column(w->body, 6, 0);
 
     w->status_dot = make_dot(w->body, 9);
-    w->status_model = make_label(w->body, "—", UI_F_CJK, UI_TEXT);
+    w->status_model = make_label(w->body, "—", cjk_font(), ui_theme()->text);
     lv_obj_set_flex_grow(w->status_model, 1);
     lv_obj_set_style_max_width(w->status_model, LV_PCT(70), 0);
-    lv_obj_set_height(w->status_model, 18);
+    lv_obj_set_height(w->status_model, 20);
     lv_label_set_long_mode(w->status_model, LV_LABEL_LONG_MODE_DOTS);
 
-    lv_obj_t *pill = ui_pill_create(w->body, "—", UI_ACCENT);
+    lv_obj_t *pill = ui_pill_create(w->body, "—", ui_theme()->accent);
     lv_obj_set_style_pad_ver(pill, 0, 0);
     lv_obj_set_style_pad_hor(pill, 6, 0);
     w->status_phase = lv_obj_get_child(pill, 0);
@@ -494,14 +612,14 @@ static void build_kpi_like(dyn_widget_t *w)
     lv_obj_t *row = make_row(w->body);
     const lv_font_t *value_font =
         (w->w <= 4) ? &lv_font_montserrat_24 : UI_F_H2;
-    w->kpi_value = make_label(row, "--", value_font, UI_TEXT);
+    w->kpi_value = make_label(row, "--", value_font, ui_theme()->text);
     lv_label_set_long_mode(w->kpi_value, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_max_width(w->kpi_value, LV_PCT(72), 0);
-    w->kpi_unit = make_label(row, w->value_unit, UI_F_CAP, UI_TEXT_MUT);
+    w->kpi_unit = make_label(row, w->value_unit, UI_F_CAP, ui_theme()->text_mut);
 
     if (!w->show_title) {
-        lv_obj_t *label = make_label(w->body, w->value_label, UI_F_CJK,
-                                     UI_TEXT_MUT);
+        lv_obj_t *label = make_label(w->body, w->value_label, cjk_font(),
+                                     ui_theme()->text_mut);
         lv_obj_set_width(label, LV_PCT(100));
         lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
     }
@@ -511,7 +629,7 @@ static void build_kpi_like(dyn_widget_t *w)
         int chart_h = w->body_h - reserved;
         if (chart_h < 24) chart_h = 24;
         if (chart_h > 70) chart_h = 70;
-        w->chart = ui_chart_create(w->body, chart_h, UI_ACCENT, 0,
+        w->chart = ui_chart_create(w->body, chart_h, ui_theme()->accent, 0,
                                    &w->chart_series, NULL);
         lv_chart_set_point_count(w->chart, 60);
         lv_chart_set_range(w->chart, LV_CHART_AXIS_PRIMARY_Y, 0, 1);
@@ -532,13 +650,13 @@ static void build_server(dyn_widget_t *w)
         lv_obj_set_pos(row, 0, i * row_h);
         lv_obj_set_size(row, body_w, row_h);
 
-        w->server_label[i] = make_label(row, w->server[i].label, UI_F_CJK,
-                                        UI_TEXT_MUT);
+        w->server_label[i] = make_label(row, w->server[i].label, cjk_font(),
+                                        ui_theme()->text_mut);
         lv_obj_set_pos(w->server_label[i], 0, 0);
         lv_obj_set_size(w->server_label[i], label_w, row_h);
         lv_label_set_long_mode(w->server_label[i], LV_LABEL_LONG_MODE_DOTS);
 
-        w->server_value[i] = make_label(row, "--", UI_F_CAP, UI_TEXT);
+        w->server_value[i] = make_label(row, "--", UI_F_CAP, ui_theme()->text);
         lv_obj_set_pos(w->server_value[i], label_w, 0);
         lv_obj_set_size(w->server_value[i], value_w, row_h);
         lv_obj_set_style_text_align(w->server_value[i], LV_TEXT_ALIGN_RIGHT, 0);
@@ -567,7 +685,7 @@ static void build_metric_list(dyn_widget_t *w)
         bool bool_status = (strcmp(r->mtype, "bool") == 0) ||
                            (strcmp(r->kind, "status") == 0);
         bool show_dot = bool_status;
-        const lv_font_t *row_value_font = bool_status ? UI_F_CJK : value_font;
+        const lv_font_t *row_value_font = bool_status ? cjk_font() : value_font;
         if (show_dot) {
             w->list_dot[i] = make_dot(row, 7);
             lv_obj_set_pos(w->list_dot[i], 0, (row_h - 7) / 2);
@@ -575,17 +693,274 @@ static void build_metric_list(dyn_widget_t *w)
         }
         int label_w = w->list_show_labels ? body_w * 38 / 100 : 0;
         if (w->list_show_labels) {
-            w->list_label[i] = make_label(row, r->label, UI_F_CJK, UI_TEXT_MUT);
+            w->list_label[i] = make_label(row, r->label, cjk_font(), ui_theme()->text_mut);
             lv_obj_set_pos(w->list_label[i], x, 0);
             lv_obj_set_size(w->list_label[i], label_w, row_h);
             lv_label_set_long_mode(w->list_label[i], LV_LABEL_LONG_MODE_DOTS);
             x += label_w;
         }
-        w->list_value[i] = make_label(row, "--", row_value_font, UI_TEXT);
+        w->list_value[i] = make_label(row, "--", row_value_font, ui_theme()->text);
         lv_obj_set_pos(w->list_value[i], x, 0);
         lv_obj_set_size(w->list_value[i], body_w - x, row_h);
         lv_obj_set_style_text_align(w->list_value[i], LV_TEXT_ALIGN_RIGHT, 0);
         lv_label_set_long_mode(w->list_value[i], LV_LABEL_LONG_MODE_DOTS);
+    }
+}
+
+/* ---------------- 桌宠 ---------------- */
+
+static lv_obj_t *make_pet_part(lv_obj_t *parent, uint32_t color)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    return o;
+}
+
+static void pet_place(lv_obj_t *o, int x, int y, int w, int h)
+{
+    if (!o) return;
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_size(o, w, h);
+}
+
+static void build_pet(dyn_widget_t *w)
+{
+    const ui_theme_t *th = ui_theme();
+    int bw = w->body_w;
+    int bh = w->body_h;
+    int s = bw < bh ? bw : bh;
+    if (s > 120) s = 120;
+    if (s < 36) s = 36;
+    int ox = (bw - s) / 2;
+    int oy = bh - s;
+    if (oy < 0) oy = 0;
+    w->pet_base_x = ox;
+    w->pet_base_y = oy;
+
+    lv_obj_t *shadow = make_pet_part(w->body, th->text_mut);
+    pet_place(shadow, ox + s * 23 / 100, oy + s * 90 / 100,
+              s * 54 / 100, s * 7 / 100);
+    lv_obj_set_style_bg_opa(shadow, LV_OPA_30, 0);
+
+    w->pet_actor = ui_group_create(w->body);
+    lv_obj_set_pos(w->pet_actor, ox, oy);
+    lv_obj_set_size(w->pet_actor, s, s);
+
+    w->pet_ear_l = make_pet_part(w->pet_actor, th->accent_2);
+    w->pet_ear_r = make_pet_part(w->pet_actor, th->accent_2);
+    w->pet_torso = make_pet_part(w->pet_actor, th->accent);
+    w->pet_head = make_pet_part(w->pet_actor, th->accent);
+    w->pet_cheek_l = make_pet_part(w->pet_actor, th->pink);
+    w->pet_cheek_r = make_pet_part(w->pet_actor, th->pink);
+    w->pet_eye_l = make_pet_part(w->pet_actor, th->bg);
+    w->pet_eye_r = make_pet_part(w->pet_actor, th->bg);
+    w->pet_mouth = make_pet_part(w->pet_actor, th->bg);
+    w->pet_tail = make_pet_part(w->pet_actor, th->accent_2);
+
+    pet_place(w->pet_ear_l, s * 18 / 100, s * 3 / 100, s * 15 / 100, s * 15 / 100);
+    pet_place(w->pet_ear_r, s * 67 / 100, s * 3 / 100, s * 15 / 100, s * 15 / 100);
+    pet_place(w->pet_torso, s * 17 / 100, s * 50 / 100, s * 66 / 100, s * 44 / 100);
+    pet_place(w->pet_head, s * 21 / 100, s * 12 / 100, s * 58 / 100, s * 50 / 100);
+    pet_place(w->pet_cheek_l, s * 25 / 100, s * 48 / 100, s * 9 / 100, s * 5 / 100);
+    pet_place(w->pet_cheek_r, s * 66 / 100, s * 48 / 100, s * 9 / 100, s * 5 / 100);
+    lv_obj_set_style_bg_opa(w->pet_cheek_l, LV_OPA_60, 0);
+    lv_obj_set_style_bg_opa(w->pet_cheek_r, LV_OPA_60, 0);
+
+    w->pet_eye_x1 = s * 35 / 100;
+    w->pet_eye_x2 = s * 58 / 100;
+    w->pet_eye_y = s * 33 / 100;
+    w->pet_eye_w = s * 7 / 100;
+    if (w->pet_eye_w < 3) w->pet_eye_w = 3;
+    w->pet_eye_h = s * 10 / 100;
+    if (w->pet_eye_h < 4) w->pet_eye_h = 4;
+    pet_place(w->pet_eye_l, w->pet_eye_x1, w->pet_eye_y,
+              w->pet_eye_w, w->pet_eye_h);
+    pet_place(w->pet_eye_r, w->pet_eye_x2, w->pet_eye_y,
+              w->pet_eye_w, w->pet_eye_h);
+
+    w->pet_mouth_w = s * 14 / 100;
+    if (w->pet_mouth_w < 6) w->pet_mouth_w = 6;
+    w->pet_mouth_h = s * 4 / 100;
+    if (w->pet_mouth_h < 2) w->pet_mouth_h = 2;
+    w->pet_mouth_x = s / 2 - w->pet_mouth_w / 2;
+    w->pet_mouth_y = s * 53 / 100;
+    pet_place(w->pet_mouth, w->pet_mouth_x, w->pet_mouth_y,
+              w->pet_mouth_w, w->pet_mouth_h);
+
+    w->pet_tail_x = s * 80 / 100;
+    w->pet_tail_y = s * 60 / 100;
+    pet_place(w->pet_tail, w->pet_tail_x, w->pet_tail_y,
+              s * 12 / 100, s * 12 / 100);
+
+    w->pet_fx = lv_label_create(w->pet_actor);
+    lv_label_set_text(w->pet_fx, "");
+    lv_obj_set_style_text_font(w->pet_fx, UI_F_CAP, 0);
+    lv_obj_set_style_text_color(w->pet_fx, lv_color_hex(th->text_dim), 0);
+    lv_obj_set_pos(w->pet_fx, s * 66 / 100, 0);
+    lv_obj_set_size(w->pet_fx, s * 34 / 100, 16);
+    lv_obj_set_style_text_align(w->pet_fx, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_opa(w->pet_fx, LV_OPA_TRANSP, 0);
+
+    w->pet_t0 = lv_tick_get();
+    if (w->pet_t0 == 0) w->pet_t0 = 1;
+}
+
+static void pet_apply_state(dyn_widget_t *w, int state)
+{
+    if (!w->pet_actor || w->pet_state == state) return;
+    w->pet_state = state;
+    w->pet_t0 = lv_tick_get();
+    if (w->pet_t0 == 0) w->pet_t0 = 1;
+
+    const ui_theme_t *th = ui_theme();
+    uint32_t body = th->accent;
+    uint32_t second = th->accent_2;
+    uint32_t eye = th->bg;
+    const char *fx = "";
+    switch (state) {
+    case PET_SLEEP:
+        body = th->accent_2;
+        fx = "Zzz";
+        break;
+    case PET_HAPPY:
+        break;
+    case PET_BUSY:
+        fx = "...";
+        break;
+    case PET_ALERT:
+        body = th->err;
+        eye = th->err;
+        fx = "!";
+        break;
+    case PET_OFFLINE:
+        body = th->text_mut;
+        second = th->text_dim;
+        eye = th->text_mut;
+        fx = "?";
+        break;
+    default:
+        break;
+    }
+
+    lv_obj_set_style_bg_color(w->pet_head, lv_color_hex(body), 0);
+    lv_obj_set_style_bg_color(w->pet_torso, lv_color_hex(body), 0);
+    lv_obj_set_style_bg_color(w->pet_ear_l, lv_color_hex(second), 0);
+    lv_obj_set_style_bg_color(w->pet_ear_r, lv_color_hex(second), 0);
+    lv_obj_set_style_bg_color(w->pet_tail, lv_color_hex(second), 0);
+    lv_obj_set_style_bg_color(w->pet_eye_l, lv_color_hex(eye), 0);
+    lv_obj_set_style_bg_color(w->pet_eye_r, lv_color_hex(eye), 0);
+    lv_obj_set_style_bg_opa(w->pet_cheek_l,
+                            state == PET_OFFLINE ? LV_OPA_20 : LV_OPA_60, 0);
+    lv_obj_set_style_bg_opa(w->pet_cheek_r,
+                            state == PET_OFFLINE ? LV_OPA_20 : LV_OPA_60, 0);
+    lv_label_set_text(w->pet_fx, fx);
+    lv_obj_set_style_text_color(w->pet_fx,
+        lv_color_hex(state == PET_ALERT ? th->err : th->text_dim), 0);
+    lv_obj_set_style_opa(w->pet_fx, fx[0] ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+}
+
+static void pet_animate(dyn_widget_t *w, uint32_t now)
+{
+    if (!w->pet_actor) return;
+    float t = (now - w->pet_t0) / 1000.0f;
+    int dx = 0, dy = 0;
+    int eye_y = w->pet_eye_y;
+    int eye_h = w->pet_eye_h;
+    int mouth_w = w->pet_mouth_w;
+    int tail_dx = 0;
+    bool blink = false;
+
+    switch (w->pet_state) {
+    case PET_IDLE:
+        dy = (int)(sinf(t * 2.4f) * 2.0f);
+        tail_dx = (int)(sinf(t * 1.8f) * 2.0f);
+        blink = fmodf(t, 3.6f) < 0.12f;
+        break;
+    case PET_HAPPY:
+        dy = -(int)(fabsf(sinf(t * 5.0f)) * 5.0f);
+        mouth_w += 3;
+        tail_dx = (int)(sinf(t * 9.0f) * 4.0f);
+        blink = fmodf(t, 2.4f) < 0.1f;
+        break;
+    case PET_BUSY:
+        dx = (int)(sinf(t * 16.0f) * 1.5f);
+        tail_dx = (int)(sinf(t * 6.0f) * 3.0f);
+        break;
+    case PET_ALERT:
+        dx = (int)(sinf(t * 38.0f) * 2.0f);
+        eye_h += 2;
+        eye_y -= 1;
+        tail_dx = (int)(sinf(t * 13.0f) * 5.0f);
+        break;
+    case PET_SLEEP:
+        dy = (int)(sinf(t * 1.1f) * 1.5f);
+        eye_h = 2;
+        eye_y = w->pet_eye_y + w->pet_eye_h / 2;
+        mouth_w -= 3;
+        tail_dx = -2;
+        break;
+    case PET_OFFLINE:
+        eye_h = 2;
+        eye_y = w->pet_eye_y + w->pet_eye_h / 2;
+        mouth_w -= 3;
+        break;
+    default:
+        break;
+    }
+
+    if (blink) {
+        eye_h = 2;
+        eye_y = w->pet_eye_y + w->pet_eye_h / 2;
+    }
+    if (mouth_w < 5) mouth_w = 5;
+
+    lv_obj_set_pos(w->pet_actor, w->pet_base_x + dx, w->pet_base_y + dy);
+    lv_obj_set_pos(w->pet_eye_l, w->pet_eye_x1, eye_y);
+    lv_obj_set_size(w->pet_eye_l, w->pet_eye_w, eye_h);
+    lv_obj_set_pos(w->pet_eye_r, w->pet_eye_x2, eye_y);
+    lv_obj_set_size(w->pet_eye_r, w->pet_eye_w, eye_h);
+    lv_obj_set_pos(w->pet_mouth,
+                   w->pet_mouth_x + (w->pet_mouth_w - mouth_w) / 2,
+                   w->pet_mouth_y);
+    lv_obj_set_size(w->pet_mouth, mouth_w, w->pet_mouth_h);
+    lv_obj_set_pos(w->pet_tail, w->pet_tail_x + tail_dx, w->pet_tail_y);
+}
+
+static bool view_has_pet(dyn_view_t *v)
+{
+    if (!v) return false;
+    for (int i = 0; i < v->widget_count; i++) {
+        if (v->widgets[i].type == DYN_PET) return true;
+    }
+    return false;
+}
+
+static void pet_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_view) return;
+    uint32_t now = lv_tick_get();
+    for (int i = 0; i < s_view->widget_count; i++) {
+        dyn_widget_t *w = &s_view->widgets[i];
+        if (w->type == DYN_PET && w->page == s_view->current_page) {
+            pet_animate(w, now);
+        }
+    }
+}
+
+static void pet_timer_sync(void)
+{
+    bool any = view_has_pet(s_view);
+    if (any && !s_pet_timer) {
+        s_pet_timer = lv_timer_create(pet_timer_cb, 50, NULL);
+    } else if (!any && s_pet_timer) {
+        lv_timer_delete(s_pet_timer);
+        s_pet_timer = NULL;
     }
 }
 
@@ -606,11 +981,11 @@ static void build_widget_ui(dyn_widget_t *w, lv_obj_t *parent)
 
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_remove_style_all(card);
-    lv_obj_set_style_bg_color(card, lv_color_hex(UI_SURFACE), 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(ui_theme()->surface), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, UI_R_M, 0);
+    lv_obj_set_style_radius(card, ui_theme()->radius, 0);
     lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_set_style_border_color(card, lv_color_hex(UI_BORDER), 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(ui_theme()->border), 0);
     lv_obj_set_pos(card, x, y);
     lv_obj_set_size(card, ww, hh);
     lv_obj_set_style_pad_all(card, 0, 0);
@@ -620,7 +995,7 @@ static void build_widget_ui(dyn_widget_t *w, lv_obj_t *parent)
 
     int header_h = 0;
     if (w->show_title) {
-        lv_obj_t *title = ui_caption_create(card, w->title);
+        lv_obj_t *title = make_label(card, w->title, cjk_font(), ui_theme()->text_dim);
         lv_obj_set_pos(title, 8, 4);
         lv_obj_set_size(title, ww - 16, 18);
         lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
@@ -649,6 +1024,9 @@ static void build_widget_ui(dyn_widget_t *w, lv_obj_t *parent)
         break;
     case DYN_LIST:
         build_metric_list(w);
+        break;
+    case DYN_PET:
+        build_pet(w);
         break;
     default:
         break;
@@ -699,9 +1077,9 @@ static void format_number_only(char *out, size_t cap, const dash_metric_t *m,
 static void set_dot(lv_obj_t *dot, const dash_metric_t *m)
 {
     if (!dot) return;
-    uint32_t color = UI_TEXT_MUT;
+    uint32_t color = ui_theme()->text_mut;
     if (m && m->available && m->type == DASH_METRIC_BOOL) {
-        color = m->boolean ? UI_OK : UI_ERR;
+        color = m->boolean ? ui_theme()->ok : ui_theme()->err;
     }
     lv_color_t target = lv_color_hex(color);
     lv_color_t current = lv_obj_get_style_bg_color(dot, 0);
@@ -748,13 +1126,24 @@ static void apply_widget(dyn_widget_t *w)
             const char *text = (w->model_metric && w->model_metric->available)
                                    ? w->model_metric->text
                                    : "—";
-            label_set_if_changed(w->status_model, text[0] ? text : "—");
+            if (!text[0]) text = "—";
+            label_set_if_changed(w->status_model, text);
+            /* 模型名通常是英文：用 Montserrat，避免子集字库的拉丁字形被拉挤 */
+            const lv_font_t *font = text_is_ascii(text) ? UI_F_BODY : cjk_font();
+            if (lv_obj_get_style_text_font(w->status_model, 0) != font) {
+                lv_obj_set_style_text_font(w->status_model, font, 0);
+            }
         }
         if (w->status_phase) {
             const char *text = (w->phase_metric && w->phase_metric->available)
                                    ? w->phase_metric->text
                                    : "未知";
-            label_set_if_changed(w->status_phase, text[0] ? text : "未知");
+            if (!text[0]) text = "未知";
+            label_set_if_changed(w->status_phase, text);
+            const lv_font_t *font = text_is_ascii(text) ? UI_F_CAP : cjk_font();
+            if (lv_obj_get_style_text_font(w->status_phase, 0) != font) {
+                lv_obj_set_style_text_font(w->status_phase, font, 0);
+            }
         }
         break;
 
@@ -837,6 +1226,29 @@ static void apply_widget(dyn_widget_t *w)
                 label_set_if_changed(w->server_value[i], text);
             }
         }
+        break;
+    }
+
+    case DYN_PET: {
+        int state = PET_OFFLINE;
+        const dash_metric_t *m = w->value_metric;
+        if (m && m->available) {
+            const dash_metric_t *busy = w->pet_busy_metric;
+            if (busy && busy->available && busy->type == DASH_METRIC_BOOL &&
+                busy->boolean) {
+                state = PET_BUSY;
+            } else if (m->type == DASH_METRIC_BOOL) {
+                state = m->boolean ? PET_HAPPY : PET_OFFLINE;
+            } else if (m->type == DASH_METRIC_NUMBER) {
+                if (m->number < w->pet_sleep_below) state = PET_SLEEP;
+                else if (m->number < w->pet_idle_below) state = PET_IDLE;
+                else if (m->number < w->pet_happy_below) state = PET_HAPPY;
+                else state = PET_ALERT;
+            } else {
+                state = PET_IDLE;
+            }
+        }
+        pet_apply_state(w, state);
         break;
     }
 
@@ -1125,11 +1537,16 @@ void ui_dynamic_commit(void)
         ESP_LOGI(TAG, "layout committed atomically");
     }
     s_engaged = true;
+    pet_timer_sync();
     ui_dynamic_apply();
 }
 
 void ui_dynamic_destroy(void)
 {
+    if (s_pet_timer) {
+        lv_timer_delete(s_pet_timer);
+        s_pet_timer = NULL;
+    }
     if (s_staging) {
         free_view(s_staging, true);
         s_staging = NULL;
@@ -1138,7 +1555,7 @@ void ui_dynamic_destroy(void)
         lv_obj_t *blank = lv_obj_create(NULL);
         if (blank) {
             lv_obj_remove_style_all(blank);
-            lv_obj_set_style_bg_color(blank, lv_color_hex(UI_BG), 0);
+            lv_obj_set_style_bg_color(blank, lv_color_hex(ui_theme()->bg), 0);
             lv_obj_set_style_bg_opa(blank, LV_OPA_COVER, 0);
             lv_screen_load(blank);
         }
@@ -1219,7 +1636,7 @@ void ui_dynamic_show_portal(bool show, const char *ssid, const char *pass,
         lv_obj_remove_style_all(s_portal_overlay);
         lv_obj_set_pos(s_portal_overlay, 0, 0);
         lv_obj_set_size(s_portal_overlay, PROFILE_W, PROFILE_H);
-        lv_obj_set_style_bg_color(s_portal_overlay, lv_color_hex(UI_BG), 0);
+        lv_obj_set_style_bg_color(s_portal_overlay, lv_color_hex(ui_theme()->bg), 0);
         lv_obj_set_style_bg_opa(s_portal_overlay, LV_OPA_COVER, 0);
         lv_obj_remove_flag(s_portal_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1229,17 +1646,17 @@ void ui_dynamic_show_portal(bool show, const char *ssid, const char *pass,
         lv_obj_set_style_pad_all(card, 16, 0);
         lv_obj_set_style_pad_row(card, 8, 0);
 
-        make_label(card, "配网模式", UI_F_CJK, UI_ACCENT);
-        make_label(card, "连接热点后打开浏览器", UI_F_CJK, UI_TEXT_MUT);
-        s_portal_ssid = make_label(card, "Wi-Fi: ", UI_F_CJK, UI_TEXT);
+        make_label(card, "配网模式", cjk_font(), ui_theme()->accent);
+        make_label(card, "连接热点后打开浏览器", cjk_font(), ui_theme()->text_mut);
+        s_portal_ssid = make_label(card, "Wi-Fi: ", cjk_font(), ui_theme()->text);
         lv_obj_set_width(s_portal_ssid, LV_PCT(100));
         lv_label_set_long_mode(s_portal_ssid, LV_LABEL_LONG_MODE_DOTS);
-        s_portal_pass = make_label(card, "密码: ", UI_F_CJK, UI_TEXT);
+        s_portal_pass = make_label(card, "密码: ", cjk_font(), ui_theme()->text);
         lv_obj_set_width(s_portal_pass, LV_PCT(100));
         lv_label_set_long_mode(s_portal_pass, LV_LABEL_LONG_MODE_DOTS);
         s_portal_url = make_label(card, "http://192.168.4.1", UI_F_H3,
-                                  UI_ACCENT);
-        make_label(card, "保存后设备自动重启并连接", UI_F_CJK, UI_TEXT_MUT);
+                                  ui_theme()->accent);
+        make_label(card, "保存后设备自动重启并连接", cjk_font(), ui_theme()->text_mut);
     }
 
     lv_label_set_text_fmt(s_portal_ssid, "Wi-Fi: %s", ssid ? ssid : "");
@@ -1273,6 +1690,8 @@ bool ui_dynamic_build(const char *layout_json, char *subscribe_out,
         ESP_LOGE(TAG, "layout JSON parse failed");
         goto out;
     }
+
+    parse_theme_tokens(root);
 
     const char *profile = jstr(root, "profile", "");
     if (strcmp(profile, "320x480") != 0) {
@@ -1360,7 +1779,7 @@ bool ui_dynamic_build(const char *layout_json, char *subscribe_out,
         goto out;
     }
     lv_obj_remove_style_all(next->screen);
-    lv_obj_set_style_bg_color(next->screen, lv_color_hex(UI_BG), 0);
+    lv_obj_set_style_bg_color(next->screen, lv_color_hex(ui_theme()->bg), 0);
     lv_obj_set_style_bg_opa(next->screen, LV_OPA_COVER, 0);
     lv_obj_remove_flag(next->screen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -1429,7 +1848,8 @@ static int count_supported_widgets(cJSON *arr)
         if (strcmp(type, "status_pill") == 0 || strcmp(type, "kpi") == 0 ||
             strcmp(type, "sparkline") == 0 ||
             strcmp(type, "server_card") == 0 ||
-            strcmp(type, "metric_list") == 0) {
+            strcmp(type, "metric_list") == 0 ||
+            strcmp(type, "desktop_pet") == 0) {
             n++;
         }
     }

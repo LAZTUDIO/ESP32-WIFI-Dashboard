@@ -14,6 +14,8 @@ class Catalog:
     widgets: dict[str, dict[str, Any]]
     widget_list: list[dict[str, Any]]
     profiles: dict[str, dict[str, Any]]
+    themes: dict[str, dict[str, Any]]
+    theme_list: list[dict[str, Any]]
     version: int = 1
 
 
@@ -26,9 +28,11 @@ def load_catalog() -> Catalog:
     metrics_doc = _load("metrics.json")
     widgets_doc = _load("widgets.json")
     profiles_doc = _load("profiles.json")
+    themes_doc = _load("themes.json")
 
     metric_list = metrics_doc.get("metrics", [])
     widget_list = widgets_doc.get("widgets", [])
+    theme_list = themes_doc.get("themes", [])
 
     metrics = {m["id"]: m for m in metric_list}
     if len(metrics) != len(metric_list):
@@ -38,11 +42,21 @@ def load_catalog() -> Catalog:
     if len(widgets) != len(widget_list):
         raise ValueError("widgets.json 存在重复 type")
 
+    themes = {t["id"]: t for t in theme_list}
+    if len(themes) != len(theme_list):
+        raise ValueError("themes.json 存在重复 id")
+    for theme in theme_list:
+        tokens = theme.get("tokens")
+        if not isinstance(tokens, dict) or not tokens.get("bg"):
+            raise ValueError(f"themes.json 主题 {theme['id']} 缺少 tokens")
+
     return Catalog(
         metrics=metrics,
         metric_list=metric_list,
         widgets=widgets,
         widget_list=widget_list,
         profiles=profiles_doc.get("profiles", {}),
+        themes=themes,
+        theme_list=theme_list,
         version=int(metrics_doc.get("version", 1)),
     )

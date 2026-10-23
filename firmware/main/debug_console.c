@@ -31,19 +31,12 @@
 #include "display.h"
 #include "wifi_mgr.h"
 #include "app_config.h"
-#include "ui.h"
 #include "ui_dynamic.h"
 #include "dash_metric_store.h"
 #include "app_actions.h"
 
 static const char *TAG = "dbg";
-static dbg_view_cb_t s_view_cb;
 static QueueHandle_t s_perf_q;
-
-void debug_console_set_view_cb(dbg_view_cb_t cb)
-{
-    s_view_cb = cb;
-}
 
 #define B64_LINE 76
 
@@ -271,7 +264,7 @@ static void cmd_wifi(char *arg)
     save_and_reboot(&cfg);
 }
 
-/* c <服务地址>|<密钥>  —— 串口配 API 服务 */
+/* c <服务地址>|<密钥>  —— 串口配传统 API */
 static void cmd_server(char *arg)
 {
     char *bar = strchr(arg, '|');
@@ -283,13 +276,18 @@ static void cmd_server(char *arg)
                  trim_tail(trim_head(arg)));
         snprintf(cfg.api_key, sizeof(cfg.api_key), "%s", trim_tail(bar + 1));
     } else if (*arg) {
-        snprintf(cfg.server_url, sizeof(cfg.server_url), "%s",
-                 trim_tail(trim_head(arg)));
+        if (strcmp(trim_tail(trim_head(arg)), "-") == 0) {
+            cfg.server_url[0] = '\0';
+        } else {
+            snprintf(cfg.server_url, sizeof(cfg.server_url), "%s",
+                     trim_tail(trim_head(arg)));
+        }
     } else {
         printf("[W] dbg: 用法 c <url>|<key>\n");
         return;
     }
-    printf("[I] dbg: server='%s' key_len=%u\n", cfg.server_url,
+    config_normalize(&cfg);
+    printf("[I] dbg: api='%s' key_len=%u\n", cfg.server_url,
            (unsigned)strlen(cfg.api_key));
     save_and_reboot(&cfg);
 }
@@ -314,7 +312,7 @@ static void cmd_host(char *arg)
     save_and_reboot(&cfg);
 }
 
-/* d <url>  —— 配置 0.2 动态看板服务端 */
+/* d <url>  —— 配置动态看板服务端 */
 static void cmd_dashboard(char *arg)
 {
     app_config_t cfg;
@@ -564,20 +562,6 @@ static void handle_line(char *line)
     case 'c': cmd_server(line + 1); break;
     case 'o': cmd_host(line + 1); break;
     case 'd': cmd_dashboard(line + 1); break;
-    case 't':
-        if (ui_dynamic_engaged()) {
-            printf("[I] dbg: dynamic mode, theme is controlled by server\n");
-        } else if (s_view_cb) {
-            s_view_cb(atoi(line + 1), -1);
-        }
-        break;
-    case 'r':
-        if (ui_dynamic_engaged()) {
-            printf("[I] dbg: dynamic mode, rotation is fixed by layout\n");
-        } else if (s_view_cb) {
-            s_view_cb(-1, 2);
-        }
-        break;
     case 'm':
         dash_metric_store_dump();
         break;
@@ -587,11 +571,7 @@ static void handle_line(char *line)
         break;
     case 'p':
         if (lvgl_port_lock(300)) {
-            if (ui_dynamic_active()) {
-                ui_dynamic_set_page(atoi(line + 1));
-            } else if (!ui_dynamic_engaged()) {
-                dashboard_ui_set_page(atoi(line + 1));
-            }
+            ui_dynamic_set_page(atoi(line + 1));
             lvgl_port_unlock();
         }
         break;
@@ -675,8 +655,7 @@ static void handle_line(char *line)
                "a=small anim fps  A=full anim fps  p <0-3>=page  "
                "f <page>=page-flip fps  T <page> <ms>=mid-transition snapshot  "
                "v <0-6>=page anim  S=synthetic swipe  "
-               "t <0-2>=theme  r=flip 180  w <ssid>|<pass>=wifi  "
-               "c <url>|<key>=server  o <url>=host/panel  "
+               "w <ssid>|<pass>=wifi  c <url>|<key>=api  o <url>=host  "
                "d <url>=dashboard  m=dump metrics  P=provision\n");
         break;
     default:

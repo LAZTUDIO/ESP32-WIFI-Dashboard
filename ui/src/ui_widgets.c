@@ -1,5 +1,59 @@
 #include "ui.h"
 
+/* ---------------- 运行时配色 ---------------- */
+
+static ui_theme_t s_theme = {
+    .bg = UI_BG,
+    .surface = UI_SURFACE,
+    .surface_2 = UI_SURFACE_2,
+    .border = UI_BORDER,
+    .text = UI_TEXT,
+    .text_dim = UI_TEXT_DIM,
+    .text_mut = UI_TEXT_MUT,
+    .accent = UI_ACCENT,
+    .accent_2 = UI_ACCENT_2,
+    .cyan = UI_CYAN,
+    .ok = UI_OK,
+    .warn = UI_WARN,
+    .err = UI_ERR,
+    .pink = UI_PINK,
+    .radius = UI_R_M,
+};
+
+void ui_theme_default(ui_theme_t *t)
+{
+    if (!t) return;
+    *t = (ui_theme_t){
+        .bg = UI_BG,
+        .surface = UI_SURFACE,
+        .surface_2 = UI_SURFACE_2,
+        .border = UI_BORDER,
+        .text = UI_TEXT,
+        .text_dim = UI_TEXT_DIM,
+        .text_mut = UI_TEXT_MUT,
+        .accent = UI_ACCENT,
+        .accent_2 = UI_ACCENT_2,
+        .cyan = UI_CYAN,
+        .ok = UI_OK,
+        .warn = UI_WARN,
+        .err = UI_ERR,
+        .pink = UI_PINK,
+        .radius = UI_R_M,
+    };
+}
+
+const ui_theme_t *ui_theme(void)
+{
+    return &s_theme;
+}
+
+void ui_theme_set(const ui_theme_t *t)
+{
+    if (t) s_theme = *t;
+}
+
+/* ---------------- 组件 ---------------- */
+
 lv_obj_t * ui_group_create(lv_obj_t * parent)
 {
     lv_obj_t * o = lv_obj_create(parent);
@@ -15,13 +69,14 @@ lv_obj_t * ui_group_create(lv_obj_t * parent)
 
 lv_obj_t * ui_card_create(lv_obj_t * parent)
 {
+    const ui_theme_t * th = ui_theme();
     lv_obj_t * o = lv_obj_create(parent);
     lv_obj_remove_style_all(o);
-    lv_obj_set_style_bg_color(o, lv_color_hex(UI_SURFACE), 0);
+    lv_obj_set_style_bg_color(o, lv_color_hex(th->surface), 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(o, UI_R_M, 0);
+    lv_obj_set_style_radius(o, th->radius, 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_border_color(o, lv_color_hex(UI_BORDER), 0);
+    lv_obj_set_style_border_color(o, lv_color_hex(th->border), 0);
     lv_obj_set_style_pad_all(o, 10, 0);
     lv_obj_set_style_pad_row(o, 2, 0);
     lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
@@ -29,33 +84,6 @@ lv_obj_t * ui_card_create(lv_obj_t * parent)
                           LV_FLEX_ALIGN_START);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
     return o;
-}
-
-lv_obj_t * ui_label_create(lv_obj_t * parent, const char * text)
-{
-    lv_obj_t * l = lv_label_create(parent);
-    lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, UI_F_BODY, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(UI_TEXT), 0);
-    return l;
-}
-
-lv_obj_t * ui_cjk_create(lv_obj_t * parent, const char * text)
-{
-    lv_obj_t * l = lv_label_create(parent);
-    lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, UI_F_CJK, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(UI_TEXT), 0);
-    return l;
-}
-
-lv_obj_t * ui_caption_create(lv_obj_t * parent, const char * text)
-{
-    lv_obj_t * l = lv_label_create(parent);
-    lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, UI_F_CJK, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(UI_TEXT_DIM), 0);
-    return l;
 }
 
 lv_obj_t * ui_pill_create(lv_obj_t * parent, const char * text, uint32_t color)
@@ -78,26 +106,11 @@ lv_obj_t * ui_pill_create(lv_obj_t * parent, const char * text, uint32_t color)
     return pill;
 }
 
-lv_obj_t * ui_bar_create(lv_obj_t * parent, int32_t max, uint32_t color)
-{
-    lv_obj_t * bar = lv_bar_create(parent);
-    lv_obj_remove_style_all(bar);
-    lv_obj_set_size(bar, LV_PCT(100), 5);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(UI_BORDER), 0);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(bar, UI_R_PILL, 0);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(color), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(bar, UI_R_PILL, LV_PART_INDICATOR);
-    lv_bar_set_range(bar, 0, max > 0 ? max : 100);
-    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    return bar;
-}
-
 lv_obj_t * ui_chart_create(lv_obj_t * parent, int32_t height,
                            uint32_t color1, uint32_t color2,
                            lv_chart_series_t ** s1, lv_chart_series_t ** s2)
 {
+    const ui_theme_t * th = ui_theme();
     lv_obj_t * chart = lv_chart_create(parent);
     lv_obj_remove_style_all(chart);
     lv_obj_set_size(chart, LV_PCT(100), height);
@@ -105,7 +118,7 @@ lv_obj_t * ui_chart_create(lv_obj_t * parent, int32_t height,
     lv_obj_set_style_border_width(chart, 0, 0);
     lv_obj_set_style_pad_all(chart, 0, 0);
     lv_obj_set_style_line_width(chart, 1, LV_PART_MAIN);
-    lv_obj_set_style_line_color(chart, lv_color_hex(UI_BORDER), LV_PART_MAIN);
+    lv_obj_set_style_line_color(chart, lv_color_hex(th->border), LV_PART_MAIN);
     lv_obj_set_style_line_opa(chart, LV_OPA_40, LV_PART_MAIN);
     lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
     lv_obj_set_style_line_rounded(chart, true, LV_PART_ITEMS);
@@ -113,7 +126,7 @@ lv_obj_t * ui_chart_create(lv_obj_t * parent, int32_t height,
     lv_obj_set_style_width(chart, 0, LV_PART_INDICATOR);
     lv_obj_set_style_height(chart, 0, LV_PART_INDICATOR);
     lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_point_count(chart, DASH_HISTORY_LEN);
+    lv_chart_set_point_count(chart, 60);
     lv_chart_set_div_line_count(chart, 4, 0);
     lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
 

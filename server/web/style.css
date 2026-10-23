@@ -182,7 +182,7 @@ select:focus, input:focus { border-color: var(--accent); }
   overflow: hidden;
   touch-action: none;
 }
-.widget.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 20px rgba(77, 141, 255, .18); }
+.widget.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 8px 20px color-mix(in srgb, var(--accent) 22%, transparent); }
 .widget:hover { border-color: #3a4c66; }
 .widget.selected:hover { border-color: var(--accent); }
 .widget.dragging { opacity: .88; z-index: 10; }
@@ -220,7 +220,7 @@ select:focus, input:focus { border-color: var(--accent); }
 
 .status-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
-.status-dot.on { background: var(--ok); box-shadow: 0 0 8px rgba(52, 211, 153, .7); }
+.status-dot.on { background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent); }
 .status-dot.off { background: var(--err); }
 .status-model { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phase-pill { margin-left: auto; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; color: var(--dim); font-size: 10px; white-space: nowrap; }
@@ -229,7 +229,7 @@ select:focus, input:focus { border-color: var(--accent); }
 .spark-value { font-size: 18px; font-weight: 600; }
 .spark-svg { width: 100%; height: 42px; margin-top: 4px; display: block; }
 .spark-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.spark-fill { fill: rgba(77, 141, 255, .13); stroke: none; }
+.spark-fill { fill: color-mix(in srgb, var(--accent) 13%, transparent); stroke: none; }
 
 .server-grid { display: grid; grid-template-columns: auto 1fr; gap: 5px 10px; font-size: 12px; }
 .server-grid .label {
@@ -342,4 +342,101 @@ select:focus, input:focus { border-color: var(--accent); }
   .palette { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .palette-item { min-width: 150px; }
   .side-panel { max-height: none; }
+}
+
+/* ---------------- 桌宠 ---------------- */
+.pet-body { position: relative; padding: 4px 6px 6px; }
+.pet-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.pet-shadow { fill: var(--bg); opacity: .45; }
+.pet-head, .pet-torso { fill: var(--accent); transition: fill .25s ease; }
+.pet-ear, .pet-tail { fill: var(--accent-2); transition: fill .25s ease; }
+.pet-eye { fill: var(--bg); }
+.pet-cheek { fill: var(--pink); opacity: .6; }
+.pet-mouth { fill: var(--bg); }
+.pet-fx {
+  fill: var(--dim);
+  font: 700 11px/1 "Segoe UI", system-ui, sans-serif;
+  text-anchor: middle;
+}
+.pet-actor { transform-box: fill-box; transform-origin: center bottom; }
+.pet-state-idle .pet-actor { animation: pet-bob 2.8s ease-in-out infinite; }
+.pet-state-idle .pet-tail { animation: pet-sway 2.2s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 0 50%; }
+.pet-state-idle .pet-eye { animation: pet-blink 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.pet-state-happy .pet-actor { animation: pet-bounce .85s cubic-bezier(.3,1.4,.5,1) infinite; }
+.pet-state-happy .pet-tail { animation: pet-wag .32s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 0 50%; }
+.pet-state-happy .pet-mouth { transform: scaleX(1.35); transform-box: fill-box; transform-origin: center; }
+.pet-state-busy .pet-actor { animation: pet-shake .32s linear infinite; }
+.pet-state-busy .pet-tail { animation: pet-wag .5s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: 0 50%; }
+.pet-state-busy .pet-fx { fill: var(--warn); }
+.pet-state-alert .pet-actor { animation: pet-shake .15s linear infinite; }
+.pet-state-alert .pet-head, .pet-state-alert .pet-torso, .pet-state-alert .pet-eye { fill: var(--err); }
+.pet-state-alert .pet-fx { fill: var(--err); animation: pet-pulse .45s ease-in-out infinite alternate; }
+.pet-state-sleep .pet-actor { animation: pet-breathe 4.2s ease-in-out infinite; }
+.pet-state-sleep .pet-eye { transform: scaleY(.14); transform-box: fill-box; transform-origin: center; }
+.pet-state-sleep .pet-fx { animation: pet-float 2.6s ease-in-out infinite; }
+.pet-state-offline .pet-head, .pet-state-offline .pet-torso { fill: var(--muted); }
+.pet-state-offline .pet-ear, .pet-state-offline .pet-tail { fill: var(--dim); opacity: .45; }
+.pet-state-offline .pet-eye { transform: scaleY(.14); transform-box: fill-box; transform-origin: center; }
+.pet-state-offline .pet-fx { fill: var(--muted); }
+.pet-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+.pet-value {
+  position: absolute;
+  right: 9px;
+  bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.pet-thresholds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.pet-threshold { display: flex; flex-direction: column; gap: 3px; color: var(--dim); font-size: 11px; }
+.pet-threshold input { width: 100%; padding: 4px 6px; font-size: 12px; }
+
+@keyframes pet-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2.5px); }
+}
+@keyframes pet-bounce {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  35% { transform: translateY(-8px) scaleY(1.03); }
+  70% { transform: translateY(0) scaleY(.96); }
+}
+@keyframes pet-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1.6px); }
+  75% { transform: translateX(1.6px); }
+}
+@keyframes pet-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+@keyframes pet-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95%, 97% { transform: scaleY(.12); }
+}
+@keyframes pet-sway {
+  from { transform: rotate(-6deg); }
+  to { transform: rotate(6deg); }
+}
+@keyframes pet-wag {
+  from { transform: rotate(-18deg); }
+  to { transform: rotate(22deg); }
+}
+@keyframes pet-pulse {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+@keyframes pet-float {
+  0%, 100% { transform: translate(0, 0); opacity: .35; }
+  50% { transform: translate(3px, -5px); opacity: 1; }
 }

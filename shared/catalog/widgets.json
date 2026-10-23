@@ -62,6 +62,24 @@
       ]
     },
     {
+      "type": "desktop_pet",
+      "label": "桌宠",
+      "category": "趣味",
+      "description": "随选定指标切换 睡眠/待机/开心/忙碌/警戒/离线 动画",
+      "default_size": [4, 5],
+      "min_size": [3, 4],
+      "bindings": [
+        {"key": "value", "label": "驱动指标", "types": ["number", "bool"], "required": true, "default": "llm.decode_tps"},
+        {"key": "busy", "label": "忙碌状态（可选）", "types": ["bool"], "required": false, "default": "llm.busy"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "桌宠"},
+        {"key": "sleep_below", "label": "睡眠阈值", "type": "number", "default": 20, "min": 0, "max": 100000},
+        {"key": "idle_below", "label": "待机阈值", "type": "number", "default": 60, "min": 0, "max": 100000},
+        {"key": "happy_below", "label": "开心阈值", "type": "number", "default": 85, "min": 0, "max": 100000}
+      ]
+    },
+    {
       "type": "metric_list",
       "label": "指标列表",
       "category": "基础",

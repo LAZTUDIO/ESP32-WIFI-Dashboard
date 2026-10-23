@@ -4,7 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -57,6 +57,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LLM Dashboard Server", version="0.2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def no_store_api(request: Request, call_next):
+    """目录/快照等 API 不缓存，避免编辑器加载到重启前的旧组件列表。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/editor/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.include_router(router)
 app.include_router(ws_router)
 app.mount("/editor", StaticFiles(directory=str(WEB_DIR), html=True), name="editor")

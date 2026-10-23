@@ -13,18 +13,11 @@ file(GLOB_RECURSE LVGL_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/lvgl/src/*.c)
 add_executable(dash_sim
   sim/main.c
   sim/png_writer.c
-  sim/ui_audit.c
-  ui/src/ui_widgets.c
-  ui/src/ui_dashboard.c
-  ui/src/ui_theme_strix.c
-  ui/src/ui_theme_tuf.c
-  ui/src/font_cjk_16.c
   ${LVGL_SOURCES}
 )
 
 target_include_directories(dash_sim PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/sim
-  ${CMAKE_CURRENT_SOURCE_DIR}/ui/include
   ${CMAKE_CURRENT_SOURCE_DIR}/lvgl
 )
 

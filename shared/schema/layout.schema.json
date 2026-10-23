@@ -50,7 +50,7 @@
         "theme": {"type": "string"},
         "page_animation": {
           "type": "string",
-          "enum": ["slide", "fade", "none"]
+          "enum": ["slide", "fade", "none", "stack", "zoom", "flip", "rotate"]
         },
         "pages": {
           "type": "array",

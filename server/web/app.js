@@ -5,6 +5,7 @@
     catalog: { list: [], byId: new Map() },
     widgets: { list: [], byType: new Map() },
     profiles: {},
+    themes: { list: [], byId: new Map() },
     profile: '320x480',
     activePage: 0,
     layout: null,
@@ -25,6 +26,7 @@
   const paletteEl = $('palette');
   const inspectorEl = $('inspector');
   const profileSelect = $('profile-select');
+  const themeSelect = $('theme-select');
   const toastEl = $('toast');
 
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -82,6 +84,38 @@
     const page = currentPage();
     return page && Array.isArray(page.widgets) ? page.widgets : [];
   }
+  const THEME_VARS = {
+    bg: '--bg',
+    surface: '--surface',
+    surface_2: '--surface-2',
+    border: '--border',
+    text: '--text',
+    text_dim: '--dim',
+    text_mut: '--muted',
+    accent: '--accent',
+    accent_2: '--accent-2',
+    cyan: '--cyan',
+    ok: '--ok',
+    warn: '--warn',
+    err: '--err',
+    pink: '--pink',
+  };
+  function applyTheme() {
+    if (!state.layout) return;
+    const theme =
+      state.themes.byId.get(state.layout.theme) ||
+      state.themes.byId.get('classic');
+    if (theme && state.layout.theme !== theme.id) state.layout.theme = theme.id;
+    const tokens = (theme && theme.tokens) || {};
+    for (const [token, cssVar] of Object.entries(THEME_VARS)) {
+      if (tokens[token]) canvas.style.setProperty(cssVar, tokens[token]);
+    }
+    const radius = Number(tokens.radius);
+    canvas.style.setProperty('--radius', `${Number.isFinite(radius) ? radius : 12}px`);
+    if (themeSelect.value !== state.layout.theme) {
+      themeSelect.value = state.layout.theme;
+    }
+  }
   function totalWidgets() {
     if (!state.layout || !Array.isArray(state.layout.pages)) return 0;
     return state.layout.pages.reduce(
@@ -106,6 +140,9 @@
       }
       if (!['slide', 'fade', 'none', 'stack', 'zoom', 'flip', 'rotate'].includes(layout.page_animation)) {
         layout.page_animation = 'slide';
+      }
+      if (typeof layout.theme !== 'string' || !layout.theme) {
+        layout.theme = 'classic';
       }
       return layout;
     }
@@ -542,8 +579,93 @@
     body.appendChild(list);
   }
 
+  const PET_LABELS = {
+    sleep: '睡眠',
+    idle: '待机',
+    happy: '开心',
+    busy: '忙碌',
+    alert: '警戒',
+    offline: '离线',
+  };
+  const PET_FX = {
+    sleep: 'Zzz',
+    idle: '',
+    happy: '',
+    busy: '...',
+    alert: '!',
+    offline: '?',
+  };
+  function petState(widget) {
+    const metric = metricDef(widget.bindings.value);
+    const value = metricValue(widget.bindings.value);
+    if (!metric || value === null || value === undefined) return 'offline';
+    if (widget.bindings.busy && boolValue(widget.bindings.busy) === true) {
+      return 'busy';
+    }
+    if (typeof value === 'boolean') return value ? 'happy' : 'offline';
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 'idle';
+    const options = widget.options || {};
+    const sleepBelow = Number(options.sleep_below ?? 20);
+    const idleBelow = Number(options.idle_below ?? 60);
+    const happyBelow = Number(options.happy_below ?? 85);
+    if (value < sleepBelow) return 'sleep';
+    if (value < idleBelow) return 'idle';
+    if (value < happyBelow) return 'happy';
+    return 'alert';
+  }
+  function petValueText(widget) {
+    const metric = metricDef(widget.bindings.value);
+    const value = metricValue(widget.bindings.value);
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'boolean') return value ? '是' : '否';
+    if (typeof value !== 'number') return String(value);
+    return `${formatNumber(value, metric)}${metric && metric.unit ? ` ${metric.unit}` : ''}`;
+  }
+  function petSvg(widget, state) {
+    return `<svg class="pet-svg pet-state-${state}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <ellipse class="pet-shadow" cx="50" cy="91" rx="24" ry="5"></ellipse>
+      <g class="pet-actor">
+        <circle class="pet-ear" cx="29" cy="18" r="9"></circle>
+        <circle class="pet-ear" cx="71" cy="18" r="9"></circle>
+        <ellipse class="pet-torso" cx="50" cy="73" rx="30" ry="18"></ellipse>
+        <ellipse class="pet-head" cx="50" cy="45" rx="29" ry="24"></ellipse>
+        <ellipse class="pet-cheek" cx="31" cy="55" rx="5" ry="3"></ellipse>
+        <ellipse class="pet-cheek" cx="69" cy="55" rx="5" ry="3"></ellipse>
+        <ellipse class="pet-eye" cx="40" cy="43" rx="3.6" ry="4.8"></ellipse>
+        <ellipse class="pet-eye" cx="60" cy="43" rx="3.6" ry="4.8"></ellipse>
+        <rect class="pet-mouth" x="44" y="53" width="12" height="3.2" rx="1.6"></rect>
+        <circle class="pet-tail" cx="82" cy="69" r="7"></circle>
+      </g>
+      <text class="pet-fx" x="80" y="15">${PET_FX[state]}</text>
+    </svg>
+    <div class="pet-badge">${PET_LABELS[state]}</div>
+    <div class="pet-value">${petValueText(widget)}</div>`;
+  }
+  function renderPet(widget, body) {
+    const state = petState(widget);
+    body.classList.add('pet-body');
+    body.innerHTML = petSvg(widget, state);
+  }
+  function updatePetWidget(widget, body) {
+    const svg = body.querySelector('.pet-svg');
+    if (!svg) {
+      renderPet(widget, body);
+      return;
+    }
+    const state = petState(widget);
+    const cls = `pet-svg pet-state-${state}`;
+    if (svg.getAttribute('class') !== cls) svg.setAttribute('class', cls);
+    const fx = svg.querySelector('.pet-fx');
+    if (fx) fx.textContent = PET_FX[state];
+    const badge = body.querySelector('.pet-badge');
+    if (badge) badge.textContent = PET_LABELS[state];
+    const valueEl = body.querySelector('.pet-value');
+    if (valueEl) valueEl.textContent = petValueText(widget);
+  }
+
   function renderWidgetBody(widget, body) {
     body.innerHTML = '';
+    body.classList.remove('pet-body');
     const def = widgetDef(widget.type);
     if (!def) {
       body.textContent = `未知组件 ${widget.type}`;
@@ -554,6 +676,7 @@
     else if (widget.type === 'sparkline') renderSparkline(widget, body);
     else if (widget.type === 'server_card') renderServerCard(widget, body);
     else if (widget.type === 'metric_list') renderMetricList(widget, body);
+    else if (widget.type === 'desktop_pet') renderPet(widget, body);
     else body.textContent = def.label;
   }
 
@@ -621,6 +744,7 @@
     canvas.innerHTML = '';
     canvas.style.width = `${profile.width}px`;
     canvas.style.height = `${profile.height}px`;
+    applyTheme();
     const widgets = currentWidgets();
     for (const widget of widgets) {
       canvas.appendChild(buildWidget(widget, profile));
@@ -641,7 +765,9 @@
       const body = canvas.querySelector(
         `[data-id="${esc(widget.id)}"] .widget-body`
       );
-      if (body) renderWidgetBody(widget, body);
+      if (!body) continue;
+      if (widget.type === 'desktop_pet') updatePetWidget(widget, body);
+      else renderWidgetBody(widget, body);
     }
   }
 
@@ -668,6 +794,76 @@
       return state.catalog.list.filter((metric) => metric.type === 'number');
     }
     return state.catalog.list;
+  }
+  const SOURCE_GROUPS = [
+    ['api', '传统 API · LLM 服务直连'],
+    ['server', '专用 Server · 服务端本机'],
+  ];
+  function appendMetricOptions(select, metrics) {
+    const buckets = new Map(SOURCE_GROUPS.map(([id]) => [id, []]));
+    for (const metric of metrics) {
+      const source = metric.source === 'server' ? 'server' : 'api';
+      buckets.get(source).push(metric);
+    }
+    for (const [source, label] of SOURCE_GROUPS) {
+      const items = buckets.get(source);
+      if (!items.length) continue;
+      const group = document.createElement('optgroup');
+      group.label = label;
+      for (const metric of items) {
+        const option = document.createElement('option');
+        option.value = metric.id;
+        option.textContent = `${metric.label} · ${metric.id}`;
+        group.appendChild(option);
+      }
+      select.appendChild(group);
+    }
+  }
+
+  function appendPetEditor(widget) {
+    const options = widget.options || (widget.options = {});
+    const head = document.createElement('div');
+    head.className = 'row-editor-head';
+    const title = document.createElement('div');
+    title.className = 'row-editor-title';
+    title.textContent = '状态阈值';
+    head.appendChild(title);
+    inspectorEl.appendChild(head);
+
+    const specs = [
+      ['sleep_below', '睡眠阈值', 20],
+      ['idle_below', '待机阈值', 60],
+      ['happy_below', '开心阈值', 85],
+    ];
+    const grid = document.createElement('div');
+    grid.className = 'pet-thresholds';
+    for (const [key, labelText, fallback] of specs) {
+      const field = document.createElement('label');
+      field.className = 'pet-threshold';
+      const span = document.createElement('span');
+      span.textContent = labelText;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0';
+      input.step = '1';
+      input.value = String(options[key] ?? fallback);
+      input.addEventListener('input', () => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) return;
+        options[key] = value;
+        markDirty();
+        refreshWidgetBodies();
+      });
+      field.append(span, input);
+      grid.appendChild(field);
+    }
+    inspectorEl.appendChild(grid);
+
+    const note = document.createElement('p');
+    note.className = 'panel-note';
+    note.textContent =
+      '数值：< 睡眠阈值 → 睡眠，< 待机阈值 → 待机，< 开心阈值 → 开心，否则警戒；忙碌状态为 true 时优先显示忙碌。布尔指标：true → 开心，false → 离线；指标不可用时显示离线。';
+    inspectorEl.appendChild(note);
   }
 
   function appendMetricListEditor(widget, def) {
@@ -790,12 +986,7 @@
 
       const metricSelect = document.createElement('select');
       const candidates = metricOptionsForKind(row.kind || 'auto');
-      for (const metric of candidates) {
-        const option = document.createElement('option');
-        option.value = metric.id;
-        option.textContent = `${metric.label} · ${metric.id}`;
-        metricSelect.appendChild(option);
-      }
+      appendMetricOptions(metricSelect, candidates);
       if (!candidates.some((metric) => metric.id === row.binding)) {
         const option = document.createElement('option');
         option.value = row.binding || '';
@@ -955,13 +1146,10 @@
       none.value = '';
       none.textContent = '— 不绑定 —';
       select.appendChild(none);
-      for (const metric of state.catalog.list) {
-        if (!binding.types.includes(metric.type)) continue;
-        const option = document.createElement('option');
-        option.value = metric.id;
-        option.textContent = `${metric.label} · ${metric.id}`;
-        select.appendChild(option);
-      }
+      appendMetricOptions(
+        select,
+        state.catalog.list.filter((metric) => binding.types.includes(metric.type))
+      );
       select.value = widget.bindings[binding.key] || '';
       select.addEventListener('change', () => {
         widget.bindings[binding.key] = select.value;
@@ -999,6 +1187,9 @@
 
     if (widget.type === 'metric_list') {
       appendMetricListEditor(widget, def);
+    }
+    if (widget.type === 'desktop_pet') {
+      appendPetEditor(widget);
     }
 
     const meta = document.createElement('p');
@@ -1475,6 +1666,7 @@
     state.dirty = false;
     updateDirty();
     renderPageTabs();
+    applyTheme();
     renderCanvas();
     renderInspector();
   }
@@ -1516,6 +1708,13 @@
       }
       state.profile = profileSelect.value;
       loadLayout().catch((error) => toast(error.message));
+    });
+
+    themeSelect.addEventListener('change', () => {
+      if (!state.layout) return;
+      state.layout.theme = themeSelect.value;
+      applyTheme();
+      markDirty();
     });
 
     $('add-page').addEventListener('click', addPage);
@@ -1568,6 +1767,20 @@
         state.widgets.list.map((widget) => [widget.type, widget])
       );
       state.profiles = data.profiles.profiles;
+      const themesDoc = data.themes || { themes: [] };
+      state.themes.list = themesDoc.themes;
+      state.themes.byId = new Map(
+        state.themes.list.map((theme) => [theme.id, theme])
+      );
+
+      themeSelect.innerHTML = '';
+      for (const theme of state.themes.list) {
+        const option = document.createElement('option');
+        option.value = theme.id;
+        option.textContent = theme.label || theme.id;
+        if (theme.description) option.title = theme.description;
+        themeSelect.appendChild(option);
+      }
 
       profileSelect.innerHTML = '';
       for (const [key, profile] of Object.entries(state.profiles)) {

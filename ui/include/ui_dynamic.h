@@ -10,9 +10,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "lvgl.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/** 设置动态 UI 使用的中文字体（服务端下发的 binfont）；NULL 恢复内置子集。
+ *  需在 LVGL 锁内调用，且只影响之后创建的控件。 */
+void ui_dynamic_set_cjk_font(const lv_font_t *font);
 
 typedef struct {
     uint32_t apply_count;

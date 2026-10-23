@@ -161,9 +161,11 @@ static esp_err_t handle_root(httpd_req_t *req)
         ".f{color:#5a6b80;font-size:12px;margin-top:14px;text-align:center}"
         ".badge{display:inline-block;padding:3px 9px;border-radius:99px;"
         "background:#12243d;color:#4d8dff;font-size:11px;margin-bottom:10px}"
+        ".sec{margin:22px 0 6px;padding-top:14px;border-top:1px solid #263242;"
+        "color:#8c9bae;font-size:12px;font-weight:600;letter-spacing:.4px}"
         "</style></head><body><div class=\"w\">"
         "<div class=\"badge\">ESP32-S3 · LLM 监控看板</div>"
-        "<h1>设备配网</h1><p class=\"s\">连接 Wi-Fi 并填写 API 服务信息</p>"
+        "<h1>设备配网</h1><p class=\"s\">连接 Wi-Fi，并按需填写两路数据源（可只填一个）</p>"
         "<form method=\"POST\" action=\"/save\">"
         "<label>扫描到的 Wi-Fi（%d 个）</label><select name=\"sel\">"
         "<option value=\"\">— 手动输入下方的名称 —</option>", found);
@@ -197,7 +199,8 @@ static esp_err_t handle_root(httpd_req_t *req)
         "<input name=\"ssid\" placeholder=\"手动输入优先\" value=\"%s\">"
         "<label>Wi-Fi 密码</label>"
         "<input name=\"pass\" type=\"password\" value=\"%s\">"
-        "<label>API 服务地址</label>"
+        "<div class=\"sec\">① 传统 API（设备直连 LLM 服务）</div>"
+        "<label>API 地址（留空则不启用直连）</label>"
         "<input name=\"server\" placeholder=\"http://192.168.1.100:8000\" value=\"%s\">"
         "<label>API 密钥</label>"
         "<input name=\"key\" type=\"password\" value=\"%s\">"
@@ -219,9 +222,10 @@ static esp_err_t handle_root(httpd_req_t *req)
 
     append(&html, &used, cap,
         "</select>"
-        "<label>主机监控地址（可选，也可直接填 8800 面板地址）</label>"
+        "<label>主机监控地址（可选，也可填 8800 面板地址）</label>"
         "<input name=\"host\" placeholder=\"http://192.168.1.100:8800\" value=\"%s\">"
-        "<label>Dashboard 服务地址（0.2 动态看板，可选）</label>"
+        "<div class=\"sec\">② 专用看板 Server（布局 / 配色 / 服务端指标）</div>"
+        "<label>Server 地址（留空则不启用动态看板）</label>"
         "<input name=\"dashboard\" placeholder=\"http://192.168.1.100:8080\" value=\"%s\">"
         "<button type=\"submit\">保存并重启</button>"
         "</form><p class=\"f\">保存后设备会自动重启并连接</p>"
@@ -262,7 +266,7 @@ static esp_err_t handle_save(httpd_req_t *req)
         snprintf(cfg.wifi_pass, sizeof(cfg.wifi_pass), "%.*s",
                  (int)sizeof(cfg.wifi_pass) - 1, v);
     }
-    if (form_value(body, "server", v, sizeof(v)) && v[0]) {
+    if (form_value(body, "server", v, sizeof(v))) {
         snprintf(cfg.server_url, sizeof(cfg.server_url), "%.*s",
                  (int)sizeof(cfg.server_url) - 1, v);
     }
@@ -285,9 +289,10 @@ static esp_err_t handle_save(httpd_req_t *req)
     config_normalize(&cfg);
     config_save(&cfg);
 
-    ESP_LOGI(TAG, "provisioned: ssid=%s server=%s dashboard=%s",
-             cfg.wifi_ssid, cfg.server_url,
-             cfg.dashboard_url[0] ? cfg.dashboard_url : "(legacy)");
+    ESP_LOGI(TAG, "provisioned: ssid=%s api=%s dashboard=%s",
+             cfg.wifi_ssid,
+             cfg.server_url[0] ? cfg.server_url : "(none)",
+             cfg.dashboard_url[0] ? cfg.dashboard_url : "(none)");
 
     const char *page =
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"

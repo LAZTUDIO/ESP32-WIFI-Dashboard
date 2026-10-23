@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -14,11 +15,12 @@
 #include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "esp_lvgl_port.h"
+#include "mbedtls/sha256.h"
+#include "nvs.h"
 
 #include "api_client.h"
 #include "dash_metric_store.h"
 #include "display.h"
-#include "ui.h"
 #include "ui_dynamic.h"
 #include "wifi_mgr.h"
 
@@ -28,6 +30,13 @@ static const char *TAG = "dashcli";
 #define WS_BUF_SIZE 8192
 #define CACHE_PATH "/spiffs/layout.json"
 #define CACHE_TMP "/spiffs/layout.json.tmp"
+
+/* 服务端按布局文字生成的 LVGL binfont，双槽轮换避免覆盖正在被 LVGL 打开的文件 */
+#define FONT_SLOT_A "/spiffs/font_a.bin"
+#define FONT_SLOT_B "/spiffs/font_b.bin"
+#define FONT_LV_A "S:/font_a.bin"
+#define FONT_LV_B "S:/font_b.bin"
+#define FONT_MAX_BYTES (256 * 1024)
 
 /* 原子换屏要求新旧两份 UI 同时驻留；组件多时退回先删后建，避免 OOM */
 #define ATOMIC_MAX_WIDGETS 10
@@ -136,6 +145,191 @@ static void send_subscribe(void)
 static uint32_t s_layout_hash;
 static bool s_layout_ready;
 
+/* ============================ 运行时中文字体 ============================ */
+
+static lv_font_t *s_cjk_font;
+static lv_font_t *s_old_font;
+static char s_old_slot_path[24];
+
+static void nvs_font_info(char *sha, size_t cap, uint8_t *slot)
+{
+    sha[0] = '\0';
+    *slot = 0;
+    nvs_handle_t h;
+    if (nvs_open("llm_dash", NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = cap;
+    nvs_get_str(h, "font_sha", sha, &len);
+    nvs_get_u8(h, "font_slot", slot);
+    nvs_close(h);
+}
+
+static void nvs_font_save(const char *sha, uint8_t slot)
+{
+    nvs_handle_t h;
+    if (nvs_open("llm_dash", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "font_sha", sha);
+    nvs_set_u8(h, "font_slot", slot);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+/** 从指定槽加载 binfont；一次性把位图读进 RAM（约 20–30KB，走 PSRAM），
+ *  避免渲染时再做 SPIFFS 读取，也避免快照等长渲染路径卡住 */
+static lv_font_t *font_load_slot(uint8_t slot)
+{
+    lv_binfont_dsc_t dsc = {
+        .path = slot ? FONT_LV_B : FONT_LV_A,
+        .dynamic_glyph_load = false,
+    };
+    lv_font_t *font = NULL;
+    if (lvgl_port_lock(1500)) {
+        font = lv_binfont_create_ex(&dsc);
+        lvgl_port_unlock();
+    }
+    return font;
+}
+
+/** 切换字体并记下旧字体，等界面重建完成后再释放（旧控件还在用它） */
+static bool font_install(uint8_t slot, lv_font_t *font)
+{
+    if (!font) return false;
+    if (!lvgl_port_lock(1500)) {
+        lv_binfont_destroy(font);
+        return false;
+    }
+    if (s_cjk_font) {
+        s_old_font = s_cjk_font;
+        snprintf(s_old_slot_path, sizeof(s_old_slot_path), "%s",
+                 slot ? FONT_SLOT_A : FONT_SLOT_B);
+    }
+    s_cjk_font = font;
+    ui_dynamic_set_cjk_font(font);
+    lvgl_port_unlock();
+    return true;
+}
+
+/** 界面已重建（旧屏已删除）后调用；必须持有 LVGL 锁 */
+static void font_release_old(void)
+{
+    if (!s_old_font) return;
+    lv_binfont_destroy(s_old_font);
+    s_old_font = NULL;
+    if (s_old_slot_path[0]) {
+        remove(s_old_slot_path);
+        s_old_slot_path[0] = '\0';
+    }
+}
+
+static void font_sync(void)
+{
+    char sha[80];
+    uint8_t slot = 0;
+    nvs_font_info(sha, sizeof(sha), &slot);
+
+    /* 先用本地缓存，避免每次开机都重新下载 */
+    if (!s_cjk_font && sha[0]) {
+        lv_font_t *cached = font_load_slot(slot);
+        if (cached) {
+            if (font_install(slot, cached)) {
+                remove(slot ? FONT_SLOT_A : FONT_SLOT_B);
+                ESP_LOGI(TAG, "font cache loaded: slot %u", (unsigned)slot);
+            }
+        } else {
+            ESP_LOGW(TAG, "font cache load failed, will re-download");
+        }
+    }
+
+    char meta[512];
+    int n = api_get_path(s_base, "/api/v1/font/meta?profile=320x480",
+                         NULL, meta, sizeof(meta), 3000);
+    if (n <= 0) {
+        ESP_LOGI(TAG, "font meta unavailable (%d), keep builtin font", n);
+        return;
+    }
+    cJSON *root = cJSON_Parse(meta);
+    if (!root) {
+        ESP_LOGW(TAG, "font meta JSON parse failed");
+        return;
+    }
+    cJSON *sha_item = cJSON_GetObjectItemCaseSensitive(root, "sha256");
+    cJSON *chars_item = cJSON_GetObjectItemCaseSensitive(root, "chars");
+    if (!cJSON_IsString(sha_item) || !sha_item->valuestring[0]) {
+        cJSON_Delete(root);
+        return;
+    }
+    const char *remote_sha = sha_item->valuestring;
+    if (s_cjk_font && strcasecmp(sha, remote_sha) == 0) {
+        cJSON_Delete(root);
+        return;
+    }
+
+    char *buf = heap_caps_malloc(FONT_MAX_BYTES + 1,
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        ESP_LOGE(TAG, "no PSRAM for font download");
+        cJSON_Delete(root);
+        return;
+    }
+    int len = api_get_path(s_base, "/api/v1/font?profile=320x480", NULL, buf,
+                           FONT_MAX_BYTES + 1, 10000);
+    if (len <= 0) {
+        ESP_LOGW(TAG, "font download failed (%d)", len);
+        heap_caps_free(buf);
+        cJSON_Delete(root);
+        return;
+    }
+
+    unsigned char digest[32];
+    mbedtls_sha256((const unsigned char *)buf, (size_t)len, digest, 0);
+    char hex[65];
+    for (int i = 0; i < 32; i++) {
+        snprintf(hex + i * 2, 3, "%02x", digest[i]);
+    }
+    if (strcasecmp(hex, remote_sha) != 0) {
+        ESP_LOGE(TAG, "font sha mismatch: %s != %s", hex, remote_sha);
+        heap_caps_free(buf);
+        cJSON_Delete(root);
+        return;
+    }
+
+    uint8_t new_slot = s_cjk_font ? (slot ? 0 : 1) : 0;
+    const char *path = new_slot ? FONT_SLOT_B : FONT_SLOT_A;
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        ESP_LOGE(TAG, "font open failed: %s", path);
+        heap_caps_free(buf);
+        cJSON_Delete(root);
+        return;
+    }
+    size_t written = fwrite(buf, 1, (size_t)len, f);
+    fclose(f);
+    heap_caps_free(buf);
+    if (written != (size_t)len) {
+        ESP_LOGE(TAG, "font write short: %u/%u", (unsigned)written,
+                 (unsigned)len);
+        remove(path);
+        cJSON_Delete(root);
+        return;
+    }
+
+    lv_font_t *font = font_load_slot(new_slot);
+    if (!font) {
+        ESP_LOGE(TAG, "binfont load failed: %s", path);
+        remove(path);
+        cJSON_Delete(root);
+        return;
+    }
+    if (!font_install(new_slot, font)) {
+        cJSON_Delete(root);
+        return;
+    }
+    nvs_font_save(remote_sha, new_slot);
+    ESP_LOGI(TAG, "font updated: slot %u, %d bytes, %d chars",
+             (unsigned)new_slot, len,
+             cJSON_IsNumber(chars_item) ? (int)chars_item->valuedouble : -1);
+    cJSON_Delete(root);
+}
+
 static uint32_t layout_hash(const char *s, size_t n)
 {
     uint32_t h = 2166136261u;
@@ -203,7 +397,7 @@ static bool fetch_and_build(bool allow_cache)
         ok = ui_dynamic_build(buf, s_subscribe, sizeof(s_subscribe));
         if (ok) {
             ui_dynamic_commit();
-            dashboard_ui_destroy();
+            font_release_old();
         }
         lvgl_port_unlock();
     } else {
@@ -245,22 +439,23 @@ static void handle_message(const char *json)
     if (type && strcmp(type, "snapshot") == 0) {
         cJSON *values = cJSON_GetObjectItemCaseSensitive(root, "values");
         if (cJSON_IsObject(values)) {
-            for (cJSON *item = values->child; item; item = item->next) {
-                if (!item->string) continue;
-                cJSON *a = cJSON_GetObjectItemCaseSensitive(item, "a");
-                cJSON *v = cJSON_GetObjectItemCaseSensitive(item, "v");
-                bool available = cJSON_IsBool(a) ? cJSON_IsTrue(a) : true;
-                if (!available || !v || cJSON_IsNull(v)) {
-                    dash_metric_store_mark_unavailable(item->string);
-                } else if (cJSON_IsBool(v)) {
-                    dash_metric_store_set_bool(item->string, cJSON_IsTrue(v), true);
-                } else if (cJSON_IsNumber(v)) {
-                    dash_metric_store_set_number(item->string, v->valuedouble, true);
-                } else if (cJSON_IsString(v)) {
-                    dash_metric_store_set_string(item->string, v->valuestring, true);
-                }
-            }
+            /* 与直连 API 任务共用 store：写入和刷屏都放在 LVGL 锁内串行化。 */
             if (lvgl_port_lock(300)) {
+                for (cJSON *item = values->child; item; item = item->next) {
+                    if (!item->string) continue;
+                    cJSON *a = cJSON_GetObjectItemCaseSensitive(item, "a");
+                    cJSON *v = cJSON_GetObjectItemCaseSensitive(item, "v");
+                    bool available = cJSON_IsBool(a) ? cJSON_IsTrue(a) : true;
+                    if (!available || !v || cJSON_IsNull(v)) {
+                        dash_metric_store_mark_unavailable(item->string);
+                    } else if (cJSON_IsBool(v)) {
+                        dash_metric_store_set_bool(item->string, cJSON_IsTrue(v), true);
+                    } else if (cJSON_IsNumber(v)) {
+                        dash_metric_store_set_number(item->string, v->valuedouble, true);
+                    } else if (cJSON_IsString(v)) {
+                        dash_metric_store_set_string(item->string, v->valuestring, true);
+                    }
+                }
                 ui_dynamic_apply();
                 lvgl_port_unlock();
             }
@@ -335,6 +530,7 @@ static void dashboard_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     ESP_LOGI(TAG, "Wi-Fi ready (%s), dashboard URL %s", ip, s_base);
+    font_sync();
 
     bool built = false;
     bool ws_started = false;
@@ -353,8 +549,8 @@ static void dashboard_task(void *arg)
                 .uri = s_ws_uri,
                 .reconnect_timeout_ms = 3000,
                 .network_timeout_ms = 5000,
-                .buffer_size = 4096,
-                .task_stack = 6144,
+                .buffer_size = 2048,
+                .task_stack = 5120,
             };
             s_ws = esp_websocket_client_init(&cfg);
             if (!s_ws) {
@@ -378,6 +574,7 @@ static void dashboard_task(void *arg)
         uint32_t token = 0;
         if (xQueueReceive(s_refresh_q, &token, portMAX_DELAY) == pdTRUE) {
             ESP_LOGI(TAG, "refreshing layout from server");
+            font_sync();
             if (fetch_and_build(false) &&
                 esp_websocket_client_is_connected(s_ws)) {
                 send_subscribe();

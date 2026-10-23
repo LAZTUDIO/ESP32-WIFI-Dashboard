@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
 from ..config import LAYOUT_DIR, SHARED_DIR
+from ..core.fonts import find_font_path, font_bytes
 from ..core.resolve import resolve_layout
 from ..core.validate import LayoutError, validate_layout
 
@@ -19,6 +21,45 @@ ws_router = APIRouter()
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_layout(profile: str, preset: bool = False) -> dict[str, Any]:
+    layout = None
+    saved = LAYOUT_DIR / f"{profile}.json"
+    if not preset and saved.exists():
+        layout = _read_json(saved)
+    else:
+        fallback = SHARED_DIR / "presets" / f"default-{profile}.json"
+        if fallback.exists():
+            layout = _read_json(fallback)
+    if layout is None:
+        raise HTTPException(status_code=404, detail=f"没有 {profile} 的布局")
+    return layout
+
+
+def _font_payload(
+    request: Request, profile: str
+) -> tuple[bytes, str, int, str]:
+    catalog = request.app.state.catalog
+    if profile not in catalog.profiles:
+        raise HTTPException(status_code=404, detail=f"未知画布 profile: {profile}")
+    layout = resolve_layout(_load_layout(profile), catalog)
+    font_path = find_font_path(request.app.state.settings.font_path)
+    if not font_path:
+        raise HTTPException(
+            status_code=503,
+            detail="没有可用的 CJK 字体，请在 config.json 里设置 font_path",
+        )
+    try:
+        data, chars = font_bytes(layout, font_path, 16)
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503, detail="字体生成需要 Pillow：pip install Pillow"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("font subset generation failed")
+        raise HTTPException(status_code=500, detail=f"字体生成失败: {exc}") from exc
+    return data, hashlib.sha256(data).hexdigest(), len(chars), font_path
 
 
 @router.get("/health")
@@ -41,6 +82,7 @@ def bootstrap(request: Request) -> dict[str, Any]:
         "catalog": {"version": catalog.version, "metrics": catalog.metric_list},
         "widgets": {"version": catalog.version, "widgets": catalog.widget_list},
         "profiles": {"version": catalog.version, "profiles": catalog.profiles},
+        "themes": {"version": catalog.version, "themes": catalog.theme_list},
     }
 
 
@@ -60,6 +102,12 @@ def widgets(request: Request) -> dict[str, Any]:
 def profiles(request: Request) -> dict[str, Any]:
     data = request.app.state.catalog
     return {"version": data.version, "profiles": data.profiles}
+
+
+@router.get("/themes")
+def themes(request: Request) -> dict[str, Any]:
+    data = request.app.state.catalog
+    return {"version": data.version, "themes": data.theme_list}
 
 
 @router.get("/snapshot")
@@ -83,20 +131,40 @@ def get_layout(
     if profile not in catalog.profiles:
         raise HTTPException(status_code=404, detail=f"未知画布 profile: {profile}")
 
-    layout = None
-    saved = LAYOUT_DIR / f"{profile}.json"
-    if not preset and saved.exists():
-        layout = _read_json(saved)
-    else:
-        fallback = SHARED_DIR / "presets" / f"default-{profile}.json"
-        if fallback.exists():
-            layout = _read_json(fallback)
-    if layout is None:
-        raise HTTPException(status_code=404, detail=f"没有 {profile} 的布局")
-
+    layout = _load_layout(profile, preset)
     if resolved:
         layout = resolve_layout(layout, catalog)
     return layout
+
+
+@router.get("/font/meta")
+def font_meta(request: Request, profile: str = "320x480") -> dict[str, Any]:
+    """字体子集的元信息；设备先比对 sha256，相同就不重复下载。"""
+    data, sha, chars, font_path = _font_payload(request, profile)
+    return {
+        "profile": profile,
+        "sha256": sha,
+        "chars": chars,
+        "size": len(data),
+        "font": Path(font_path).name,
+    }
+
+
+@router.get("/font")
+def font(request: Request, profile: str = "320x480") -> Response:
+    """按当前布局文字生成的 LVGL binfont；无需鉴权。"""
+    data, sha, chars, _ = _font_payload(request, profile)
+    log.info("font subset: profile=%s chars=%d bytes=%d sha=%s",
+             profile, chars, len(data), sha[:12])
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "X-Font-SHA256": sha,
+            "X-Font-Chars": str(chars),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.put("/layout")

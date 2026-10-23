@@ -172,6 +172,34 @@ class ContractTest(unittest.TestCase):
         with self.assertRaises(LayoutError):
             validate_layout(bad_animation, self.catalog)
 
+    def test_theme_validation(self) -> None:
+        self.assertIn("classic", self.catalog.themes)
+        self.assertIn("strix", self.catalog.themes)
+        self.assertIn("tuf", self.catalog.themes)
+
+        layout = json.loads(
+            (PRESETS / "default-320x480.json").read_text(encoding="utf-8")
+        )
+        layout["theme"] = "strix"
+        validate_layout(layout, self.catalog)
+
+        layout["theme"] = "nope"
+        with self.assertRaises(LayoutError):
+            validate_layout(layout, self.catalog)
+
+    def test_resolve_injects_theme_tokens(self) -> None:
+        layout = json.loads(
+            (PRESETS / "default-320x480.json").read_text(encoding="utf-8")
+        )
+        layout["theme"] = "tuf"
+        resolved = resolve_layout(layout, self.catalog)
+
+        self.assertEqual(resolved["theme"], "tuf")
+        tokens = resolved["theme_tokens"]
+        self.assertEqual(tokens["bg"], "#0B0C0A")
+        self.assertEqual(tokens["accent"], "#FFB000")
+        self.assertEqual(tokens["radius"], 8)
+
     def test_resolve_layout_metadata(self) -> None:
         layout = json.loads(
             (PRESETS / "default-320x480.json").read_text(encoding="utf-8")

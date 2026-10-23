@@ -1,5 +1,9 @@
 /**
  * 运行时配置（存 NVS，配网页面写入）
+ *
+ * 两路数据源可同时存在：
+ *   - server_url：传统 LLM API（halogen / gufo / strata / LM Studio / Ollama / OpenAI）
+ *   - dashboard_url：专用看板服务（下发布局/配色，并推送服务端指标）
  */
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
@@ -15,13 +19,12 @@ extern "C" {
 typedef struct {
     char wifi_ssid[33];
     char wifi_pass[65];
-    char server_url[160];      /* 形如 http://192.168.1.100:8000，末尾不带 / */
+    char server_url[160];      /* 传统 API 地址，末尾不带 / */
     char api_key[192];
-    char provider[16];         /* auto / halogen / gufo / strata / lmstudio / ollama / openai */
-    char host_agent[160];      /* 可选，形如 http://192.168.1.100:8001 */
-    char dashboard_url[160];   /* 0.2 动态看板服务端，空=沿用直连模式 */
-    uint8_t theme;             /* 0=经典 1=STRIX 横屏 2=TUF 竖屏 */
-    bool rot180;               /* 相对主题默认方向的 180° 翻转 */
+    char provider[16];         /* auto / halogen / gufo / strata / lmstudio / ollama / openai / panel */
+    char host_agent[160];      /* 可选主机监控，也可直接填 8800 面板 */
+    char dashboard_url[160];   /* 专用看板服务端，空=不启用动态布局 */
+    bool rot180;               /* 屏幕 180° 翻转 */
 } app_config_t;
 
 void config_defaults(app_config_t *cfg);

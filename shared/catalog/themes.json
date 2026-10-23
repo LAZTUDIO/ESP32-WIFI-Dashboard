@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "themes": [
+    {
+      "id": "classic",
+      "label": "经典 · 石墨蓝",
+      "description": "深空石墨底 + 蓝色主色，默认竖屏风格",
+      "tokens": {
+        "bg": "#080B10",
+        "surface": "#121822",
+        "surface_2": "#18202C",
+        "border": "#263242",
+        "text": "#EDF2F8",
+        "text_dim": "#8C9BAE",
+        "text_mut": "#5A6B80",
+        "accent": "#4D8DFF",
+        "accent_2": "#8B5CF6",
+        "cyan": "#22D3EE",
+        "ok": "#34D399",
+        "warn": "#FB923C",
+        "err": "#F87171",
+        "pink": "#F472B6",
+        "radius": 12
+      }
+    },
+    {
+      "id": "strix",
+      "label": "STRIX · 红黑电竞",
+      "description": "纯黑底 + 猩红主色，斜切硬朗风格",
+      "tokens": {
+        "bg": "#050608",
+        "surface": "#0C0F14",
+        "surface_2": "#12161D",
+        "border": "#252C39",
+        "text": "#F3F6FA",
+        "text_dim": "#A2ADBD",
+        "text_mut": "#7E8A9C",
+        "accent": "#FF2A45",
+        "accent_2": "#FF3D7F",
+        "cyan": "#35E0FF",
+        "ok": "#3DE08A",
+        "warn": "#FFB020",
+        "err": "#FF2A45",
+        "pink": "#FF3D7F",
+        "radius": 4
+      }
+    },
+    {
+      "id": "tuf",
+      "label": "TUF · 军工琥珀",
+      "description": "橄榄石墨底 + 琥珀主色，耐看军工风格",
+      "tokens": {
+        "bg": "#0B0C0A",
+        "surface": "#151713",
+        "surface_2": "#1B1E17",
+        "border": "#33382C",
+        "text": "#F2F4EC",
+        "text_dim": "#AAB19F",
+        "text_mut": "#848C77",
+        "accent": "#FFB000",
+        "accent_2": "#C6F24A",
+        "cyan": "#9FB3C8",
+        "ok": "#C6F24A",
+        "warn": "#FFB000",
+        "err": "#FF5A4A",
+        "pink": "#FF8A3D",
+        "radius": 8
+      }
+    }
+  ]
+}

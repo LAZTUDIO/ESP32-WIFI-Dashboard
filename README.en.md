@@ -2,43 +2,28 @@
 
 English | [简体中文](README.md)
 
-A 3.5-inch touch screen dashboard for a local LLM inference server. Once connected to Wi-Fi, the board polls your LLM API and shows decode/prefill TPS, concurrency, queue depth, KV cache usage, MTP acceptance rate, token usage and history charts. Provisioning is done from a phone browser, and the firmware speaks to halogen / gufo / strata / LM Studio / Ollama out of the box — or reads the public **halogen-panel (port 8800)** API directly, no key required.
-
-It ships with three themes — **Classic / STRIX (480×320 landscape) / TUF (portrait)** — switchable from the settings page, plus a runtime 180° flip. The same UI sources compile into a headless PC simulator, so layout work does not require flashing.
+A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware supports two data paths at the same time: **direct legacy API polling** (halogen / gufo / strata / LM Studio / Ollama) and a **dedicated dashboard server** (layout/theme + WebSocket metrics). Widgets, multi-page layouts and **three colour themes (Classic / STRIX / TUF)** are all configured in the browser editor with WYSIWYG preview.
 
 > Hardware: Waveshare **ESP32-S3-Touch-LCD-3.5-C** (ESP32-S3R8, 16 MB flash + 8 MB PSRAM, 320×480 ST7796 SPI panel + FT6336 touch)
 
-## Screenshots
-
-| Overview | System | Settings |
-| --- | --- | --- |
-| ![Overview](docs/images/overview.png) | ![System](docs/images/system.png) | ![Settings](docs/images/settings.png) |
-
-Two esports-style themes (switchable in settings; STRIX is 480×320 landscape):
-
-| STRIX (landscape, ROG-inspired) | TUF (portrait, industrial amber) | Theme & orientation settings |
-| --- | --- | --- |
-| ![STRIX](docs/images/theme-strix.png) | ![TUF](docs/images/theme-tuf.png) | ![Theme settings](docs/images/theme-switch.png) |
-
-Provisioning overlay (shown automatically when Wi-Fi is unavailable):
-
-![Provisioning](docs/images/provisioning.png)
-
 ## Features
 
-- **Live metrics** — decode/prefill TPS (computed from counter deltas, not gauges), average & peak speed, in-flight requests, queue depth, KV usage, MTP acceptance, cumulative tokens/requests, prompt-cache hit rate and size
-- **Panel direct mode** — read halogen-panel's public `/api/status` on `:8800` (no key) for model/version, TPS, KV, concurrency and hardware in one request; the panel URL can also be used as the host monitor address to fill gaps for a 8731 primary source
-- **History charts** — speed / KV / concurrency / power, switchable by touch
-- **System page** — power draw, GPU temperature, GPU utilisation, RAM, host/model/engine uptime, device uptime
-- **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan, server URL, API key; saves to NVS and reboots
+- **Dynamic layout** — the server pushes widget/grid layouts and the device hot-reloads them without rebooting
+- **Web visual editor** — widget palette, property inspector, multiple pages and page animations, live metric preview
+- **Web colour themes** — Classic / STRIX / TUF token sets (background, card, border, accents, radius); switch in the dropdown for instant preview, save to sync the device
+- **Dual data sources** — configure both a legacy API URL and a dashboard server URL; two machines can provide API and server metrics, or both can point at one machine
+- **Live metrics** — decode/prefill TPS, concurrency, queue depth, KV usage, MTP, token totals and host hardware; direct API and server WebSocket write into the same metric store
+- **Source grouping** — metric dropdowns in the editor are grouped as “Traditional API” / “Dedicated Server”
+- **Desktop pet widget** — bind a numeric/boolean metric and switch between sleep/idle/happy/busy/alert/offline procedural animations; the busy state can bind `llm.busy`, and thresholds are editable in the inspector
+- **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan plus separate traditional API and dashboard server fields
 - **Self-healing Wi-Fi** — keeps retrying in the background after a failed boot connect, and hides the provisioning overlay once online
-- **Three themes** — Classic (320×480) / STRIX (480×320 landscape) / TUF (320×480), switchable in settings and persisted in NVS
-- **Orientation** — theme default plus 180° flip, applied as a runtime hardware rotation
-- **Headless PC simulator** — iterate on layout without flashing; includes automatic checks for out-of-bounds, overlapping siblings, text overflow and low contrast
-- **Serial console** — frame capture, stats, page/theme switching, render and animation benchmarks
+- **Font subsets** — the server generates an LVGL binfont from the layout text; the device verifies SHA-256 before loading it
+- **Serial console** — frame capture, stats, page/animation benchmarks
 - **Performance** — ~50 ms full-screen redraw (~20 fps), 47 fps partial updates; see “Performance” below
 
-## Supported APIs
+## Supported data sources
+
+Traditional APIs are polled **directly by the device**; the dedicated server also aggregates panel/host-system metrics. Both paths can run at once and write into the same metric store. See [server/README.md](server/README.md) for server configuration.
 
 | Service | Probe endpoints | Metrics available |
 | --- | --- | --- |
@@ -57,15 +42,15 @@ The panel's `/api/usage`, `/api/params`, `/api/logs` and TTS/embedding endpoints
 
 ## Where do hardware metrics come from?
 
-LLM APIs do **not** expose GPU power, temperature, utilisation or RAM (halogen's `/metrics` contains inference counters only), so those fields come from a small host-side agent. On the machine running the model:
+LLM APIs do **not** expose GPU power, temperature, utilisation or RAM (halogen's `/metrics` contains inference counters only), so the **server** fills those in. The recommended source is halogen-panel's public `/api/status` on `:8800`: point `panel_url` in `server/config.json` at it, no key required.
+
+Without a panel, run the host agent on the machine that runs the model:
 
 ```bash
 python3 firmware/tools/host_agent.py --port 8732 --model-match halogen
 ```
 
-Then fill in the host monitor address `http://<host-ip>:8732` on the provisioning page. The agent uses the standard library only: with an NVIDIA GPU it shells out to `nvidia-smi` (power/temperature/utilisation/VRAM), otherwise it reads Linux `hwmon` and `/proc/meminfo`. Without it the corresponding cards simply show "no data".
-
-If **halogen-panel (`:8800`)** is already running on that machine, you do not need `host_agent.py`: put the panel URL `http://<ip>:8800` into the host monitor field. The firmware tries `/stats` first, then falls back to the panel's `/api/status`, filling power, temperature, GPU, RAM and uptime; when the primary source's `/metrics` needs a key (e.g. 8731), TPS / KV / MTP are taken from the panel as well. To use the panel as the only source, set the API base URL to `http://<ip>:8800`, pick provider `panel`, and leave the key empty.
+The agent uses the standard library only: with an NVIDIA GPU it shells out to `nvidia-smi` (power/temperature/utilisation/VRAM), otherwise it reads Linux `hwmon` and `/proc/meminfo`. Widgets show “—” when a source is unavailable.
 
 ## Quick start
 
@@ -87,39 +72,29 @@ The first build downloads LVGL 9.6, `esp_lvgl_port` and friends through the comp
 
 1. Join the `ESP32-LLM-Setup` hotspot (password `llm123456`)
 2. Open `http://192.168.4.1` (the captive portal usually pops up by itself)
-3. Pick your Wi-Fi, enter the API base URL and key, optionally the host agent address
-4. Save — the board reboots and connects
+3. Pick your Wi-Fi and optionally fill in:
+   - **① Traditional API** (e.g. `http://192.168.1.100:8000`) with provider/key, may be empty
+   - **② Dashboard server** (e.g. `http://192.168.1.100:8080`), may be empty
+4. Save — the board reboots and connects; the two URLs may point at one machine or two
 
 Serial provisioning is also available:
 
 ```
 w <ssid>|<password>
-c <url>|<api-key>
-o <url>          # optional host monitor, may point at the 8800 panel
+c <url>|<key>    # traditional API URL; c - clears it
+d <url>          # dashboard server URL; d - clears it
 ```
 
-### 3. PC simulator (optional)
+### 3. Web editor (theme / layout preview)
+
+Start the server and open `http://<PC>:8080/`. The 配色 dropdown switches Classic / STRIX / TUF and repaints the canvas with the same tokens the device uses; “Save layout” hot-reloads the device.
+
+Preview the font subset with the headless probe:
 
 ```bash
-./sim/fetch_lvgl.sh          # clones LVGL 9.3 into lvgl/
-./render.sh out/dashboard.png
-
-# page / scenario / theme / 180° flip
-./render.sh out/strix.png 0 live 1 0      # STRIX monitor page
-./render.sh out/tuf_trend.png 1 live 2 0  # TUF trend page
+curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
+./render.sh --font /tmp/font16.bin out/font.png "温度曲线 熵排队"
 ```
-
-Arguments:
-
-```
-render.sh <out.png> [page] [scenario] [theme] [rot180]
-  page      Classic 0-3; STRIX 0-1; TUF 0-2
-  scenario  live | offline | empty
-  theme     0=Classic 1=STRIX 2=TUF
-  rot180    0/1
-```
-
-Each render also audits out-of-bounds objects, overlapping siblings, text overflow and low contrast.
 
 ## Serial console commands
 
@@ -127,16 +102,18 @@ Each render also audits out-of-bounds objects, overlapping siblings, text overfl
 | --- | --- |
 | `s` | Capture one frame, output as base64 PNG |
 | `h` | Print FPS / heap / PSRAM / internal RAM / Wi-Fi / IP / RSSI |
-| `p <n>` | Switch page (numbering depends on theme) |
-| `t <0-2>` | Switch theme (0 Classic, 1 STRIX, 2 TUF) |
-| `r` | Flip 180° |
+| `p <n>` | Switch layout page |
+| `v <0-6>` | Temporarily change page animation (not persisted) |
 | `b` | Benchmark a full-screen refresh (including SPI) |
 | `B` | Split render/transfer: `render=… full=… transfer~…` |
 | `C` | Blank-screen baseline (fill + SPI) |
 | `a` / `A` | Small-area / full-screen animation FPS over 5 s |
 | `w <ssid>\|<pass>` | Write Wi-Fi credentials and reboot |
-| `c <url>\|<key>` | Write API base URL and key, then reboot |
-| `o <url>` | Write host monitor URL (or the 8800 panel) and reboot; `o -` clears it |
+| `c <url>\|<key>` | Write the traditional API URL/key and reboot; `c -` clears it |
+| `o <url>` | Write the host monitor URL (or 8800 panel); `o -` clears it |
+| `d <url>` | Write the dashboard service URL and reboot; `d -` clears it |
+| `m` | Dump the metric store |
+| `P` | Request provisioning mode |
 
 Companion capture script (uses the pyserial bundled with ESP-IDF):
 
@@ -173,26 +150,27 @@ Key settings (`firmware/sdkconfig.defaults` and `firmware/main/display.c`):
 
 ```
 .
-├── ui/                 # Shared UI: design tokens, widgets, Classic/STRIX/TUF themes
+├── ui/                 # Shared UI: theme tokens, widgets, dynamic renderer (no drivers)
 │   ├── include/ui.h
-│   ├── include/ui_theme.h
-│   ├── include/dash_model.h
-│   └── src/{ui_widgets,ui_dashboard,ui_theme_strix,ui_theme_tuf,font_cjk_16}.c
-├── sim/                # Headless PC simulator (LVGL → framebuffer → PNG)
-│                        # main.c takes theme/flip args, ui_audit.c checks layout defects
+│   ├── include/ui_dynamic.h
+│   ├── include/dash_metric_store.h
+│   └── src/{ui_widgets,ui_dynamic,dash_metric_store,font_cjk_16}.c
+├── shared/             # Contract shared by server/firmware: metrics, widgets, profiles, themes
+├── server/             # FastAPI aggregator + web layout/theme editor
+├── sim/                # Headless font probe (binfont → PNG)
 ├── firmware/           # ESP-IDF project
-│   ├── main/           # display/touch drivers, Wi-Fi, portal, metrics, console
+│   ├── main/           # display/touch drivers, Wi-Fi, portal, dashboard client, console
 │   ├── components/     # on-board ST7796 / FT6336 drivers
 │   ├── tools/          # capture.py, host_agent.py
 │   ├── docs/DEBUGGING.md
 │   ├── partitions.csv
 │   └── sdkconfig.defaults
-├── docs/images/        # README screenshots
-├── render.sh           # one-shot simulator render
+├── docs/images/        # README screenshots (0.1 direct mode)
+├── render.sh           # one-shot font probe render
 └── LICENSE
 ```
 
-`ui/` is compiled by both the firmware (`firmware/main/CMakeLists.txt` references `../../ui`) and the PC simulator, so what you see on the desktop is exactly what runs on the board.
+`ui/` is compiled by the firmware (`firmware/main/CMakeLists.txt` references `../../ui`), while the web editor and server share `shared/`, so the editor preview and the device render use the same layout and theme tokens.
 
 ## Board notes
 
@@ -209,12 +187,12 @@ Bring-up notes, PSRAM framebuffer strategy and serial capture troubleshooting li
 
 ## Known limitations
 
-- A full-screen redraw costs ~50 ms (~20 fps); partial updates reach 47 fps. Page/theme switches are one-off full draws
-- Without the host agent, power/temperature/GPU/RAM and host uptime show "no data"; pointing the host field at the 8800 panel removes the need for that agent
-- In panel mode `TOKENS` and `CACHE HIT` show "—": those values live in the panel's login-protected `/api/usage` or the engine's key-protected `/metrics`
-- The bundled CJK font covers 415 common characters (`ui/src/font_cjk_16.c`); rare glyphs will be missing
-- `sim/` uses LVGL 9.3 while the firmware uses LVGL 9.6; the APIs are compatible but the simulator prints a few deprecation warnings
-- Switching themes rebuilds the LVGL screen, which takes a few hundred milliseconds
+- A full-screen redraw costs ~50 ms (~20 fps); partial updates reach 47 fps. Page changes and colour switches are one-off full draws
+- Widgets show “—” when the corresponding server data source is unavailable
+- Both paths write into one metric store; for a given ID the last writer wins. When monitoring two machines, bind API metrics to `llm.*` / `host.*` and server-local metrics to `server.*`
+- The bundled CJK font covers 498 common characters (`ui/src/font_cjk_16.c`); other text comes from the server font subset, falling back to the bundled font when unavailable
+- `sim/` uses LVGL 9.3 for the font probe while the firmware uses LVGL 9.6; the APIs are compatible but a few deprecation warnings appear
+- Saving a new colour theme rebuilds the LVGL screen, which takes a few hundred milliseconds
 
 ## License
 

@@ -15,6 +15,12 @@ def _iter_widgets(layout: dict[str, Any]) -> Iterable[dict[str, Any]]:
 
 def resolve_layout(layout: dict[str, Any], catalog: Catalog) -> dict[str, Any]:
     """把指标标签/单位/精度写进布局，供 MCU 直接渲染，避免固件再拉目录。"""
+    theme_id = layout.get("theme") or "classic"
+    theme = catalog.themes.get(theme_id) or catalog.themes.get("classic")
+    if theme:
+        layout["theme"] = theme["id"]
+        layout["theme_tokens"] = theme["tokens"]
+
     for widget in _iter_widgets(layout):
         options = widget.setdefault("options", {})
         if not isinstance(options, dict):

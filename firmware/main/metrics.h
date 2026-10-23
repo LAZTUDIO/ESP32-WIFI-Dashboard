@@ -23,6 +23,9 @@ void metrics_init(void);
 /** 采集一次；失败时会把上一次数据标记为 stale */
 bool metrics_poll(const app_config_t *cfg, dash_metrics_t *out);
 
+/** 把一次采集结果写进动态 UI 的指标存储（与 WS 数据共用同一份 store）。 */
+void metrics_publish(const dash_metrics_t *m);
+
 void metrics_reset_peak(void);
 dash_provider_t metrics_provider(void);
 

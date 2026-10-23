@@ -2,43 +2,28 @@
 
 简体中文 | [English](README.en.md)
 
-把一块 3.5 寸触摸屏做成**本地大模型推理服务**的实时仪表盘：Wi-Fi 联网后轮询本机 LLM API，展示 TPS、并发、排队、KV 占用、MTP 接受率、用量与历史曲线；手机扫码式配网，支持 halogen / gufo / strata / LM Studio / Ollama 等主流服务，也可直接接入 **halogen-panel（8800）** 的公开接口，无需密钥。
-
-内置 **经典 / STRIX 横屏 / TUF 竖屏** 三套主题，可在设置页直接切换并支持 180° 翻转；UI 代码同时编译到 PC 无头模拟器，改布局不用反复烧板。
+把一块 3.5 寸触摸屏做成**本地大模型推理服务**的实时仪表盘。固件支持两路数据源可同时工作：**传统 API 直连**（halogen / gufo / strata / LM Studio / Ollama）与**专用看板 Server**（下发布局/配色并经 WebSocket 推送指标）。组件、多页布局和**三套配色（经典 / STRIX / TUF）**全部在浏览器编辑器里配置，所见即所得。
 
 > 硬件：微雪 **ESP32-S3-Touch-LCD-3.5-C**（ESP32-S3R8，16 MB Flash + 8 MB PSRAM，320×480 ST7796 SPI 屏 + FT6336 触摸）
 
-## 界面
-
-| 概览 | 系统 | 设置 |
-| --- | --- | --- |
-| ![概览](docs/images/overview.png) | ![系统](docs/images/system.png) | ![设置](docs/images/settings.png) |
-
-两套电竞副屏风格主题（设置页可切换，STRIX 为 480×320 横屏）：
-
-| STRIX（横屏 ROG 风） | TUF（竖屏军工风） | 主题与方向设置 |
-| --- | --- | --- |
-| ![STRIX](docs/images/theme-strix.png) | ![TUF](docs/images/theme-tuf.png) | ![主题设置](docs/images/theme-switch.png) |
-
-配网浮层（无 Wi-Fi 时自动出现）：
-
-![配网](docs/images/provisioning.png)
-
 ## 功能
 
-- **实时指标**：解码/预填 TPS（区间差分，非 gauge）、平均与峰值速度、并发数、排队数、KV 占用、MTP 接受率、累计 token/请求、提示缓存命中与容量
-- **面板直连**：可直接读取 halogen-panel `:8800` 的公开 `/api/status`（无需密钥），一次拿到模型/版本、TPS、KV、并发与硬件数据；也可把面板地址填进「主机监控」，为 8731 主源补齐缺失指标
-- **历史曲线**：速度 / KV / 并发 / 功耗四类曲线，触摸切换
-- **系统页**：功耗、GPU 温度、GPU 占用、内存、主机/模型/引擎运行时长、设备运行时长
-- **手机配网**：SoftAP + Captive Portal，扫 Wi-Fi 列表、填服务地址与密钥，保存后自动重启联网
+- **动态布局**：服务端下发组件与网格布局，保存后设备热更新，无需重启
+- **Web 可视化编辑**：组件库、属性面板、多页与翻页动画，实时指标预览
+- **Web 在线配色**：经典 / STRIX / TUF 三套 token（底色、卡片、描边、强调色、圆角），下拉切换即时预览，保存后设备同步渲染
+- **双数据源**：可同时配置「传统 API 地址」和「专用 Server 地址」；两台电脑分别提供 API 指标和服务端指标，同一台也不冲突
+- **实时指标**：解码/预填 TPS、并发、排队、KV、MTP、累计 token/请求、主机硬件等，直连 API 与服务端 WS 写入同一份指标存储
+- **数据源分组**：编辑器里的指标下拉按「传统 API / 专用 Server」分组，布局绑定一眼可见来源
+- **桌宠组件**：绑定数值/布尔指标，按阈值在睡眠/待机/开心/忙碌/警戒/离线之间切换程序化动画；忙碌态可另绑 `llm.busy`，阈值在属性面板调整
+- **手机配网**：SoftAP + Captive Portal，扫 Wi-Fi 列表并分别填写传统 API 与专用 Server 地址
 - **断线自愈**：上电连不上不会卡死，后台持续重连；联网后自动收起配网页
-- **三套主题**：经典（320×480）/ STRIX（480×320 横屏）/ TUF（320×480），设置页切换、NVS 持久化
-- **屏幕方向**：主题默认方向 + 180° 翻转，运行时硬件旋转，无需重刷固件
-- **PC 无头模拟器**：不用烧板就能出图迭代布局（同一份 UI 源码），内置越界/重叠/文字溢出/对比度自动巡检
-- **串口调试**：抓帧成 PNG、状态统计、切页/切主题、渲染耗时与动画帧率基准
+- **字体子集**：服务端按布局文字动态生成 LVGL binfont，设备校验 SHA-256 后加载
+- **串口调试**：抓帧成 PNG、状态统计、切页/翻页动画基准
 - **性能基准**：整屏约 50 ms（≈20fps），局部动画 47fps；详见下方「性能」
 
-## 支持的 API
+## 支持的数据源
+
+传统 API 由**设备直连**轮询；专用 Server 也会聚合面板/本机系统指标。两路可同时开启，写入同一份指标存储。服务端配置见 [server/README.md](server/README.md)。
 
 | 服务 | 探测端点 | 能取到的指标 |
 | --- | --- | --- |
@@ -59,20 +44,17 @@
 ## 硬件指标从哪来
 
 LLM API **不提供** GPU 功耗、温度、占用率、内存等数据（halogen 的 `/metrics` 全是推理计数器），
-这些字段由主机侧的小脚本提供。在跑模型的机器上执行：
+这些字段由**服务端**补齐。推荐直接使用 halogen-panel（`:8800`）的公开 `/api/status`：
+在 `server/config.json` 里把 `panel_url` 指向面板地址即可，无需密钥。
+
+没有面板时，可在跑模型的机器上启动主机监控脚本：
 
 ```bash
 python3 firmware/tools/host_agent.py --port 8732 --model-match halogen
 ```
 
-然后配网页填「主机监控地址」`http://<主机IP>:8732`。脚本只用标准库：有 NVIDIA 显卡时走 `nvidia-smi`
-（功耗/温度/占用/显存），否则读 Linux `hwmon` 与 `/proc/meminfo`。不填也能用，系统页对应卡片显示「无数据」。
-
-如果机器上已经跑了 **halogen-panel（`:8800`）**，不必再启动 `host_agent.py`：把「主机监控地址」
-直接填面板地址 `http://<IP>:8800` 即可。固件会先尝试 `/stats`，失败后自动改用面板的 `/api/status`，
-补齐功耗、温度、GPU、内存与 uptime；当主源（如 8731）的 `/metrics` 需要密钥时，TPS / KV / MTP
-也会一并从面板补齐。若只想用面板当唯一数据源，把「API 服务地址」设为 `http://<IP>:8800`、
-服务类型选 `panel`、密钥留空即可。
+脚本只用标准库：有 NVIDIA 显卡时走 `nvidia-smi`（功耗/温度/占用/显存），否则读 Linux `hwmon`
+与 `/proc/meminfo`。服务端会按需启用 system / gpu 适配器，缺少对应数据时组件显示「—」。
 
 ## 快速开始
 
@@ -94,39 +76,30 @@ idf.py -p /dev/cu.usbmodem21401 flash
 
 1. 手机连接热点 `ESP32-LLM-Setup`（密码 `llm123456`）
 2. 浏览器打开 `http://192.168.4.1`（Captive Portal 会自动弹出）
-3. 选择 Wi-Fi、填写 API 服务地址与密钥，可选填主机监控地址
-4. 保存，设备自动重启并连接
+3. 选择 Wi-Fi；按需填写：
+   - **① 传统 API 地址**（如 `http://192.168.1.100:8000`）+ 服务类型/密钥，可留空
+   - **② 专用看板 Server 地址**（如 `http://192.168.1.100:8080`），可留空
+4. 保存，设备自动重启并连接；两个地址可指向同一台或两台电脑
 
 也可以在串口直接写入（见下方调试命令）：
 
 ```
 w <ssid>|<password>
-c <url>|<api-key>
-o <url>          # 可选：主机监控地址，也可直接填 8800 面板
+c <url>|<key>    # 传统 API 地址，c - 清空
+d <url>          # 专用 Server 地址，d - 清空
 ```
 
-### 3. PC 模拟器预览（可选）
+### 3. Web 编辑器（配色 / 布局预览）
+
+启动服务端后打开 `http://<PC>:8080/`，在顶部「配色」下拉框切换经典 / STRIX / TUF，
+画布会立即按主题 token 刷新；「保存布局」后设备热更新。
+
+字体子集可用无头探针预览（无需烧板）：
 
 ```bash
-./sim/fetch_lvgl.sh          # 拉取 LVGL 9.3 源码到 lvgl/
-./render.sh out/dashboard.png
-
-# 指定页面 / 数据场景 / 主题 / 180° 翻转
-./render.sh out/strix.png 0 live 1 0      # STRIX 监控页
-./render.sh out/tuf_trend.png 1 live 2 0  # TUF 曲线页
+curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
+./render.sh --font /tmp/font16.bin out/font.png "温度曲线 熵排队"
 ```
-
-`render.sh` 用无头渲染输出 PNG，改 UI 时不必反复烧板。参数：
-
-```
-render.sh <out.png> [page] [scenario] [theme] [rot180]
-  page      经典 0-3；STRIX 0-1；TUF 0-2
-  scenario  live | offline | empty
-  theme     0=经典 1=STRIX 2=TUF
-  rot180    0/1
-```
-
-每次渲染还会自动巡检越界、同级重叠、文字溢出和低对比度。
 
 ## 串口调试命令
 
@@ -134,17 +107,18 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 | --- | --- |
 | `s` | 抓一帧，PNG base64 输出到串口 |
 | `h` | 打印 FPS / 堆 / PSRAM / 内部 RAM / Wi-Fi / IP / RSSI |
-| `p <n>` | 切换页面（编号随主题不同） |
-| `t <0-2>` | 切换主题（0 经典 / 1 STRIX / 2 TUF） |
-| `r` | 翻转 180° |
+| `p <n>` | 切换布局页面 |
+| `v <0-6>` | 临时切换翻页动画（不落盘） |
 | `b` | 测整屏刷新耗时（含 SPI） |
 | `B` | 分离渲染与传输：`render=… full=… transfer~…` |
 | `C` | 空白屏整屏耗时（SPI + 填充基线） |
 | `a` / `A` | 小区域 / 整屏动画持续帧率（5 秒） |
 | `w <ssid>\|<pass>` | 写入 Wi-Fi 并重启 |
-| `c <url>\|<key>` | 写入 API 服务地址与密钥并重启 |
-| `o <url>` | 写入主机监控地址（也可填 8800 面板）并重启，`o -` 清空 |
-| `d <url>` | 写入 Dashboard 服务地址并重启，`d -` 清空（回到直连模式） |
+| `c <url>\|<key>` | 写入传统 API 地址/密钥并重启，`c -` 清空 |
+| `o <url>` | 写入主机监控地址（可填 8800 面板），`o -` 清空 |
+| `d <url>` | 写入看板服务地址并重启，`d -` 清空 |
+| `m` | 打印当前指标存储 |
+| `P` | 请求进入配网模式 |
 
 配套抓帧脚本（依赖 IDF 自带的 pyserial）：
 
@@ -153,12 +127,13 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
     --cmd "p 2" --out /tmp/board.png
 ```
 
-## 0.2 动态看板（开发中）
+## 0.2 动态看板
 
-仓库新增 `server/` 动态看板链路：服务端负责采集和布局编辑，ESP32 只负责渲染。
+`server/` 负责布局/配色编辑与服务端指标聚合；ESP32 负责渲染，并可直接轮询传统 API。
 
-- 配网页填写 Dashboard 服务地址，或串口执行 `d http://<PC>:8080` 启用；`d -` 回到直连模式
-- 设备启动时拉取服务端 `resolved` 布局，通过 WebSocket 订阅布局用到的指标
+- 配网页分别填写传统 API 与专用 Server；也可串口执行 `c` / `d`
+- 设备启动时拉取服务端 `resolved` 布局（含 `theme_tokens`），通过 WebSocket 订阅布局用到的指标；同时若有传统 API 地址，会独立轮询并写入同一指标存储
+- **配色在 Web 编辑器里配置**：`shared/catalog/themes.json` 定义三套 token，服务端解析布局时注入，固件 `ui_dynamic` 应用；设备端不再保存主题
 - 已支持状态条、KPI、服务器卡、指标列表和隐藏标题
 - 布局 v2 多页支持触摸滑动，串口 `p <n>` 可切页；`page_animation` 支持 `slide`（原生跟手）、`fade`（快照交叉淡出）、`stack`（层叠）、`zoom`（缩放）、`flip`（翻转）、`rotate`（旋转）、`none`（直切）。除 `slide` 外都在松手时按位移判定并关闭原生滚动
 - 过渡效果合计代码 <2KB；固件 1.86MB / 4MB 分区，剩余约 2.25MB
@@ -166,10 +141,11 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 - 服务端保存布局后设备**热更新，无需重启**；≤10 组件时原子换屏（构建期间旧界面保持可见），更多组件仍会短暂黑屏
 - 编辑器收到 `layout_changed` 会自动重载；有未保存修改时提示先点「重载」，避免旧状态覆盖新布局
 - 布局未变化时（含 WS 重连后的重拉）按哈希跳过重建，避免黑屏闪烁
+- **字体子集**：服务端按布局实际文字生成 LVGL binfont（`/api/v1/font`），设备校验 SHA-256 后写入 SPIFFS 双槽并把位图加载进 PSRAM；布局里的任意中文都能显示，没有可用字体时回退内置 498 字子集
 - **长按 BOOT（GPIO0）3 秒**进入配网（APSTA），屏幕显示热点/密码/地址；串口 `P` 也可触发用于调试
-- 旧版直连 provider 模式保留
+- STRIX/TUF 独立 UI 已移除，主题统一走 Web 配置；传统 API 直连采集保留，并与 Server 数据并存
 
-启动服务和编辑布局见 [server/README.md](server/README.md)。换电脑接力开发请先看 [docs/0.2-HANDOFF.md](docs/0.2-HANDOFF.md)。完整主题/字体配置包、480×320 横屏、cube/转盘动画在后续里程碑。
+启动服务和编辑布局见 [server/README.md](server/README.md)。换电脑接力开发请先看 [docs/0.2-HANDOFF.md](docs/0.2-HANDOFF.md)。
 
 ## 性能
 
@@ -210,26 +186,27 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 
 ```
 .
-├── ui/                 # 共享 UI：设计 token、控件、经典/STRIX/TUF 主题（不含驱动）
+├── ui/                 # 共享 UI：配色 token、通用控件、动态布局渲染（不含驱动）
 │   ├── include/ui.h
-│   ├── include/ui_theme.h
-│   ├── include/dash_model.h
-│   └── src/{ui_widgets,ui_dashboard,ui_theme_strix,ui_theme_tuf,font_cjk_16}.c
-├── sim/                # PC 无头模拟器（LVGL → 内存帧缓冲 → PNG）
-│                        # main.c 支持主题/翻转参数，ui_audit.c 做布局巡检
+│   ├── include/ui_dynamic.h
+│   ├── include/dash_metric_store.h
+│   └── src/{ui_widgets,ui_dynamic,dash_metric_store,font_cjk_16}.c
+├── shared/             # 服务端/固件共享契约：指标、组件、profile、主题、布局预设
+├── server/             # FastAPI 聚合服务 + Web 布局/配色编辑器
+├── sim/                # PC 无头字体探针（binfont → PNG）
 ├── firmware/           # ESP-IDF 工程
-│   ├── main/           # 显示/触摸驱动、Wi-Fi、配网、指标采集、调试台
+│   ├── main/           # 显示/触摸驱动、Wi-Fi、配网、动态看板客户端、调试台
 │   ├── components/     # 板载 ST7796 / FT6336 驱动（随仓库提供）
 │   ├── tools/          # capture.py 抓帧、host_agent.py 主机监控
 │   ├── docs/DEBUGGING.md
 │   ├── partitions.csv
 │   └── sdkconfig.defaults
-├── docs/images/        # README 截图
-├── render.sh           # 模拟器一键出图
+├── docs/images/        # README 截图（0.1 直连版）
+├── render.sh           # 字体探针一键出图
 └── LICENSE
 ```
 
-`ui/` 同时被固件（`firmware/main/CMakeLists.txt` 引用 `../../ui`）和 PC 模拟器使用，保证"模拟器看到的"就是"板子上跑的"。
+`ui/` 被固件引用（`firmware/main/CMakeLists.txt` 中的 `../../ui`），Web 编辑器与服务端共用 `shared/` 目录，保证「编辑器预览」与「设备渲染」使用同一套布局和主题 token。
 
 ## 板级要点
 
@@ -246,12 +223,12 @@ render.sh <out.png> [page] [scenario] [theme] [rot180]
 
 ## 已知限制
 
-- 整屏重绘约 50 ms（≈20fps），局部更新 47fps；切页/切主题是一次性全屏绘制
-- 缺少主机监控脚本时，功耗/温度/GPU/内存与主机 uptime 显示「无数据」；若用 8800 面板代替则无需该脚本
-- 面板模式下 `TOKENS` 与 `CACHE HIT` 显示「—」：对应数据在面板登录接口 `/api/usage` 或引擎受保护的 `/metrics` 中
-- 中文字体内置 498 个常用字（Noto Sans SC，OFL，`ui/src/font_cjk_16.c`），生僻字会缺字
-- `sim/` 使用 LVGL 9.3，固件使用 LVGL 9.6；两者 API 兼容，但模拟器会打印少量弃用警告
-- 切换主题会重建 LVGL screen，耗时数百毫秒，属于一次性成本
+- 整屏重绘约 50 ms（≈20fps），局部更新 47fps；切页/换配色都是一次性全屏绘制
+- 服务端缺少对应数据源时，相关组件显示「—」
+- 两路数据源写同一份指标存储，同 ID 以最后写入为准；跨机监控时建议 API 指标绑定 `llm.*` / `host.*`，服务端本机指标绑定 `server.*`
+- 中文字体内置 498 个常用字（Noto Sans SC，OFL，`ui/src/font_cjk_16.c`），其余文字依赖服务端字体子集；无可用字体时回退内置子集
+- `sim/` 使用 LVGL 9.3 做字体探针，固件使用 LVGL 9.6；两者 API 兼容，但会打印少量弃用警告
+- 保存新配色会重建 LVGL screen，耗时数百毫秒，属于一次性成本
 
 ## License
 

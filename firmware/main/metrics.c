@@ -15,6 +15,7 @@
 
 #include "metrics.h"
 #include "api_client.h"
+#include "dash_metric_store.h"
 #include "wifi_mgr.h"
 
 static const char *TAG = "metrics";
@@ -1074,6 +1075,81 @@ failed:
         out->stale = true;
     }
     return false;
+}
+
+void metrics_publish(const dash_metrics_t *m)
+{
+    if (!m) return;
+
+    dash_metric_store_set_bool("llm.online", m->online, true);
+    dash_metric_store_set_bool("llm.busy", m->busy, true);
+    if (m->model[0]) dash_metric_store_set_string("llm.model", m->model, true);
+    if (m->version[0]) dash_metric_store_set_string("llm.version", m->version, true);
+
+    if (m->has_tps) {
+        dash_metric_store_set_number("llm.decode_tps", m->tps_dec, true);
+        dash_metric_store_set_number("llm.prefill_tps", m->tps_pre, true);
+        dash_metric_store_set_number("llm.decode_peak", m->tps_peak, true);
+        dash_metric_store_set_number("llm.prefill_peak", m->tps_peak_pre, true);
+        if (m->tps_avg > 0) {
+            dash_metric_store_set_number("llm.decode_avg", m->tps_avg, true);
+        }
+        if (m->tps_avg_pre > 0) {
+            dash_metric_store_set_number("llm.prefill_avg", m->tps_avg_pre, true);
+        }
+    }
+    if (m->has_concurrency) {
+        dash_metric_store_set_number("llm.requests_processing", m->in_flight, true);
+    }
+    if (m->has_queue) {
+        dash_metric_store_set_number("llm.requests_deferred", m->queued, true);
+    }
+    if (m->has_slots) {
+        dash_metric_store_set_number("llm.slots", m->slots, true);
+    }
+    if (m->ctx_len > 0) {
+        dash_metric_store_set_number("llm.context_len", m->ctx_len, true);
+    }
+    if (m->kv_total > 0) {
+        dash_metric_store_set_number("llm.kv_pool_positions", m->kv_total, true);
+    }
+    if (m->has_kv) {
+        dash_metric_store_set_number("llm.kv_used_tokens", m->kv_used, true);
+        dash_metric_store_set_number("llm.kv_pct", m->kv_pct, true);
+    }
+    if (m->tokens_cached > 0) {
+        dash_metric_store_set_number("llm.cache_hit_tokens", (double)m->tokens_cached, true);
+    }
+    if (m->cache_bytes > 0) {
+        dash_metric_store_set_number("llm.cache_cap_mb",
+                                     (double)m->cache_bytes / (1024.0 * 1024.0), true);
+        dash_metric_store_set_bool("llm.cache_enabled", true, true);
+    }
+    if (m->has_model_uptime) {
+        dash_metric_store_set_number("llm.uptime_s", m->model_uptime_s, true);
+    }
+    if (m->has_host_uptime) {
+        dash_metric_store_set_number("host.uptime_s", m->host_uptime_s, true);
+    }
+
+    if (m->has_power) {
+        dash_metric_store_set_number("host.gpu_power_w", m->power_w, true);
+    }
+    if (m->has_temp) {
+        dash_metric_store_set_number("host.gpu_temp_c", m->temp_c, true);
+    }
+    if (m->has_gpu) {
+        dash_metric_store_set_bool("host.gpu_available", true, true);
+        dash_metric_store_set_number("host.gpu_util_pct", m->gpu_pct, true);
+    }
+    if (m->has_vram) {
+        dash_metric_store_set_number("host.gpu_vram_used_mb", m->vram_used_mb, true);
+        dash_metric_store_set_number("host.gpu_vram_total_mb", m->vram_total_mb, true);
+    }
+    if (m->has_ram) {
+        dash_metric_store_set_number("host.ram_used_mb", m->ram_used_mb, true);
+        dash_metric_store_set_number("host.ram_total_mb", m->ram_total_mb, true);
+    }
 }
 
 void metrics_reset_peak(void)
