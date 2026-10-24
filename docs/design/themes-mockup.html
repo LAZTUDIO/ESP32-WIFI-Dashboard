@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Dashboard · 三主题样式评估</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: #07090d;
+    color: #c8d2df;
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif;
+    padding: 18px 16px 40px;
+  }
+  a { color: #6ea8ff; }
+  .page-head { max-width: 980px; margin: 0 auto 18px; }
+  .page-head h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: .5px; color: #eef3fa; }
+  .page-head p { margin: 0; color: #7f8b9c; font-size: 12px; line-height: 1.6; }
+  .page-head .tag {
+    display: inline-block; font-size: 10px; letter-spacing: 1px; color: #9db4d4;
+    border: 1px solid #263242; border-radius: 999px; padding: 2px 8px; margin-left: 8px;
+  }
+
+  /* ---------------- 控制条 ---------------- */
+  .controls {
+    max-width: 980px; margin: 0 auto 16px; display: flex; flex-wrap: wrap;
+    gap: 8px; align-items: center;
+  }
+  .controls .group { display: flex; gap: 4px; background: #0d1118; border: 1px solid #1b2330; padding: 4px; border-radius: 10px; }
+  .controls button {
+    border: 0; background: transparent; color: #8d9aac; font: inherit; font-size: 12px;
+    padding: 6px 12px; border-radius: 7px; cursor: pointer;
+  }
+  .controls button.on { background: #1a2433; color: #eaf1fa; }
+  .controls .hint { font-size: 11px; color: #5d6a7c; margin-left: auto; }
+
+  /* ---------------- 详情布局 ---------------- */
+  .detail { max-width: 980px; margin: 0 auto; display: flex; gap: 16px; align-items: flex-start; }
+  .device-col { flex: 0 0 auto; }
+  .notes-col { flex: 1 1 240px; min-width: 230px; }
+  .notes-col h2 { font-size: 14px; color: #e7eef8; margin: 2px 0 8px; letter-spacing: .4px; }
+  .notes-col h3 { font-size: 11px; color: #7f8b9c; letter-spacing: 1.2px; text-transform: uppercase; margin: 16px 0 6px; }
+  .notes-col p, .notes-col li { font-size: 12px; line-height: 1.65; color: #8b98aa; margin: 0 0 6px; }
+  .notes-col ul { padding-left: 16px; margin: 0; }
+  .notes-col em { color: #c9d6e7; font-style: normal; }
+  .swatches { display: flex; gap: 6px; margin: 8px 0 4px; }
+  .swatch { width: 34px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.12); }
+
+  /* ---------------- 屏幕本体 ---------------- */
+  .screen {
+    position: relative; width: 320px; height: 480px; border-radius: 20px; overflow: hidden;
+    border: 1px solid #1d2634; box-shadow: 0 18px 40px rgba(0,0,0,.55), 0 0 0 6px #05070a;
+    isolation: isolate;
+  }
+  .bg { position: absolute; inset: 0; z-index: 0; }
+  .vignette { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+  .content {
+    position: absolute; inset: 0; z-index: 2;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: repeat(16, 1fr);
+    gap: 6px; padding: 8px;
+  }
+
+  /* ---------------- 通用组件 ---------------- */
+  .w { position: relative; min-width: 0; min-height: 0; }
+  .card { position: absolute; inset: 0; overflow: hidden; }
+  .deco { position: absolute; pointer-events: none; }
+
+  .kpi-head {
+    position: absolute; left: 9px; right: 9px; top: 5px; display: flex;
+    justify-content: space-between; align-items: center;
+    font-size: 8px; letter-spacing: 1.4px; z-index: 3;
+  }
+  .kpi-head i { display: block; height: 1px; flex: 1; margin-left: 8px; opacity: .5; }
+
+  .dial { position: absolute; left: 50%; top: 13px; width: 76px; height: 76px; transform: translateX(-50%); }
+  .dial-core {
+    position: absolute; inset: 12px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .val { font-variant-numeric: tabular-nums; line-height: 1; }
+  .unit { font-size: 8px; letter-spacing: .8px; margin-top: 2px; }
+  .ticks { position: absolute; inset: 0; border-radius: 50%; }
+  .ticks i { position: absolute; left: calc(50% - .5px); top: calc(50% - .5px); width: 1px; border-radius: 1px; }
+  .arc-cont { position: absolute; inset: 6px; border-radius: 50%; }
+  .segs { position: absolute; inset: 0; }
+  .segs i { position: absolute; left: calc(50% - 1px); top: calc(50% - 3.5px); width: 2px; height: 7px; border-radius: 1px; background: rgba(255,255,255,.09); }
+  .mark { position: absolute; left: calc(50% - 2.5px); top: calc(50% - 2.5px); width: 5px; height: 5px; border-radius: 50%; z-index: 2; }
+  .kpi-name {
+    position: absolute; left: 0; right: 0; bottom: 5px; text-align: center;
+    font-size: 10px; letter-spacing: .5px; z-index: 3;
+  }
+
+  .status-card { display: flex; align-items: center; gap: 9px; padding: 0 12px; height: 100%; position: relative; }
+  .lume { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+  .model { font-size: 12px; letter-spacing: .2px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .phase { font-size: 9px; letter-spacing: 1px; padding: 3px 8px; white-space: nowrap; }
+
+  .list-head {
+    position: absolute; left: 9px; right: 9px; top: 4px; display: flex; justify-content: space-between;
+    font-size: 8px; letter-spacing: 1.2px; z-index: 3;
+  }
+  .rows { position: absolute; left: 7px; right: 7px; top: 17px; }
+  .row { display: flex; align-items: center; height: 21px; gap: 7px; position: relative; }
+  .row .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+  .row .lab { width: 58px; font-size: 10px; flex: 0 0 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .row .rval { flex: 1; text-align: right; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .row .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 1px; }
+
+  .srv-head { position: absolute; left: 9px; right: 9px; top: 4px; display: flex; justify-content: space-between; font-size: 8px; letter-spacing: 1.2px; }
+  .srv-rows { position: absolute; left: 8px; right: 8px; top: 17px; }
+  .srv-row { display: flex; align-items: center; gap: 6px; height: 26px; position: relative; }
+  .w.h4 .srv-row { height: 22px; }
+  .srv-row .lab { width: 66px; font-size: 10px; flex: 0 0 auto; }
+  .srv-row .meter { flex: 1; height: 5px; position: relative; min-width: 20px; }
+  .srv-row .num { width: 62px; text-align: right; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .spark-card { position: absolute; inset: 0; }
+  .spark-head { position: absolute; left: 9px; right: 9px; top: 4px; display: flex; justify-content: space-between; font-size: 8px; letter-spacing: 1.2px; z-index: 3; }
+  .spark-svg { position: absolute; left: 8px; right: 8px; top: 18px; bottom: 8px; }
+  .live { font-size: 8px; letter-spacing: 1px; }
+
+  .pet-card { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .pet { position: relative; width: 78px; height: 78px; }
+  .pet-body { position: absolute; inset: 10px 8px 12px; border-radius: 24px; }
+  .pet-eye { position: absolute; top: 24px; width: 7px; height: 9px; border-radius: 4px; }
+  .pet-eye.l { left: 20px; } .pet-eye.r { right: 20px; }
+  .pet-mouth { position: absolute; left: 50%; top: 40px; width: 12px; height: 5px; transform: translateX(-50%); border-radius: 0 0 8px 8px; }
+  .pet-antenna { position: absolute; left: 50%; top: 0; width: 1px; height: 12px; transform: translateX(-50%); }
+  .pet-antenna::after { content: ""; position: absolute; left: -2px; top: -4px; width: 5px; height: 5px; border-radius: 50%; }
+  .pet-tag { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); font-size: 8px; letter-spacing: 1px; white-space: nowrap; }
+
+  /* =====================================================================
+     主题 1 · CLASSIC —— 精密机械表
+     ===================================================================== */
+  .theme-classic { --accent:#4D8DFF; --accent2:#8B5CF6; --ok:#34D399; --warn:#FB923C; --text:#EDF2F8; --dim:#8C9BAE; --mut:#5A6B80; --line:#263242; }
+  .theme-classic .bg {
+    background:
+      radial-gradient(circle at 50% 32%, #121b29 0%, #0a0f17 55%, #06090e 100%),
+      repeating-radial-gradient(circle at 50% 42%, rgba(110,150,220,.05) 0 1px, transparent 1px 7px);
+  }
+  .theme-classic .vignette { background: radial-gradient(circle at 50% 45%, transparent 55%, rgba(0,0,0,.45) 100%); }
+  .theme-classic .card {
+    border-radius: 16px;
+    background: linear-gradient(155deg, #17212f 0%, #101823 45%, #0b1119 100%);
+    box-shadow: inset 0 0 0 1px #2b394c, inset 0 1px 0 rgba(255,255,255,.07), 0 3px 10px rgba(0,0,0,.5);
+  }
+  .theme-classic .bezel { inset: 4px; border-radius: 13px; border: 1px solid rgba(77,141,255,.18); }
+  .theme-classic .screws { inset: 0; }
+  .theme-classic .screws b { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #7e8fa6, #2a3442); box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+  .theme-classic .screws b:nth-child(1) { left: 5px; top: 5px; }
+  .theme-classic .screws b:nth-child(2) { right: 5px; top: 5px; }
+  .theme-classic .screws b:nth-child(3) { left: 5px; bottom: 5px; }
+  .theme-classic .screws b:nth-child(4) { right: 5px; bottom: 5px; }
+  .theme-classic .kpi-head { color: #6f8199; }
+  .theme-classic .kpi-head i { background: linear-gradient(90deg, #33445b, transparent); }
+  .theme-classic .ticks i { background: #5d7ea8; }
+  .theme-classic .arc-cont {
+    background: conic-gradient(from 225deg, #4D8DFF 0 calc(var(--p) * 2.7deg), rgba(77,141,255,.10) 0 270deg, transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  }
+  .theme-classic .segs { display: none; }
+  .theme-classic .mark { background: #BFD6FF; box-shadow: 0 0 5px rgba(77,141,255,.85); }
+  .theme-classic .dial-core { background: radial-gradient(circle at 50% 35%, #1b2737, #0d141e 75%); box-shadow: inset 0 0 0 1px rgba(77,141,255,.14); }
+  .theme-classic .val { font-family: "Bahnschrift", "Segoe UI", sans-serif; font-size: 23px; font-weight: 600; color: #F2F7FF; letter-spacing: -.5px; }
+  .theme-classic .unit { color: #7f96b4; }
+  .theme-classic .kpi-name { color: #93a5bc; }
+  .theme-classic .status-card { background: linear-gradient(180deg, rgba(255,255,255,.045), transparent 55%); }
+  .theme-classic .lume { background: radial-gradient(circle at 35% 30%, #b6ffd9, #34D399 60%, #16855b); box-shadow: 0 0 0 2px rgba(52,211,153,.16), 0 0 7px rgba(52,211,153,.55); }
+  .theme-classic .model { color: #E8F0FA; }
+  .theme-classic .phase { color: #BFD6FF; border: 1px solid rgba(77,141,255,.35); border-radius: 3px; background: #0b1420; box-shadow: inset 0 0 0 2px #0b1420, inset 0 0 0 3px rgba(77,141,255,.16); }
+  .theme-classic .list-head, .theme-classic .srv-head, .theme-classic .spark-head { color: #62758e; }
+  .theme-classic .row .dot { background: radial-gradient(circle at 35% 30%, #c9ffe6, #34D399 65%); box-shadow: 0 0 5px rgba(52,211,153,.55); }
+  .theme-classic .row .lab { color: #8da0b8; }
+  .theme-classic .row .rval { color: #E9F1FB; }
+  .theme-classic .row .bar { background: linear-gradient(90deg, rgba(77,141,255,.18), transparent); }
+  .theme-classic .srv-row .lab { color: #8da0b8; }
+  .theme-classic .srv-row .num { color: #E9F1FB; }
+  .theme-classic .meter { background: linear-gradient(90deg, rgba(77,141,255,.16) 0 1px, transparent 1px 5px), #0a1018; border-radius: 2px; overflow: hidden; }
+  .theme-classic .meter i { display: block; height: 100%; background: linear-gradient(90deg, #2f6fd8, #74abff); box-shadow: 0 0 4px rgba(77,141,255,.5); }
+  .theme-classic .meter::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 4px, #0a1018 4px 5px); }
+  .theme-classic .live { color: #8fd8ff; }
+  .theme-classic .pet-body { background: radial-gradient(circle at 50% 30%, #1c2939, #0e151f); border: 1px solid #33445b; box-shadow: inset 0 0 0 3px #0b1119, inset 0 0 0 4px rgba(77,141,255,.2); }
+  .theme-classic .pet-eye { background: #7fb4ff; box-shadow: 0 0 5px rgba(77,141,255,.8); }
+  .theme-classic .pet-mouth { background: #4D8DFF; }
+  .theme-classic .pet-antenna { background: #33445b; }
+  .theme-classic .pet-antenna::after { background: #4D8DFF; box-shadow: 0 0 6px rgba(77,141,255,.7); }
+  .theme-classic .pet-tag { color: #62758e; }
+
+  /* =====================================================================
+     主题 2 · STRIX —— 战术计时码表
+     ===================================================================== */
+  .theme-strix { --accent:#FF2A45; --accent2:#FF3D7F; --ok:#3DE08A; --warn:#FFB020; --text:#F3F6FA; --dim:#A2ADBD; --mut:#7E8A9C; --line:#252C39; }
+  .theme-strix .bg {
+    background:
+      radial-gradient(circle at 85% 0%, rgba(255,42,69,.16), transparent 45%),
+      repeating-linear-gradient(45deg, rgba(255,255,255,.022) 0 1px, transparent 1px 6px),
+      repeating-linear-gradient(-45deg, rgba(255,255,255,.016) 0 1px, transparent 1px 6px),
+      #050608;
+  }
+  .theme-strix .vignette {
+    background:
+      linear-gradient(90deg, rgba(255,42,69,.5), transparent 14%) top left / 42px 1px no-repeat,
+      linear-gradient(180deg, rgba(255,42,69,.5), transparent 14%) top left / 1px 42px no-repeat,
+      linear-gradient(-90deg, rgba(255,42,69,.34), transparent 14%) bottom right / 42px 1px no-repeat,
+      linear-gradient(0deg, rgba(255,42,69,.34), transparent 14%) bottom right / 1px 42px no-repeat;
+  }
+  .theme-strix .card {
+    clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+    background: linear-gradient(155deg, #141920 0%, #0a0d12 55%, #07090c 100%);
+    box-shadow: inset 0 0 0 1px #2a3240;
+  }
+  .theme-strix .card::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(135deg, rgba(255,42,69,.9) 0 1px, transparent 1px) top left / 100% 100% no-repeat;
+    opacity: .75;
+  }
+  .theme-strix .edge { left: 0; top: 0; width: 34px; height: 2px; background: var(--accent); box-shadow: 0 0 6px rgba(255,42,69,.55); }
+  .theme-strix .kpi-head { color: #7f8b9d; }
+  .theme-strix .kpi-head i { background: linear-gradient(90deg, rgba(255,42,69,.7), transparent); }
+  .theme-strix .kpi-head span::before { content: "/ "; color: var(--accent); }
+  .theme-strix .ticks i { background: #5f6878; }
+  .theme-strix .ticks i:nth-child(5n+1) { background: #b9c2d0; }
+  .theme-strix .arc-cont { display: none; }
+  .theme-strix .segs i.on { background: var(--accent); box-shadow: 0 0 3px rgba(255,42,69,.65); }
+  .theme-strix .mark {
+    width: 4px; height: 7px; border-radius: 0; background: #fff;
+    box-shadow: 0 0 5px rgba(255,42,69,.9);
+  }
+  .theme-strix .dial-core { background: #0b0e13; border-radius: 2px; inset: 14px; clip-path: polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px); }
+  .theme-strix .val { font-family: "Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI", sans-serif; font-size: 23px; font-weight: 700; color: #FFFFFF; letter-spacing: -.3px; }
+  .theme-strix .unit { color: #ff6b80; }
+  .theme-strix .kpi-name { color: #94a0b1; letter-spacing: 1px; }
+  .theme-strix .status-card { background: linear-gradient(90deg, rgba(255,42,69,.12), transparent 40%); }
+  .theme-strix .status-card::after { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--accent); box-shadow: 0 0 6px rgba(255,42,69,.6); }
+  .theme-strix .lume { border-radius: 2px; background: #FF2A45; box-shadow: 0 0 0 2px rgba(255,42,69,.18), 0 0 9px rgba(255,42,69,.85); }
+  .theme-strix .model { color: #FFFFFF; font-weight: 600; letter-spacing: .3px; }
+  .theme-strix .phase { color: #ffb7c0; border: 1px solid rgba(255,42,69,.55); background: rgba(255,42,69,.1); clip-path: polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px); }
+  .theme-strix .list-head, .theme-strix .srv-head, .theme-strix .spark-head { color: #717d8e; }
+  .theme-strix .row:nth-child(odd) { background: linear-gradient(90deg, rgba(255,255,255,.035), transparent 70%); }
+  .theme-strix .row::before { content: ""; position: absolute; left: -7px; top: 4px; bottom: 4px; width: 2px; background: rgba(255,42,69,.6); }
+  .theme-strix .row .dot { width: 5px; height: 9px; border-radius: 0; background: #FF2A45; box-shadow: 0 0 6px rgba(255,42,69,.8); }
+  .theme-strix .row .lab { color: #8d99aa; letter-spacing: .4px; }
+  .theme-strix .row .rval { color: #FFFFFF; font-family: "Bahnschrift", "Segoe UI", sans-serif; }
+  .theme-strix .row .bar { background: repeating-linear-gradient(90deg, rgba(255,42,69,.25) 0 4px, transparent 4px 7px); opacity: .5; }
+  .theme-strix .srv-row .lab { color: #8d99aa; }
+  .theme-strix .srv-row .num { color: #FFFFFF; font-family: "Bahnschrift", "Segoe UI", sans-serif; }
+  .theme-strix .meter { background: #0a0c10; display: flex; gap: 2px; padding: 1px; }
+  .theme-strix .meter i { flex: 1; height: 3px; background: rgba(255,255,255,.08); }
+  .theme-strix .meter i.on { background: var(--accent); box-shadow: 0 0 3px rgba(255,42,69,.6); }
+  .theme-strix .meter i.hot { background: var(--warn); }
+  .theme-strix .live { color: #ff8192; }
+  .theme-strix .pet-body { border-radius: 6px; background: linear-gradient(150deg, #171c24, #0a0d12); border: 1px solid rgba(255,42,69,.4); clip-path: polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px); }
+  .theme-strix .pet-eye { width: 9px; height: 5px; border-radius: 1px; background: #FF2A45; box-shadow: 0 0 7px rgba(255,42,69,.9); }
+  .theme-strix .pet-eye.l { left: 16px; top: 26px; } .theme-strix .pet-eye.r { right: 16px; top: 26px; }
+  .theme-strix .pet-mouth { width: 16px; height: 2px; border-radius: 0; background: rgba(255,42,69,.7); }
+  .theme-strix .pet-antenna { background: #3a4150; }
+  .theme-strix .pet-antenna::after { background: #FF2A45; box-shadow: 0 0 7px rgba(255,42,69,.8); }
+  .theme-strix .pet-tag { color: #7c8797; }
+
+  /* =====================================================================
+     主题 3 · TUF —— 野战仪表
+     ===================================================================== */
+  .theme-tuf { --accent:#FFB000; --accent2:#C6F24A; --ok:#C6F24A; --warn:#FFB000; --text:#F2F4EC; --dim:#AAB19F; --mut:#848C77; --line:#33382C; }
+  .theme-tuf .bg {
+    background:
+      radial-gradient(circle at 50% 30%, rgba(255,176,0,.07), transparent 55%),
+      repeating-radial-gradient(circle at 50% 40%, transparent 0 12px, rgba(255,176,0,.035) 12px 13px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.16) 0 1px, transparent 1px 4px),
+      #0b0c0a;
+  }
+  .theme-tuf .vignette { background: radial-gradient(circle at 50% 42%, transparent 50%, rgba(0,0,0,.5) 100%); }
+  .theme-tuf .card {
+    border-radius: 9px;
+    background: linear-gradient(155deg, #1a1d16 0%, #121510 60%, #0e100c 100%);
+    border: 1px solid #4a4f3c;
+    box-shadow: inset 0 0 0 2px #0d0f0b, inset 0 0 0 3px #2c3025, 0 3px 8px rgba(0,0,0,.55);
+  }
+  .theme-tuf .knurl {
+    left: 8px; right: 8px; top: 3px; height: 3px;
+    background: repeating-linear-gradient(90deg, rgba(255,176,0,.28) 0 1px, transparent 1px 3px);
+    opacity: .55;
+  }
+  .theme-tuf .screws { inset: 0; }
+  .theme-tuf .screws b {
+    position: absolute; width: 5px; height: 5px; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #8b9179, #3b4033);
+    box-shadow: 0 0 0 1px #23271d;
+  }
+  .theme-tuf .screws b::after { content: ""; position: absolute; left: 1px; right: 1px; top: 2px; height: 1px; background: #23271d; }
+  .theme-tuf .screws b:nth-child(1) { left: 5px; top: 6px; }
+  .theme-tuf .screws b:nth-child(2) { right: 5px; top: 6px; }
+  .theme-tuf .screws b:nth-child(3) { left: 5px; bottom: 6px; }
+  .theme-tuf .screws b:nth-child(4) { right: 5px; bottom: 6px; }
+  .theme-tuf .kpi-head { color: #8f957f; }
+  .theme-tuf .kpi-head i { background: repeating-linear-gradient(90deg, rgba(255,176,0,.55) 0 2px, transparent 2px 5px); }
+  .theme-tuf .ticks i { background: #8c8f79; }
+  .theme-tuf .ticks i:nth-child(5n+1) { background: #FFB000; }
+  .theme-tuf .arc-cont {
+    background: conic-gradient(from 240deg, #FFB000 0 calc(var(--p) * 2.4deg), rgba(255,176,0,.09) 0 240deg, transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  }
+  .theme-tuf .segs { display: none; }
+  .theme-tuf .mark { background: #FFD270; box-shadow: 0 0 5px rgba(255,176,0,.75); }
+  .theme-tuf .dial-core { background: radial-gradient(circle at 50% 30%, #20241a, #11130e 75%); box-shadow: inset 0 0 0 1px rgba(255,176,0,.18), inset 0 0 0 3px rgba(0,0,0,.4); }
+  .theme-tuf .val { font-family: "Bahnschrift", "Consolas", monospace; font-size: 22px; font-weight: 700; color: #FFF6E0; }
+  .theme-tuf .unit { color: #b7a778; }
+  .theme-tuf .kpi-name { color: #a5aa92; letter-spacing: 1px; }
+  .theme-tuf .status-card { background: linear-gradient(180deg, rgba(255,176,0,.06), transparent 60%); }
+  .theme-tuf .status-card::before {
+    content: "MIL-STD"; position: absolute; right: 10px; bottom: 2px; font-size: 6px;
+    letter-spacing: 1.5px; color: rgba(255,176,0,.35);
+  }
+  .theme-tuf .lume { background: radial-gradient(circle at 35% 30%, #fff2c2, #FFB000 60%, #7a5200); box-shadow: 0 0 0 2px rgba(255,176,0,.15), 0 0 8px rgba(255,176,0,.55); }
+  .theme-tuf .model { color: #F4F2E6; letter-spacing: .4px; }
+  .theme-tuf .phase {
+    color: #FFD270; border: 1px dashed rgba(255,176,0,.55); background: rgba(255,176,0,.07);
+    border-radius: 2px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+  .theme-tuf .list-head, .theme-tuf .srv-head, .theme-tuf .spark-head { color: #858b75; }
+  .theme-tuf .row::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: repeating-linear-gradient(90deg, rgba(255,176,0,.16) 0 3px, transparent 3px 6px); }
+  .theme-tuf .row .dot { width: 7px; height: 7px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff2c2, #FFB000 65%); box-shadow: 0 0 0 2px rgba(255,176,0,.12), 0 0 6px rgba(255,176,0,.5); }
+  .theme-tuf .row .lab { color: #a3a892; }
+  .theme-tuf .row .rval { color: #F4F2E6; font-family: "Bahnschrift", "Consolas", monospace; }
+  .theme-tuf .srv-row .lab { color: #a3a892; }
+  .theme-tuf .srv-row .num { color: #F4F2E6; font-family: "Bahnschrift", "Consolas", monospace; }
+  .theme-tuf .meter { display: flex; gap: 2px; align-items: center; }
+  .theme-tuf .meter i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.08); }
+  .theme-tuf .meter i.on { background: var(--accent); box-shadow: 0 0 3px rgba(255,176,0,.5); }
+  .theme-tuf .live { color: #FFD270; }
+  .theme-tuf .pet-body { border-radius: 50% 50% 42% 42%; background: radial-gradient(circle at 50% 28%, #2a2e22, #141610); border: 2px solid #4a4f3c; box-shadow: inset 0 0 0 3px #0d0f0b; }
+  .theme-tuf .pet-eye { background: #FFB000; box-shadow: 0 0 5px rgba(255,176,0,.7); border-radius: 2px; }
+  .theme-tuf .pet-mouth { background: #FFB000; }
+  .theme-tuf .pet-antenna { background: #4a4f3c; }
+  .theme-tuf .pet-antenna::after { background: #C6F24A; box-shadow: 0 0 6px rgba(198,242,74,.6); }
+  .theme-tuf .pet-tag { color: #7f856f; }
+
+  /* =====================================================================
+     缩略总览
+     ===================================================================== */
+  .overview { max-width: 980px; margin: 34px auto 0; }
+  .overview h2 { font-size: 14px; color: #e7eef8; margin: 0 0 4px; }
+  .overview p { font-size: 11px; color: #6c798a; margin: 0 0 14px; }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 160px); gap: 14px; justify-content: start; }
+  .thumb { position: relative; width: 160px; height: 240px; overflow: hidden; border-radius: 10px; border: 1px solid #1d2634; }
+  .thumb .screen { transform: scale(.5); transform-origin: top left; border-radius: 0; box-shadow: none; border: 0; }
+  .thumb-label { margin-top: 5px; font-size: 10px; color: #778398; letter-spacing: .6px; }
+  .thumb-wrap { }
+
+  /* =====================================================================
+     实现成本表
+     ===================================================================== */
+  .specs { max-width: 980px; margin: 34px auto 0; }
+  .specs h2 { font-size: 14px; color: #e7eef8; margin: 0 0 10px; }
+  .specs table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  .specs th, .specs td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #18202c; vertical-align: top; }
+  .specs th { color: #8b98aa; font-weight: 500; letter-spacing: .5px; background: #0b0f15; }
+  .specs td { color: #93a0b2; line-height: 1.55; }
+  .specs td b { color: #cfdbea; font-weight: 500; }
+  .badge { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 999px; border: 1px solid #2a3646; color: #8fa1b8; margin-right: 4px; }
+  .badge.low { border-color: #1f4d3a; color: #6fd6a8; }
+  .badge.mid { border-color: #5a4a1e; color: #e8c069; }
+  .badge.high { border-color: #5b2a35; color: #f08b9c; }
+  .foot { max-width: 980px; margin: 26px auto 0; font-size: 11px; color: #5d6a7c; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>ESP32 Dashboard · 三主题样式评估 <span class="tag">WATCHFACE / INSTRUMENT</span></h1>
+  <p>320×480 · 12×16 网格。三套主题不仅换色，还更换组件形态与材质语言：经典=精密机械表，STRIX=战术计时码表，TUF=野战仪表盘。下方每套含「主看板 / 组件页」两屏，可切换查看。</p>
+</div>
+
+<div class="controls">
+  <div class="group" id="themeTabs">
+    <button data-theme="classic" class="on">经典 · 机械表</button>
+    <button data-theme="strix">STRIX · 战术码表</button>
+    <button data-theme="tuf">TUF · 野战仪表</button>
+  </div>
+  <div class="group" id="pageTabs">
+    <button data-page="a" class="on">主看板</button>
+    <button data-page="b">组件页</button>
+  </div>
+  <span class="hint">切主题 / 切页看细节 · 下方有三套缩略对比</span>
+</div>
+
+<div class="detail">
+  <div class="device-col">
+    <div id="detailHost"></div>
+  </div>
+  <div class="notes-col" id="notes"></div>
+</div>
+
+<div class="overview">
+  <h2>三套主题 · 缩略对比</h2>
+  <p>上排主看板，下排组件页。</p>
+  <div class="thumbs" id="thumbs"></div>
+</div>
+
+<div class="specs">
+  <h2>实现成本（LVGL 9.6 / 320×480）</h2>
+  <table>
+    <thead><tr><th style="width:110px">效果</th><th style="width:115px">经典</th><th style="width:115px">STRIX</th><th style="width:115px">TUF</th><th>实现方式与注意点</th></tr></thead>
+    <tbody>
+      <tr><td><b>双层表圈 / 内嵌环</b></td><td>金属内圈 + 4 颗螺丝</td><td>斜切外框 + 红色高光边</td><td>橡胶厚边 + 铆钉</td><td><span class="badge low">低成本</span> border + radius + 内边距即可；螺丝用 4 个圆形对象，静态。</td></tr>
+      <tr><td><b>刻度环</b></td><td>60 分刻度，5 格加长</td><td>24 段刻度 + 5 段红色区间</td><td>60 分刻度 + 12 点三角索引</td><td><span class="badge low">低成本</span> 40–60 条 1px lv_line / 小矩形，构建时一次生成，不参与刷新。</td></tr>
+      <tr><td><b>弧形仪表</b></td><td>270° 连续蓝弧</td><td>270° 分段红弧（24 段）</td><td>240° 琥珀弧 + 三角索引</td><td><span class="badge low">低成本</span> lv_arc 原生支持角度范围与厚度；分段弧改用 24 个小矩形。</td></tr>
+      <tr><td><b>分段电量条</b></td><td>细线 + 细分隔</td><td>8 格方块，超阈变琥珀</td><td>10 点点阵</td><td><span class="badge low">低成本</span> N 个小矩形，按百分比点亮；只在数据变化时重绘。</td></tr>
+      <tr><td><b>斜切角 / 六角元素</b></td><td>不需要</td><td>卡片切角、标签切角</td><td>标签切角、六角螺钉</td><td><span class="badge mid">中成本</span> LVGL 圆角无法做斜切；建议切角做成 9-patch 背景图或 4 个三角遮罩。先用“单角切”控制数量。</td></tr>
+      <tr><td><b>碳纤 / 帆布纹理</b></td><td>同心圆玑镂纹</td><td>45° 碳纤斜纹</td><td>帆布十字纹 + 等高线</td><td><span class="badge mid">中成本</span> LVGL 无纹理填充。可用 1–2px 重复线条低成本近似；全屏纹理建议预渲染 320×480 背景图（PSRAM 约 300KB）。</td></tr>
+      <tr><td><b>发光 / 光晕</b></td><td>夜光点、指针微光</td><td>红色 LED、边框光</td><td>琥珀 LED</td><td><span class="badge mid">中成本</span> LVGL 无高斯模糊；用 2–3 层递减不透明度圆/描边模拟，或做成小尺寸预渲染贴图。</td></tr>
+      <tr><td><b>字体与数字</b></td><td>Montserrat 28/32，字距收紧</td><td>Montserrat 28/32，全大写 + 斜体标签</td><td>Montserrat 28/32，等宽数字</td><td><span class="badge low">低成本</span> 现有 Montserrat 已覆盖；斜体在 LVGL 不可用，用字距/大写/斜线装饰替代。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="foot">说明：本页面为浏览器预览稿，辉光、纹理、切角为 CSS 模拟；固件实现时会按上表降级为 LVGL 原生图元或预渲染贴图。所有组件仍服从现有 12×16 网格与服务端布局 schema。也可用 URL 参数直接打开：<code>?theme=classic|strix|tuf&amp;page=a|b</code>。</div>
+
+<script>
+const THEMES = {
+  classic: {
+    name: "经典 · 石墨蓝", sub: "精密机械表", accent: "#4D8DFF", accent2: "#8B5CF6", ok: "#34D399", warn: "#FB923C",
+    palette: ["#080B10", "#121822", "#263242", "#4D8DFF", "#EDF2F8"],
+    concept: "把每张卡片当成一枚表壳：外圈金属高光、内圈蓝色章环、四角螺丝；KPI 是带 60 分刻度的子表盘，数值居中、指针指示负载；状态条做成日历窗 + 夜光点。",
+    components: [
+      ["状态条", "表壳横条 + 夜光珠 + 日历窗显示阶段"],
+      ["KPI", "圆盘子表盘：60 刻度、270° 蓝色弧、细指针"],
+      ["指标列表", "章环刻度列 + 夜光点 + 发丝分隔线"],
+      ["服务器卡", "轮机舱四联表：细线电量条 + 刻度底纹"],
+      ["曲线", "深色凹陷表盘 + 蓝色夜光轨迹"],
+      ["桌宠", "带单目放大镜的机芯小机器人"]
+    ]
+  },
+  strix: {
+    name: "STRIX · 红黑电竞", sub: "战术计时码表", accent: "#FF2A45", accent2: "#FF3D7F", ok: "#3DE08A", warn: "#FFB020",
+    palette: ["#050608", "#0C0F14", "#252C39", "#FF2A45", "#F3F6FA"],
+    concept: "计时码表的“分段灯 + 切角”语言：卡片切角、红色高光边、24 段弧形转速灯，数据行像战术名单，状态用 LED 与六角标签，整体保持纯黑与高对比。",
+    components: [
+      ["状态条", "战术横幅 + 红色 LED + 斜切金属标签"],
+      ["KPI", "分段红弧（转速灯）+ 切角数字窗"],
+      ["指标列表", "奇偶行色带 + 左侧红色索引条 + 状态 LED"],
+      ["服务器卡", "8 格遥测条，超阈转琥珀"],
+      ["曲线", "红色遥测折线 + 十字准星 + LIVE 标记"],
+      ["桌宠", "红色目镜战术小无人机"]
+    ]
+  },
+  tuf: {
+    name: "TUF · 军工琥珀", sub: "野战仪表盘", accent: "#FFB000", accent2: "#C6F24A", ok: "#C6F24A", warn: "#FFB000",
+    palette: ["#0B0C0A", "#151713", "#33382C", "#FFB000", "#F2F4EC"],
+    concept: "野战仪表的“厚边框 + 铆钉 + 点阵”语言：橡胶护边、四角螺钉、顶部滚花、琥珀色高度表弧，标签用等宽/模板字，界面像一块耐操的现场设备。",
+    components: [
+      ["状态条", "缺口缎带 + 琥珀指示灯 + 虚线军规标签"],
+      ["KPI", "高度表子盘：240° 琥珀弧 + 12 点三角索引"],
+      ["指标列表", "野战日志：虚线规尺 + 琥珀 LED"],
+      ["服务器卡", "10 点点阵条 + 等宽读数"],
+      ["曲线", "地形剖面折线 + 等高线底纹"],
+      ["桌宠", "戴头盔的野战小机器人"]
+    ]
+  }
+};
+
+const PAGE_A = [
+  { type: "status", x: 0, y: 0, w: 12, h: 3 },
+  { type: "kpi", x: 0, y: 3, w: 6, h: 4, label: "解码速度", code: "DECODE", val: "12.4", unit: "tok/s", p: 62, a: 225 },
+  { type: "kpi", x: 6, y: 3, w: 6, h: 4, label: "预填充", code: "PREFILL", val: "36.8", unit: "tok/s", p: 78, a: 250 },
+  { type: "list", x: 0, y: 7, w: 12, h: 4, title: "实时指标", meta: "16 SUBSCRIBED" },
+  { type: "server", x: 0, y: 11, w: 12, h: 5, title: "服务器", meta: "HOST / GPU" }
+];
+
+const PAGE_B = [
+  { type: "status", x: 0, y: 0, w: 12, h: 3 },
+  { type: "spark", x: 0, y: 3, w: 12, h: 4, title: "解码速率", meta: "60S WINDOW" },
+  { type: "pet", x: 0, y: 7, w: 6, h: 5, label: "桌宠 · 待机" },
+  { type: "kpi", x: 6, y: 7, w: 6, h: 5, label: "KV 占用", code: "KV CACHE", val: "709K", unit: "tokens", p: 42, a: 240 },
+  { type: "server", x: 0, y: 12, w: 12, h: 4, title: "主机", meta: "SYSTEM" }
+];
+
+const LIST_ROWS = [
+  { lab: "在线状态", val: "在线", dot: true },
+  { lab: "模型", val: "qwen3.8-flash", dot: false },
+  { lab: "阶段", val: "idle", dot: false },
+  { lab: "NPU", val: "ok", dot: true }
+];
+
+const SRV_ROWS = [
+  { lab: "CPU 使用率", num: "28.0 %", pct: 28 },
+  { lab: "内存已用", num: "105.9 GB", pct: 86 },
+  { lab: "GPU 温度", num: "39.0 °C", pct: 52 },
+  { lab: "主机 IP", num: "192.168.31.95", pct: 0, text: true }
+];
+
+function ticks(n = 60, major = 5, r = 34) {
+  return Array.from({ length: n }, (_, i) => {
+    const big = i % major === 0;
+    return `<i style="height:${big ? 5 : 3}px;transform:rotate(${i * 360 / n}deg) translateY(-${r}px);background:${big ? "var(--accent)" : ""}"></i>`;
+  }).join("");
+}
+
+function segs(pct) {
+  const n = 24, start = 225, sweep = 270, r = 31;
+  const lit = Math.round(n * pct / 100);
+  return Array.from({ length: n }, (_, i) => {
+    const a = start + i * sweep / (n - 1);
+    return `<i class="${i < lit ? "on" : ""}" style="transform:rotate(${a}deg) translateY(-${r}px)"></i>`;
+  }).join("");
+}
+
+function meter(theme, pct, hot = false) {
+  if (theme === "strix") {
+    const n = 8, lit = Math.round(n * pct / 100);
+    return Array.from({ length: n }, (_, i) => `<i class="${i < lit ? (hot && i > n - 3 ? "hot" : "on") : ""}"></i>`).join("");
+  }
+  if (theme === "tuf") {
+    const n = 10, lit = Math.round(n * pct / 100);
+    return Array.from({ length: n }, (_, i) => `<i class="${i < lit ? "on" : ""}"></i>`).join("");
+  }
+  return `<i style="width:${pct}%"></i>`;
+}
+
+function spark(theme) {
+  const w = 290, h = 74;
+  const pts = [42, 38, 44, 40, 46, 43, 50, 47, 55, 52, 58, 49, 45, 52, 57, 60, 54, 48, 51, 58, 62, 57, 63, 60, 55, 50, 54, 59, 64, 61, 58, 64, 68, 66, 61, 57, 60, 65, 69, 67, 72, 68, 63, 59, 62, 66, 70, 73, 69, 65, 62, 66, 71, 74, 70, 66, 63, 68, 72, 75];
+  const mn = Math.min(...pts), mx = Math.max(...pts), span = Math.max(1, mx - mn);
+  const yy = v => (8 + (1 - (v - mn) / span) * (h - 16)).toFixed(1);
+  const path = pts.map((v, i) => `${(i * w / (pts.length - 1)).toFixed(1)},${yy(v)}`).join(" ");
+  const color = theme === "classic" ? "#4D8DFF" : theme === "strix" ? "#FF2A45" : "#FFB000";
+  const fill = theme === "classic" ? "rgba(77,141,255,.16)" : theme === "strix" ? "rgba(255,42,69,.14)" : "rgba(255,176,0,.14)";
+  const grid = theme === "classic" ? "rgba(77,141,255,.10)" : theme === "strix" ? "rgba(255,42,69,.10)" : "rgba(255,176,0,.10)";
+  const lastX = w, lastY = yy(pts[pts.length - 1]);
+  return `<svg class="spark-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    ${[0, 1, 2, 3].map(i => `<line x1="0" y1="${(h * i / 3).toFixed(1)}" x2="${w}" y2="${(h * i / 3).toFixed(1)}" stroke="${grid}" stroke-width="1"/>`).join("")}
+    ${[0, 1, 2, 3, 4, 5].map(i => `<line x1="${(w * i / 5).toFixed(1)}" y1="0" x2="${(w * i / 5).toFixed(1)}" y2="${h}" stroke="${grid}" stroke-width="1" stroke-dasharray="2 4"/>`).join("")}
+    <polygon points="0,${h} ${path} ${w},${h}" fill="${fill}"/>
+    <polyline points="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="${lastX - 28}" y1="${lastY}" x2="${lastX}" y2="${lastY}" stroke="${color}" stroke-width="1" opacity=".5"/>
+    <circle cx="${lastX - 1}" cy="${lastY}" r="3" fill="${color}"/>
+  </svg>`;
+}
+
+function widget(theme, w) {
+  const area = `grid-row:${w.y + 1} / span ${w.h};grid-column:${w.x + 1} / span ${w.w}`;
+  const box = `class="w h${w.h}" style="${area}"`;
+  if (w.type === "status") {
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div>
+        <div class="deco screws"><b></b><b></b><b></b><b></b></div>
+        <div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="status-card">
+          <span class="lume"></span>
+          <span class="model">halogen-qwen3.8-flash-next</span>
+          <span class="phase">IDLE</span>
+        </div>
+      </div>
+    </div>`;
+  }
+  if (w.type === "kpi") {
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div>
+        <div class="deco screws"><b></b><b></b><b></b><b></b></div>
+        <div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="kpi-head"><span>${w.code}</span><i></i></div>
+        <div class="dial">
+          <div class="ticks">${ticks()}</div>
+          <div class="arc-cont" style="--p:${w.p}"></div>
+          <div class="segs">${segs(w.p)}</div>
+          <div class="mark" style="transform:rotate(${w.a}deg) translateY(-31px)"></div>
+          <div class="dial-core"><div class="val">${w.val}</div><div class="unit">${w.unit}</div></div>
+        </div>
+        <div class="kpi-name">${w.label}</div>
+      </div>
+    </div>`;
+  }
+  if (w.type === "list") {
+    const rows = LIST_ROWS.map(r => `
+      <div class="row">
+        ${r.dot ? '<span class="dot"></span>' : '<span style="width:6px;flex:0 0 auto"></span>'}
+        <span class="lab">${r.lab}</span>
+        <span class="rval">${r.val}</span>
+        <span class="bar"></span>
+      </div>`).join("");
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div><div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="list-head"><span>${w.title}</span><span>${w.meta}</span></div>
+        <div class="rows">${rows}</div>
+      </div>
+    </div>`;
+  }
+  if (w.type === "server") {
+    const rows = SRV_ROWS.map((r, i) => `
+      <div class="srv-row">
+        <span class="lab">${r.lab}</span>
+        <span class="meter">${meter(theme, r.pct, i === 1)}</span>
+        <span class="num">${r.num}</span>
+      </div>`).join("");
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div>
+        <div class="deco screws"><b></b><b></b><b></b><b></b></div>
+        <div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="srv-head"><span>${w.title}</span><span>${w.meta}</span></div>
+        <div class="srv-rows">${rows}</div>
+      </div>
+    </div>`;
+  }
+  if (w.type === "spark") {
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div><div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="spark-head"><span>${w.title} · ${w.meta}</span><span class="live">LIVE</span></div>
+        ${spark(theme)}
+      </div>
+    </div>`;
+  }
+  if (w.type === "pet") {
+    return `<div ${box}>
+      <div class="card">
+        <div class="deco bezel"></div><div class="deco knurl"></div><div class="deco edge"></div>
+        <div class="pet-card">
+          <div class="pet">
+            <div class="pet-antenna"></div>
+            <div class="pet-body">
+              <div class="pet-eye l"></div><div class="pet-eye r"></div><div class="pet-mouth"></div>
+            </div>
+            <div class="pet-tag">${w.label}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+  return "";
+}
+
+function screen(theme, page) {
+  const items = (page === "a" ? PAGE_A : PAGE_B).map(w => widget(theme, w)).join("");
+  return `<div class="screen theme-${theme}">
+    <div class="bg"></div><div class="vignette"></div>
+    <div class="content">${items}</div>
+  </div>`;
+}
+
+function notes(theme) {
+  const t = THEMES[theme];
+  return `
+    <h2>${t.name} <span style="color:#5d6a7c;font-size:11px;font-weight:400">/ ${t.sub}</span></h2>
+    <div class="swatches">${t.palette.map(c => `<span class="swatch" style="background:${c}"></span>`).join("")}</div>
+    <p>${t.concept}</p>
+    <h3>组件语言</h3>
+    <ul>${t.components.map(([k, v]) => `<li><em>${k}</em>：${v}</li>`).join("")}</ul>
+    <h3>落到固件</h3>
+    <p>90% 元素可用 lv_obj / lv_line / lv_arc 直接绘制；纹理与辉光建议做预渲染贴图。刻度、弧线、分段条均为静态或低频刷新，不影响现有帧率预算。</p>
+  `;
+}
+
+let curTheme = "classic", curPage = "a";
+const params = new URLSearchParams(location.search);
+if (THEMES[params.get("theme")]) curTheme = params.get("theme");
+if (params.get("page") === "b") curPage = "b";
+
+function syncTabs() {
+  document.querySelectorAll("#themeTabs button").forEach(b => {
+    b.classList.toggle("on", b.dataset.theme === curTheme);
+  });
+  document.querySelectorAll("#pageTabs button").forEach(b => {
+    b.classList.toggle("on", b.dataset.page === curPage);
+  });
+}
+
+function renderDetail() {
+  document.getElementById("detailHost").innerHTML = screen(curTheme, curPage);
+  document.getElementById("notes").innerHTML = notes(curTheme);
+}
+
+function renderThumbs() {
+  const host = document.getElementById("thumbs");
+  let html = "";
+  for (const pg of ["a", "b"]) {
+    for (const th of ["classic", "strix", "tuf"]) {
+      html += `<div class="thumb-wrap"><div class="thumb">${screen(th, pg)}</div>
+        <div class="thumb-label">${THEMES[th].name.split(" · ")[1]} · ${pg === "a" ? "主看板" : "组件页"}</div></div>`;
+    }
+  }
+  host.innerHTML = html;
+}
+
+document.getElementById("themeTabs").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-theme]");
+  if (!btn) return;
+  curTheme = btn.dataset.theme;
+  [...e.currentTarget.querySelectorAll("button")].forEach(b => b.classList.toggle("on", b === btn));
+  history.replaceState(null, "", `?theme=${curTheme}&page=${curPage}`);
+  renderDetail();
+});
+document.getElementById("pageTabs").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-page]");
+  if (!btn) return;
+  curPage = btn.dataset.page;
+  [...e.currentTarget.querySelectorAll("button")].forEach(b => b.classList.toggle("on", b === btn));
+  history.replaceState(null, "", `?theme=${curTheme}&page=${curPage}`);
+  renderDetail();
+});
+
+syncTabs();
+renderDetail();
+renderThumbs();
+</script>
+</body>
+</html>

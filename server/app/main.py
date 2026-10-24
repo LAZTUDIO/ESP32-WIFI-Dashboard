@@ -10,9 +10,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .aggregator import Aggregator
 from .api.routes import router, ws_router
-from .config import LAYOUT_DIR, WEB_DIR, load_settings
+from .config import DATA_DIR, LAYOUT_DIR, SHARED_DIR, WEB_DIR, load_settings
 from .core.catalog import load_catalog
 from .core.connections import ConnectionManager
+from .core.devices import DeviceRegistry
 from .core.store import MetricStore
 
 logging.basicConfig(
@@ -31,19 +32,23 @@ async def lifespan(app: FastAPI):
     store = MetricStore(catalog)
     aggregator = Aggregator(settings, store)
     connections = ConnectionManager()
+    devices = DeviceRegistry(
+        DATA_DIR / "devices.json", LAYOUT_DIR, SHARED_DIR / "presets"
+    )
 
     app.state.settings = settings
     app.state.catalog = catalog
     app.state.store = store
     app.state.aggregator = aggregator
     app.state.connections = connections
+    app.state.devices = devices
 
     await aggregator.start()
     broadcast_task = asyncio.create_task(
         connections.run(store, 1.0), name="ws-broadcast"
     )
     log.info(
-        "ESP32-WIFI-Dashboard server 0.2.0 ready, panel=%s, editor=http://%s:%s/editor/",
+        "ESP32-WIFI-Dashboard server 0.3.0 ready, panel=%s, editor=http://%s:%s/editor/",
         settings.panel_url,
         settings.host,
         settings.port,
@@ -56,7 +61,7 @@ async def lifespan(app: FastAPI):
         await aggregator.stop()
 
 
-app = FastAPI(title="ESP32-WIFI-Dashboard Server", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="ESP32-WIFI-Dashboard Server", version="0.3.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -72,12 +77,13 @@ async def no_store_api(request: Request, call_next):
 
 app.include_router(router)
 app.include_router(ws_router)
+app.mount("/console", StaticFiles(directory=str(WEB_DIR / "console"), html=True), name="console")
 app.mount("/editor", StaticFiles(directory=str(WEB_DIR), html=True), name="editor")
 
 
 @app.get("/")
 def root() -> RedirectResponse:
-    return RedirectResponse("/editor/")
+    return RedirectResponse("/console/")
 
 
 if __name__ == "__main__":

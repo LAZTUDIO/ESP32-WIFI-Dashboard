@@ -12,11 +12,15 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 
 #include "driver/gpio.h"
@@ -29,8 +33,10 @@
 
 #include "app_config.h"
 #include "app_actions.h"
+#include "app_runtime.h"
 #include "dash_metric_store.h"
 #include "dashboard_client.h"
+#include "device_api.h"
 #include "metrics.h"
 #include "portal.h"
 #include "ui_dynamic.h"
@@ -41,6 +47,10 @@
 static const char *TAG = "app";
 
 static app_config_t s_cfg;
+static SemaphoreHandle_t s_cfg_lock;
+static volatile bool s_server_connected;
+static volatile bool s_network_visible;
+static volatile int64_t s_server_down_since;   /* 0 表示还没连过服务端 */
 static bool s_portal_wait_online;   /* 配网层是在"没网"时打开的，联网后自动退出 */
 static bool s_portal_active;
 
@@ -73,6 +83,103 @@ static void portal_overlay_show(bool show)
     lvgl_port_unlock();
 }
 
+/* ============================ 运行时配置 ============================ */
+
+void app_runtime_snapshot(app_config_t *out)
+{
+    if (!out) return;
+    if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+    *out = s_cfg;
+    if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+}
+
+static void ensure_device_id(app_config_t *cfg)
+{
+    if (!cfg || cfg->device_id[0]) return;
+    uint8_t mac[6] = {0};
+    if (esp_efuse_mac_get_default(mac) != ESP_OK) {
+        snprintf(cfg->device_id, sizeof(cfg->device_id), "esp32-unknown");
+    } else {
+        snprintf(cfg->device_id, sizeof(cfg->device_id), "esp32-%02x%02x%02x",
+                 mac[3], mac[4], mac[5]);
+    }
+    if (!config_save(cfg)) {
+        ESP_LOGW(TAG, "save device id failed");
+    }
+    ESP_LOGI(TAG, "device id: %s", cfg->device_id);
+}
+
+bool app_runtime_apply_config(const app_config_t *cfg)
+{
+    if (!cfg) return false;
+    app_config_t old;
+    app_runtime_snapshot(&old);
+
+    if (s_cfg_lock) xSemaphoreTake(s_cfg_lock, portMAX_DELAY);
+    bool saved = config_save(cfg);
+    if (saved) s_cfg = *cfg;
+    if (s_cfg_lock) xSemaphoreGive(s_cfg_lock);
+    if (!saved) return false;
+
+    bool need_reload = strcmp(old.dashboard_url, cfg->dashboard_url) != 0 ||
+                       strcmp(old.device_id, cfg->device_id) != 0 ||
+                       old.rot180 != cfg->rot180;
+    if (old.rot180 != cfg->rot180) {
+        if (lvgl_port_lock(2000)) {
+            display_set_rotation(cfg->rot180 ? 180 : 0);
+            lvgl_port_unlock();
+        }
+    }
+    if (need_reload) {
+        dashboard_client_reconfigure(cfg->dashboard_url, cfg->device_id,
+                                     cfg->rot180);
+    }
+    if (s_network_visible && !s_server_connected) {
+        app_runtime_show_network(true);
+    }
+    ESP_LOGI(TAG, "runtime config applied (server=%s)",
+             cfg->dashboard_url[0] ? cfg->dashboard_url : "(none)");
+    return true;
+}
+
+bool app_runtime_server_connected(void)
+{
+    return s_server_connected;
+}
+
+void app_runtime_set_server_connected(bool connected)
+{
+    if (connected) {
+        s_server_connected = true;
+        s_server_down_since = 0;
+        /* 在线期间配置走 WS，管理 HTTP 可以停掉，回收内部 RAM */
+        device_api_stop();
+        app_runtime_show_network(false);
+        return;
+    }
+    /* WS 失败重连会反复发 DISCONNECTED；只在第一次断开时开始计时，
+     * 否则 10 秒宽限永远到不了。 */
+    if (s_server_connected || s_server_down_since == 0) {
+        s_server_down_since = esp_timer_get_time();
+    }
+    s_server_connected = false;
+}
+
+void app_runtime_show_network(bool show)
+{
+    if (show && s_server_connected) show = false;
+    s_network_visible = show;
+    char ip[16] = "";
+    wifi_mgr_sta_ip(ip, sizeof(ip));
+    app_config_t cfg;
+    app_runtime_snapshot(&cfg);
+    if (lvgl_port_lock(1000)) {
+        ui_dynamic_show_network(show, cfg.wifi_ssid, ip, cfg.device_id,
+                                cfg.device_name, s_server_connected);
+        lvgl_port_unlock();
+    }
+}
+
 static void enter_portal(void)
 {
     if (s_portal_active) {
@@ -82,6 +189,8 @@ static void enter_portal(void)
     s_portal_active = true;
     /* 只有在"当前没网"时才允许联网后自动退出；用户主动进配网则保留 */
     s_portal_wait_online = !wifi_mgr_sta_connected();
+    device_api_stop();
+    app_runtime_show_network(false);
     portal_start(&s_cfg);
     portal_overlay_show(true);
     ESP_LOGI(TAG, "provisioning mode: AP %s", WIFI_AP_SSID);
@@ -93,8 +202,12 @@ static void leave_portal(void)
     s_portal_active = false;
     s_portal_wait_online = false;
     portal_stop();
+    device_api_start();
     time_sync_start();
     portal_overlay_show(false);
+    if (!s_server_connected) {
+        app_runtime_show_network(true);
+    }
     ESP_LOGI(TAG, "Wi-Fi came up during provisioning, overlay hidden");
 }
 
@@ -112,6 +225,17 @@ static void portal_task(void *arg)
         if (s_portal_wait_online && wifi_mgr_sta_connected()) {
             leave_portal();
         }
+        /* 服务端掉线 10 秒后重新开放管理 HTTP，允许按 IP 重新接入；
+         * 在线时 HTTP 保持关闭，配置由 WS 下发。 */
+        if (!s_portal_active && !s_server_connected &&
+            wifi_mgr_sta_connected() && !device_api_running()) {
+            int64_t now = esp_timer_get_time();
+            if (s_server_down_since == 0 ||
+                now - s_server_down_since > 10LL * 1000 * 1000) {
+                ESP_LOGI(TAG, "server offline, enabling device api");
+                device_api_start();
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
@@ -122,15 +246,17 @@ static void api_task(void *arg)
     (void)arg;
     dash_metrics_t m;
     while (1) {
-        if (s_cfg.server_url[0] && wifi_mgr_sta_connected()) {
-            bool ok = metrics_poll(&s_cfg, &m);
+        app_config_t cfg;
+        app_runtime_snapshot(&cfg);
+        if (cfg.server_url[0] && wifi_mgr_sta_connected()) {
+            bool ok = metrics_poll(&cfg, &m);
             if (lvgl_port_lock(500)) {
                 metrics_publish(&m);
                 ui_dynamic_apply();
                 lvgl_port_unlock();
             }
             if (!ok) {
-                ESP_LOGW(TAG, "api poll failed: %s", s_cfg.server_url);
+                ESP_LOGW(TAG, "api poll failed: %s", cfg.server_url);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(2000));
@@ -181,6 +307,8 @@ void app_main(void)
     }
 
     config_load(&s_cfg);
+    s_cfg_lock = xSemaphoreCreateMutex();
+    ensure_device_id(&s_cfg);
 
     cJSON_Hooks json_hooks = {
         .malloc_fn = json_psram_malloc,
@@ -214,10 +342,9 @@ void app_main(void)
     wifi_mgr_init();
     ESP_LOGI(TAG, "wifi manager ready");
 
-    if (s_cfg.dashboard_url[0]) {
-        dashboard_client_start(s_cfg.dashboard_url, s_cfg.rot180);
-        ESP_LOGI(TAG, "dashboard client started");
-    }
+    dashboard_client_start(s_cfg.dashboard_url, s_cfg.device_id, s_cfg.rot180);
+    ESP_LOGI(TAG, "dashboard client started%s",
+             s_cfg.dashboard_url[0] ? "" : " (waiting for server config)");
 
     bool connected = false;
     if (s_cfg.wifi_ssid[0]) {
@@ -227,18 +354,22 @@ void app_main(void)
 
     if (connected) {
         time_sync_start();
-        if (!s_cfg.dashboard_url[0]) {
-            ESP_LOGW(TAG, "no dashboard URL, entering provisioning mode");
-            enter_portal();
+        device_api_start();
+        if (!s_server_connected) {
+            app_runtime_show_network(true);
         }
     } else {
         ESP_LOGW(TAG, "no Wi-Fi, entering provisioning mode");
         enter_portal();
     }
 
-    xTaskCreate(portal_task, "portal", 3072, NULL, 3, NULL);
+    xTaskCreate(portal_task, "portal", 4096, NULL, 3, NULL);
     xTaskCreate(boot_button_task, "boot_btn", 3072, NULL, 3, NULL);
-    if (s_cfg.server_url[0]) {
+    BaseType_t api_ok = xTaskCreateWithCaps(
+        api_task, "api_poll", 8192, NULL, 4, NULL,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (api_ok != pdPASS) {
+        ESP_LOGW(TAG, "api task PSRAM stack failed, fallback to internal");
         xTaskCreate(api_task, "api_poll", 8192, NULL, 4, NULL);
     }
 

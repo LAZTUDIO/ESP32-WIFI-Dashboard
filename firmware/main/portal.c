@@ -129,13 +129,9 @@ static esp_err_t handle_root(httpd_req_t *req)
     char scan[900];
     int found = wifi_mgr_scan(scan, sizeof(scan), 16);
 
-    char ssid_esc[160], pass_esc[160], server_esc[220], key_esc[260], host_esc[220];
-    char dashboard_esc[220];
+    char ssid_esc[160], pass_esc[160], dashboard_esc[220];
     html_escape(cfg.wifi_ssid, ssid_esc, sizeof(ssid_esc));
     html_escape(cfg.wifi_pass, pass_esc, sizeof(pass_esc));
-    html_escape(cfg.server_url, server_esc, sizeof(server_esc));
-    html_escape(cfg.api_key, key_esc, sizeof(key_esc));
-    html_escape(cfg.host_agent, host_esc, sizeof(host_esc));
     html_escape(cfg.dashboard_url, dashboard_esc, sizeof(dashboard_esc));
 
     size_t used = 0;
@@ -165,7 +161,8 @@ static esp_err_t handle_root(httpd_req_t *req)
         "color:#8c9bae;font-size:12px;font-weight:600;letter-spacing:.4px}"
         "</style></head><body><div class=\"w\">"
         "<div class=\"badge\">ESP32-S3 · LLM 监控看板</div>"
-        "<h1>设备配网</h1><p class=\"s\">连接 Wi-Fi，并按需填写两路数据源（可只填一个）</p>"
+        "<h1>设备配网</h1><p class=\"s\">只填 Wi-Fi。保存后设备连网并显示 IP，"
+        "在电脑服务端输入该 IP 添加屏幕；API/布局/配色都在电脑端配置。</p>"
         "<form method=\"POST\" action=\"/save\">"
         "<label>扫描到的 Wi-Fi（%d 个）</label><select name=\"sel\">"
         "<option value=\"\">— 手动输入下方的名称 —</option>", found);
@@ -199,37 +196,12 @@ static esp_err_t handle_root(httpd_req_t *req)
         "<input name=\"ssid\" placeholder=\"手动输入优先\" value=\"%s\">"
         "<label>Wi-Fi 密码</label>"
         "<input name=\"pass\" type=\"password\" value=\"%s\">"
-        "<div class=\"sec\">① 传统 API（设备直连 LLM 服务）</div>"
-        "<label>API 地址（留空则不启用直连）</label>"
-        "<input name=\"server\" placeholder=\"http://192.168.1.100:8000\" value=\"%s\">"
-        "<label>API 密钥</label>"
-        "<input name=\"key\" type=\"password\" value=\"%s\">"
-        "<label>服务类型</label><select name=\"provider\">",
-        ssid_esc, pass_esc, server_esc, key_esc);
-
-    static const char *provs[][2] = {
-        {"auto", "自动识别"}, {"panel", "Halogen 面板 (8800)"},
-        {"halogen", "Halogen"}, {"gufo", "Gufo"},
-        {"strata", "Strata"}, {"lmstudio", "LM Studio"},
-        {"ollama", "Ollama"}, {"openai", "OpenAI 兼容"},
-    };
-    for (size_t i = 0; i < sizeof(provs) / sizeof(provs[0]); i++) {
-        append(&html, &used, cap, "<option value=\"%s\"%s>%s</option>",
-               provs[i][0],
-               strcmp(cfg.provider, provs[i][0]) == 0 ? " selected" : "",
-               provs[i][1]);
-    }
-
-    append(&html, &used, cap,
-        "</select>"
-        "<label>主机监控地址（可选，也可填 8800 面板地址）</label>"
-        "<input name=\"host\" placeholder=\"http://192.168.1.100:8800\" value=\"%s\">"
-        "<div class=\"sec\">② 专用看板 Server（布局 / 配色 / 服务端指标）</div>"
-        "<label>Server 地址（留空则不启用动态看板）</label>"
+        "<div class=\"sec\">可选：服务端地址</div>"
+        "<label>填了设备会直接连接；留空则由电脑端按 IP 接入</label>"
         "<input name=\"dashboard\" placeholder=\"http://192.168.1.100:8080\" value=\"%s\">"
         "<button type=\"submit\">保存并重启</button>"
-        "</form><p class=\"f\">保存后设备会自动重启并连接</p>"
-        "</div></body></html>", host_esc, dashboard_esc);
+        "</form><p class=\"f\">重启后屏幕会显示 IP 地址；API 密钥在电脑服务端填写。</p>"
+        "</div></body></html>", ssid_esc, pass_esc, dashboard_esc);
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     esp_err_t err = httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
@@ -253,7 +225,8 @@ static esp_err_t handle_save(httpd_req_t *req)
     app_config_t cfg;
     config_load(&cfg);
 
-    char v[192];
+    char v[96];
+    char url[192];
     if (form_value(body, "sel", v, sizeof(v)) && v[0]) {
         snprintf(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), "%.*s",
                  (int)sizeof(cfg.wifi_ssid) - 1, v);
@@ -266,33 +239,15 @@ static esp_err_t handle_save(httpd_req_t *req)
         snprintf(cfg.wifi_pass, sizeof(cfg.wifi_pass), "%.*s",
                  (int)sizeof(cfg.wifi_pass) - 1, v);
     }
-    if (form_value(body, "server", v, sizeof(v))) {
-        snprintf(cfg.server_url, sizeof(cfg.server_url), "%.*s",
-                 (int)sizeof(cfg.server_url) - 1, v);
-    }
-    if (form_value(body, "key", v, sizeof(v))) {
-        snprintf(cfg.api_key, sizeof(cfg.api_key), "%.*s",
-                 (int)sizeof(cfg.api_key) - 1, v);
-    }
-    if (form_value(body, "provider", v, sizeof(v)) && v[0]) {
-        snprintf(cfg.provider, sizeof(cfg.provider), "%.*s",
-                 (int)sizeof(cfg.provider) - 1, v);
-    }
-    if (form_value(body, "host", v, sizeof(v))) {
-        snprintf(cfg.host_agent, sizeof(cfg.host_agent), "%.*s",
-                 (int)sizeof(cfg.host_agent) - 1, v);
-    }
-    if (form_value(body, "dashboard", v, sizeof(v))) {
+    if (form_value(body, "dashboard", url, sizeof(url))) {
         snprintf(cfg.dashboard_url, sizeof(cfg.dashboard_url), "%.*s",
-                 (int)sizeof(cfg.dashboard_url) - 1, v);
+                 (int)sizeof(cfg.dashboard_url) - 1, url);
     }
     config_normalize(&cfg);
     config_save(&cfg);
 
-    ESP_LOGI(TAG, "provisioned: ssid=%s api=%s dashboard=%s",
-             cfg.wifi_ssid,
-             cfg.server_url[0] ? cfg.server_url : "(none)",
-             cfg.dashboard_url[0] ? cfg.dashboard_url : "(none)");
+    ESP_LOGI(TAG, "provisioned: ssid=%s server=%s", cfg.wifi_ssid,
+             cfg.dashboard_url[0] ? cfg.dashboard_url : "(auto via IP)");
 
     const char *page =
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
@@ -300,7 +255,7 @@ static esp_err_t handle_save(httpd_req_t *req)
         "<style>body{background:#0b0f16;color:#e8eef7;font:16px/1.6 -apple-system,"
         "\"PingFang SC\",sans-serif;text-align:center;padding:80px 20px}"
         "h2{color:#34d399}</style></head><body>"
-        "<h2>配置已保存</h2><p>设备正在重启，请稍候…</p></body></html>";
+        "<h2>Wi-Fi 已保存</h2><p>设备正在重启并连接网络，屏幕会显示 IP 地址。</p></body></html>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr(req, page);
 

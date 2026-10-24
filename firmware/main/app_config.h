@@ -19,11 +19,13 @@ extern "C" {
 typedef struct {
     char wifi_ssid[33];
     char wifi_pass[65];
+    char device_id[24];        /* 由 MAC 派生，如 esp32-a1b2c3 */
+    char device_name[32];      /* 服务端下发的备注名 */
     char server_url[160];      /* 传统 API 地址，末尾不带 / */
     char api_key[192];
     char provider[16];         /* auto / halogen / gufo / strata / lmstudio / ollama / openai / panel */
     char host_agent[160];      /* 可选主机监控，也可直接填 8800 面板 */
-    char dashboard_url[160];   /* 专用看板服务端，空=不启用动态布局 */
+    char dashboard_url[160];   /* 看板服务端；由服务端按 IP 连接后下发 */
     bool rot180;               /* 屏幕 180° 翻转 */
 } app_config_t;
 

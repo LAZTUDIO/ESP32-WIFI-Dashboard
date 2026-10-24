@@ -1,6 +1,6 @@
-# ESP32-WIFI-Dashboard 0.2 协议（v1）
+# ESP32-WIFI-Dashboard 0.3 协议（v1）
 
-服务端与 Web 编辑器、ESP32 固件之间的最小契约。M0/M1 先实现 REST + WebSocket 快照；后续可在此基础上加增量、主题下发和命令通道。
+服务端与 Web 编辑器、ESP32 固件之间的最小契约。0.3 起服务端按设备管理多块屏：设备上报身份，服务端按 IP 接入并下发配置，布局/字体按设备隔离。
 
 ## 指标值格式
 
@@ -27,13 +27,22 @@
 | GET | `/api/v1/profiles` | 画布 profile |
 | GET | `/api/v1/themes` | 配色主题与 token |
 | GET | `/api/v1/snapshot` | 当前全部指标值 |
-| GET | `/api/v1/layout?profile=320x480` | 读取布局（无保存记录时返回 preset） |
-| PUT | `/api/v1/layout` | 保存布局（body 为布局 JSON） |
 | GET | `/api/v1/sources` | 各数据源最近一次采集状态 |
+| GET | `/api/v1/devices` | 设备列表（online/ip/profile/api/last_seen） |
+| POST | `/api/v1/devices/connect` | `{ip, name?, api?, rot180?}` 探测并接入 |
+| GET/PATCH/DELETE | `/api/v1/devices/{id}` | 读取 / 修改并下发 / 移除 |
+| POST | `/api/v1/devices/{id}/push` | 重新下发配置 |
+| POST | `/api/v1/devices/{id}/reboot` | 重启屏幕 |
+| GET/PUT | `/api/v1/devices/{id}/layout` | 该屏布局；`resolved=1` 注入 `theme_tokens` |
+| GET | `/api/v1/devices/{id}/font/meta` | 该屏 11/13/15 字体元信息 |
+| GET | `/api/v1/devices/{id}/font?size=11` | 该屏指定字号 binfont |
+| GET | `/api/v1/server-info` | 下发给设备的服务端地址 |
+| GET/PUT | `/api/v1/layout` | 旧接口/模板布局（兼容） |
 
-## WebSocket `/ws`
+## WebSocket `/ws?device_id=<id>`
 
-连接后服务端先发 `{"type":"hello","v":1}`，客户端发送订阅后才开始推送：
+- 设备连接带 `device_id`（如 `esp32-a1b2c3`）；编辑器不带，作为 viewer。
+- 连接后服务端先发 `{"type":"hello","v":1,"device_id":"..."}`，客户端发送订阅后才开始推送：
 
 ```json
 {"type": "subscribe", "metrics": ["llm.decode_tps", "host.gpu_temp_c"]}
@@ -46,9 +55,47 @@
 ```
 
 - 订阅列表只影响该连接；固件只订阅布局里用到的指标。
-- 服务端保存布局后向所有连接广播 `{"type":"layout_changed","profile":"320x480"}`；设备应重新拉取 `resolved=1` 布局并重载 UI，无需重启。
+- 保存某屏布局后，服务端向该设备 + 所有 viewer 发送
+  `{"type":"layout_changed","device_id":"esp32-a1b2c3","profile":"320x480"}`；
+  其他设备不会收到。设备重新拉取该设备的 `resolved=1` 布局并重载 UI，无需重启。
 - 服务端回复 `{"type":"pong"}`。
 - 连接断开后客户端每 2 秒重连，重连后需要重新订阅。
+
+## 设备管理（0.3）
+
+设备联网后在 **未连上服务端/断线恢复** 时开放管理 HTTP（:80，仅局域网）；WS 连上后自动停止以释放内部 RAM，配置改由 WS 下发。断线 10 秒后自动重新开放，便于按 IP 重新接入。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/info` | `{id,name,profile,fw,ip,ssid,configured,server_connected}` |
+| POST | `/api/v1/config` | 首次接入/恢复时下发配置（见下） |
+| POST | `/api/v1/reboot` | 重启设备（HTTP 兜底） |
+
+在线时通过 WS 下发同样结构的配置：
+
+```json
+{"type": "config", "config": {"dashboard_url": "...", "device_id": "...", "name": "主屏", "profile": "320x480", "rot180": false, "api": {"url": "...", "key": "", "provider": "auto", "host_agent": ""}}}
+{"type": "reboot"}
+```
+
+HTTP `/api/v1/config` body：
+
+```json
+{
+  "dashboard_url": "http://192.168.1.116:8080",
+  "device_id": "esp32-a1b2c3",
+  "name": "主屏",
+  "profile": "320x480",
+  "rot180": false,
+  "api": {"url": "http://192.168.1.100:8000", "key": "", "provider": "auto", "host_agent": ""}
+}
+```
+
+- 设备保存到 NVS；API/名称/服务端地址立即生效，WS 重连并重拉布局；`rot180` 变更会重建设备 UI。
+- 服务端在设备 WS 上线时会补发一次 `config`，离线期间改的配置自动同步；设备会比较后只应用变化。
+- 设备 ID 由 MAC 派生（`esp32-xxxxxx`），服务端只登记，不能改。
+- 管理接口无鉴权，仅限局域网；AP 配网时让位给 portal。
+- 服务端记录在线状态来自 WS 连接；设备重新联网后 WS 对端 IP 会更新服务端记录。
 
 ## 布局 JSON
 
@@ -73,9 +120,9 @@
 - `bindings` 的 key 由组件目录定义；value 是在指标目录里存在的指标 ID，类型必须匹配。
 - 通用 `options.show_title`（默认 true）：为 false 时设备不渲染标题栏，服务端允许最小高度减 1 格；编辑器的边框拖动只是编辑辅助，不占布局。
 - 服务端保存前会校验：组件类型、尺寸下限、越界、重叠、绑定指标类型、主题 id。
-- 布局按 `profile` 分开保存，主题不参与几何计算。
+- 0.3 起布局按设备保存为 `server/data/layouts/<device_id>.json`；`<profile>.json` 与 preset 只作为新屏的初始模板。主题不参与几何计算。
 - `theme` 只能是 `shared/catalog/themes.json` 里的 id；缺省视为 `classic`。
-- 设备请求 `resolved=1` 时，服务端会写入 `theme_tokens`（见下）并把指标标签/单位/精度补全。
+- 设备请求 `/api/v1/devices/{id}/layout?resolved=1` 时，服务端会写入 `theme_tokens`（见下）并把指标标签/单位/精度补全。
 
 ## 多页布局（v2）
 
@@ -145,17 +192,21 @@
 
 ## 字体子集（0.2.2，已实现）
 
-服务端按布局实际显示的文字生成 LVGL binfont 子集，设备从 SPIFFS 按需加载，解决任意中文标签缺字：
+服务端按布局实际显示的文字生成 LVGL binfont 子集，设备从 SPIFFS 按需加载，解决任意中文标签缺字。字号与 Web 设计一致，按 11 / 13 / 15 px 三档分别生成：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/font/meta?profile=320x480` | `{sha256, chars, size, font}`；设备先比对 sha256 |
-| GET | `/api/v1/font?profile=320x480` | 二进制 binfont（4bpp、无压缩），带 `X-Font-SHA256` |
+| GET | `/api/v1/devices/{id}/font/meta` | 该屏 `{sizes:[{size,sha256,chars,bytes}], sha256, chars, size, font}` |
+| GET | `/api/v1/devices/{id}/font?size=11` | 该屏指定字号 binfont（4bpp、无压缩），带 `X-Font-SHA256` |
+| GET | `/api/v1/font/meta?profile=320x480` | 旧接口/模板；顶层字段是 16px 兼容值 |
+| GET | `/api/v1/font?profile=320x480&size=11` | 旧接口/模板字体；`size` 缺省 16 |
 
 - 字符集 = 布局 JSON 里所有字符串 + 组件内置文案 + 可打印 ASCII，去重排序。
 - 服务端需要 Pillow 和系统 CJK 字体；`config.json` 的 `font_path` 可显式指定，留空自动探测。
-- 设备下载后校验 SHA-256，写入 `/spiffs/font_a.bin` / `font_b.bin` 双槽，用
-  `lv_binfont_create_ex()` 一次性把位图读进 RAM（约 20–30KB，走 PSRAM），避免渲染路径再读文件。
+- 设备按字号逐个比对 SHA-256，写入 `/spiffs/font_11_a.bin` 等双槽，用
+  `lv_binfont_create_ex()` 一次性把位图读进 RAM（每档约 8–20KB，合计约 45KB，走 PSRAM），避免渲染路径再读文件。
+- 设备使用设备级接口：`/api/v1/devices/{id}/font/meta`、`/api/v1/devices/{id}/font?size=11`；
+  `/api/v1/font*` 保留给旧固件/模板。
 - 字体会在 `layout_changed` 后随布局一起热更新；失败则保留内置 498 字子集。
 - layout / theme token / font 已全部通过同一份 resolved 布局下发；图片等二进制资源打包仍待后续里程碑。
 

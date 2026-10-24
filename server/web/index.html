@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>ESP32-WIFI-Dashboard 0.2 · 布局编辑器</title>
-  <link rel="stylesheet" href="style.css?v=0.2.4">
+  <title>ESP32-WIFI-Dashboard 0.3 · 布局编辑器</title>
+  <link rel="stylesheet" href="style.css?v=0.3.1">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-dot"></span> ESP32-WIFI-Dashboard <span class="brand-ver">0.2</span></div>
+    <div class="brand"><span class="brand-dot"></span> ESP32-WIFI-Dashboard <span class="brand-ver">0.3</span></div>
     <div class="toolbar">
+      <a class="btn ghost" href="/console/">← 控制台</a>
       <span id="conn" class="conn">连接中…</span>
       <label class="profile-label">画布
         <select id="profile-select"></select>
@@ -21,6 +22,21 @@
       <button id="save-btn" class="btn primary" type="button">保存布局</button>
     </div>
   </header>
+
+  <div class="devicebar">
+    <div class="devicebar-left">
+      <label class="profile-label">屏幕
+        <select id="device-select"></select>
+      </label>
+      <button id="device-connect-btn" class="btn small" type="button">连接屏幕</button>
+      <button id="device-settings-btn" class="btn small ghost" type="button" disabled>屏幕设置</button>
+      <span id="device-status" class="device-status">未连接屏幕</span>
+    </div>
+    <div class="devicebar-right">
+      <span class="muted">服务端</span>
+      <code id="server-url">—</code>
+    </div>
+  </div>
 
   <main class="workspace">
     <aside class="side-panel palette-panel">
@@ -68,7 +84,42 @@
     </aside>
   </main>
 
+  <div id="device-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="device-modal-title">连接屏幕</h3>
+        <button id="device-modal-close" class="btn ghost small" type="button">关闭</button>
+      </div>
+      <p class="modal-hint" id="device-modal-hint">在设备屏幕上读取 IP，填入此处。设备需与电脑在同一局域网。</p>
+      <div class="form-grid">
+        <label>设备 IP<input id="dev-ip" placeholder="192.168.1.50" autocomplete="off"></label>
+        <label>备注名<input id="dev-name" placeholder="主屏" maxlength="32"></label>
+        <label class="span2">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
+        <label>API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
+        <label>服务类型
+          <select id="dev-provider">
+            <option value="auto">auto（自动探测）</option>
+            <option value="halogen">halogen</option>
+            <option value="gufo">gufo</option>
+            <option value="strata">strata</option>
+            <option value="lmstudio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+            <option value="openai">OpenAI 兼容</option>
+          </select>
+        </label>
+        <label class="span2">主机监控地址（可选）<input id="dev-host-agent" placeholder="http://192.168.1.100:8732"></label>
+        <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
+      </div>
+      <div class="modal-actions">
+        <button id="device-reboot-btn" class="btn danger small hidden" type="button">重启屏幕</button>
+        <button id="device-delete-btn" class="btn danger small hidden" type="button">删除屏幕</button>
+        <span class="modal-error" id="device-modal-error"></span>
+        <button id="device-modal-save" class="btn primary" type="button">连接并下发</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=0.2.4"></script>
+  <script src="app.js?v=0.3.1"></script>
 </body>
 </html>

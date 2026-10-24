@@ -9,6 +9,8 @@
 ## 功能
 
 - **动态布局**：服务端下发组件与网格布局，保存后设备热更新，无需重启
+- **多屏管理**：一台服务端可管理多块屏；Web 输入屏幕 IP 即可接入，每块屏独立布局、配色和 API 设置
+- **极简配网**：手机连设备热点只填 Wi-Fi；设备联网后显示 IP，其余配置全部由电脑服务端下发
 - **Web 可视化编辑**：组件库、属性面板、多页与翻页动画，实时指标预览
 - **Web 在线配色**：经典 / STRIX / TUF 三套 token（底色、卡片、描边、强调色、圆角），下拉切换即时预览，保存后设备同步渲染
 - **双数据源**：可同时配置「传统 API 地址」和「专用 Server 地址」；两台电脑分别提供 API 指标和服务端指标，同一台也不冲突
@@ -27,7 +29,6 @@
 
 | 服务 | 探测端点 | 能取到的指标 |
 | --- | --- | --- |
-| **halogen-panel (8800)** | `/api/status` | 模型/版本、实时与均值 TPS、slots/上下文、in_flight/queued、KV、MTP、GPU/内存/uptime（公开，无需密钥） |
 | **halogen** | `/health` + `/metrics` | 模型/版本、slots、上下文、in_flight/queued、KV 池、token 计数器、MTP、缓存 |
 | **gufo** | `/health` + `/v1/slots` | 同上；无 metrics 时用 slots 的 `n_decoded` 差分 |
 | **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / 引擎启动时间 |
@@ -35,8 +36,7 @@
 | **Ollama** | `/api/ps` | 已加载模型、大小、上下文 |
 | **OpenAI 兼容** | `/v1/models` | 模型列表 |
 
-服务类型默认 `auto`，按上表顺序探测；也可在配网页手动指定（面板选 `panel`）。
-面板的 `/api/usage`、`/api/params`、`/api/logs` 与 TTS/向量接口仍受面板密码保护，固件不会读取。
+服务类型默认 `auto`，固件按内置顺序探测；也可在控制台为每块屏手动指定。
 
 > TPS 说明：`llamacpp:predicted_tokens_seconds` 这类 gauge 在部分服务里恒为 0，因此本项目统一用
 > `tokens_predicted_total` 与 `tokens_predicted_seconds_total` 的区间差分计算实时速度。
@@ -44,8 +44,8 @@
 ## 硬件指标从哪来
 
 LLM API **不提供** GPU 功耗、温度、占用率、内存等数据（halogen 的 `/metrics` 全是推理计数器），
-这些字段由**服务端**补齐。推荐直接使用 halogen-panel（`:8800`）的公开 `/api/status`：
-在 `server/config.json` 里把 `panel_url` 指向面板地址即可，无需密钥。
+这些字段由**服务端**补齐：可采集本机 system/GPU，也可把 `server/config.json` 的 `panel_url`
+指向私有面板（可选，固件不读取面板的受保护接口）。
 
 没有面板时，可在跑模型的机器上启动主机监控脚本：
 
@@ -72,27 +72,32 @@ idf.py -p /dev/cu.usbmodem21401 flash
 
 首次构建会由组件管理器自动下载 LVGL 9.6、`esp_lvgl_port` 等依赖（`main/idf_component.yml`）。
 
-### 2. 配网
+### 2. 配网与接入服务端
 
 1. 手机连接热点 `ESP32-WIFI-Dashboard`（密码 `12345678`）
 2. 浏览器打开 `http://192.168.4.1`（Captive Portal 会自动弹出）
-3. 选择 Wi-Fi；按需填写：
-   - **① 传统 API 地址**（如 `http://192.168.1.100:8000`）+ 服务类型/密钥，可留空
-   - **② 专用看板 Server 地址**（如 `http://192.168.1.100:8080`），可留空
-4. 保存，设备自动重启并连接；两个地址可指向同一台或两台电脑
+3. 只填写 Wi-Fi 名称和密码，保存后设备重启并联网
+4. 设备屏幕会显示 **IP 地址、Wi-Fi 和设备 ID**（等待服务端连接）
+5. 电脑打开服务端 Web（`http://<PC>:8080/`），点「连接屏幕」输入该 IP
+   - 可填写屏幕备注名、传统 API 地址/密钥/类型、180° 翻转
+   - 服务端会探测设备并下发自己的地址、API 设置和该屏的布局
+6. 设备自动连上服务端并显示看板；以后服务端可直接改配置/布局，无需再碰设备
 
-也可以在串口直接写入（见下方调试命令）：
+也可以在串口调试（会写 NVS 并重启）：
 
 ```
 w <ssid>|<password>
 c <url>|<key>    # 传统 API 地址，c - 清空
-d <url>          # 专用 Server 地址，d - 清空
+d <url>          # 服务端地址，d - 清空
 ```
 
 ### 3. Web 编辑器（配色 / 布局预览）
 
-启动服务端后打开 `http://<PC>:8080/`，在顶部「配色」下拉框切换经典 / STRIX / TUF，
-画布会立即按主题 token 刷新；「保存布局」后设备热更新。
+启动服务端后打开 `http://<PC>:8080/`。顶部「屏幕」下拉选择要编辑的屏；
+「连接屏幕」按 IP 接入新屏，「屏幕设置」可改名称/API/翻转。
+「配色」下拉切换经典 / STRIX / TUF，画布立即刷新；「保存布局」只下发到当前屏。
+
+不想敲命令可双击 `server/启动服务.bat`（Windows）或 `server/启动服务.command`（macOS），用图形启动器管理启动/停止。
 
 字体子集可用无头探针预览（无需烧板）：
 
@@ -131,19 +136,34 @@ curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
 
 `server/` 负责布局/配色编辑与服务端指标聚合；ESP32 负责渲染，并可直接轮询传统 API。
 
-- 配网页分别填写传统 API 与专用 Server；也可串口执行 `c` / `d`
-- 设备启动时拉取服务端 `resolved` 布局（含 `theme_tokens`），通过 WebSocket 订阅布局用到的指标；同时若有传统 API 地址，会独立轮询并写入同一指标存储
+- 配网页只填 Wi-Fi；设备联网后显示 IP，服务端 Web 按 IP 接入并下发服务端地址、传统 API、备注名和翻转设置
+- 每块屏独立布局：WS 带 `device_id`，`layout_changed` 只通知目标屏；布局/字体从 `/api/v1/devices/{id}/...` 拉取
+- 设备启动时拉取该屏的 `resolved` 布局（含 `theme_tokens`），通过 WebSocket 订阅布局用到的指标；同时若有传统 API 地址，会独立轮询并写入同一指标存储
 - **配色在 Web 编辑器里配置**：`shared/catalog/themes.json` 定义三套 token，服务端解析布局时注入，固件 `ui_dynamic` 应用；设备端不再保存主题
 - 已支持状态条、KPI、服务器卡、指标列表和隐藏标题
 - 布局 v2 多页支持触摸滑动，串口 `p <n>` 可切页；`page_animation` 支持 `slide`（原生跟手）、`fade`（快照交叉淡出）、`stack`（层叠）、`zoom`（缩放）、`flip`（翻转）、`rotate`（旋转）、`none`（直切）。除 `slide` 外都在松手时按位移判定并关闭原生滚动
 - 过渡效果合计代码 <2KB；固件 1.86MB / 4MB 分区，剩余约 2.25MB
 - 总组件数上限 **20**（实测内部 RAM 约束，见下）
-- 服务端保存布局后设备**热更新，无需重启**；≤10 组件时原子换屏（构建期间旧界面保持可见），更多组件仍会短暂黑屏
+- 服务端保存布局后设备**热更新，无需重启**；在线时管理 HTTP 自动释放，内部 RAM 约 39KB，原子换屏阈值 32KB，构建失败会自动回退“先删后建”
+- 服务端可同时管理多块屏，显示每屏在线/离线、IP 和最后在线时间；服务端指标共享，传统 API 设置按屏独立
+- 服务端 Web 的「屏幕设置」可热更新 API 地址/密钥/类型、备注名和 180° 翻转；在线时通过 WS 下发，设备不会重启
+- **Web 控制台**：`/console/` 是设备管理主界面（卡片列表、搜索、添加/配置/重命名/删除/布局/重启/服务状态）；`/editor/` 仍是布局编辑器，控制台点「布局」会自动选中对应屏
 - 编辑器收到 `layout_changed` 会自动重载；有未保存修改时提示先点「重载」，避免旧状态覆盖新布局
 - 布局未变化时（含 WS 重连后的重拉）按哈希跳过重建，避免黑屏闪烁
-- **字体子集**：服务端按布局实际文字生成 LVGL binfont（`/api/v1/font`），设备校验 SHA-256 后写入 SPIFFS 双槽并把位图加载进 PSRAM；布局里的任意中文都能显示，没有可用字体时回退内置 498 字子集
+- **字体子集**：服务端按布局实际文字生成 **11/13/15 三档** LVGL binfont（`/api/v1/devices/{id}/font?size=`），设备逐档校验 SHA-256 后写入 SPIFFS 双槽并把位图加载进 PSRAM；标题、说明、服务器卡与指标列表 S/M/L 均按 Web 设计字号渲染，没有可用字体时回退内置 498 字子集
 - **长按 BOOT（GPIO0）3 秒**进入配网（APSTA），屏幕显示热点/密码/地址；串口 `P` 也可触发用于调试
 - STRIX/TUF 独立 UI 已移除，主题统一走 Web 配置；传统 API 直连采集保留，并与 Server 数据并存
+
+### 多屏管理（0.3）
+
+- 设备 ID 由 MAC 派生（`esp32-xxxxxx`），备注名可在 Web 修改
+- 管理 HTTP 只在上线前/断线恢复时运行：WS 连上后自动停止，释放约 13KB 内部 RAM；WS 断开 10 秒后自动重新开放，便于按 IP 重新配置
+- 在线配置（API/名称/翻转）通过 WS 下发；离线保存会标记 pending，设备上线后自动同步；重启也走 WS
+- 配网页可选填服务端地址：填了设备直接连接，留空则由控制台按 IP 接入；API Key 只在电脑端填写
+- 服务端接口：`POST /api/v1/devices/connect {ip}`、`GET/PATCH/DELETE /api/v1/devices/{id}`、`GET/PUT /api/v1/devices/{id}/layout`、`GET /api/v1/devices/{id}/font*`
+- WS：`/ws?device_id=...`；布局变更只通知该设备（编辑器 viewer 仍会收到）
+- 设备重新配网后 IP 变化：在控制台重新输入 IP 接入；WS 上线会自动更新服务端记录的 IP
+- 管理接口仅限局域网，v1 未做鉴权；`config.json` 的 `public_url` 可覆盖下发给设备的服务端地址
 
 启动服务和编辑布局见 [server/README.md](server/README.md)。换电脑接力开发请先看 [docs/0.2-HANDOFF.md](docs/0.2-HANDOFF.md)。
 

@@ -32,6 +32,30 @@ class ContractTest(unittest.TestCase):
             )
             validate_layout(layout, self.catalog)
 
+    def test_widget_default_bindings_exist(self) -> None:
+        widgets = json.loads(
+            (SERVER_DIR.parent / "shared" / "catalog" / "widgets.json").read_text(
+                encoding="utf-8"
+            )
+        )["widgets"]
+        for widget in widgets:
+            for binding in widget.get("bindings", []):
+                default = binding.get("default")
+                if default:
+                    self.assertIn(
+                        default,
+                        self.catalog.metrics,
+                        f"{widget['type']}.{binding['key']} 默认测点缺失: {default}",
+                    )
+            for index, row in enumerate(
+                (widget.get("rows") or {}).get("default", [])
+            ):
+                self.assertIn(
+                    row.get("binding"),
+                    self.catalog.metrics,
+                    f"{widget['type']} 第 {index + 1} 行默认测点缺失",
+                )
+
     def test_overlap_rejected(self) -> None:
         layout = json.loads(
             (PRESETS / "default-320x480.json").read_text(encoding="utf-8")

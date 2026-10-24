@@ -30,6 +30,7 @@ static dash_provider_t s_prov;
 static bool s_probed;
 static char s_base[160];
 static char s_key[192];
+static char s_provider[16];
 
 static int s_fail;
 static bool s_have_last;
@@ -1000,9 +1001,12 @@ bool metrics_poll(const app_config_t *cfg, dash_metrics_t *out)
     if (!wifi_mgr_sta_connected()) goto failed;
 
     bool explicit_provider = strcmp(cfg->provider, "auto") != 0;
-    if (strcmp(s_base, cfg->server_url) != 0 || strcmp(s_key, cfg->api_key) != 0) {
+    if (strcmp(s_base, cfg->server_url) != 0 ||
+        strcmp(s_key, cfg->api_key) != 0 ||
+        strcmp(s_provider, cfg->provider) != 0) {
         snprintf(s_base, sizeof(s_base), "%s", cfg->server_url);
         snprintf(s_key, sizeof(s_key), "%s", cfg->api_key);
+        snprintf(s_provider, sizeof(s_provider), "%s", cfg->provider);
         s_probed = false;
         s_diff_primed = false;
     }

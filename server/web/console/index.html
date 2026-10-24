@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 控制台 · 终端屏</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: #f5f6f8;
+      color: #1f2937;
+      font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+    }
+    button, input, select { font: inherit; color: inherit; }
+    a { color: inherit; text-decoration: none; }
+
+    .topbar {
+      height: 64px;
+      background: #fff;
+      border-bottom: 1px solid #e6e8ec;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      padding: 0 28px;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 16px; white-space: nowrap; }
+    .brand-logo {
+      width: 26px; height: 26px; border-radius: 8px;
+      background: linear-gradient(135deg, #2563eb, #22b8cf);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 14px;
+    }
+    .brand-ver { color: #9aa4b2; font-size: 11px; font-weight: 400; }
+    .tabs { display: flex; align-items: center; gap: 4px; }
+    .tab {
+      border: 0; background: transparent; color: #5b6573; font-size: 13px;
+      padding: 8px 14px; border-radius: 9px; cursor: pointer; white-space: nowrap;
+    }
+    .tab:hover { background: #f2f4f7; }
+    .tab.active { background: #eef4ff; color: #2563eb; font-weight: 600; }
+    .top-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .server-chip {
+      font-size: 11px; color: #6b7280; background: #f5f6f8;
+      border: 1px solid #e6e8ec; border-radius: 999px; padding: 5px 10px;
+      max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .icon-btn {
+      width: 34px; height: 34px; border-radius: 50%; border: 1px solid #e6e8ec;
+      background: #fff; color: #6b7280; cursor: pointer;
+    }
+
+    .wrap { max-width: 1500px; margin: 0 auto; padding: 24px 28px 48px; }
+    .page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+    .title-icon {
+      width: 46px; height: 46px; border-radius: 12px; background: #eef4ff;
+      display: flex; align-items: center; justify-content: center;
+      color: #2563eb; font-size: 21px;
+    }
+    .page-head h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+    .page-head p { margin: 4px 0 0; color: #8a93a1; font-size: 12px; }
+    .page-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .search { position: relative; }
+    .search input {
+      width: 280px; padding: 9px 12px 9px 34px; border-radius: 9px;
+      border: 1px solid #e2e5ea; background: #fff; outline: none; font-size: 13px;
+    }
+    .search input:focus { border-color: #93b4ff; box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
+    .search::before {
+      content: "⌕"; position: absolute; left: 12px; top: 50%; transform: translateY(-52%);
+      color: #9aa4b2; font-size: 16px;
+    }
+    .btn {
+      border: 1px solid #e2e5ea; background: #fff; color: #374151;
+      border-radius: 9px; padding: 9px 14px; cursor: pointer; font-size: 13px;
+    }
+    .btn:hover { border-color: #cbd5e1; background: #fbfcfe; }
+    .btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+    .btn.primary:hover { background: #1d4ed8; }
+    .btn:disabled { opacity: .6; cursor: default; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 18px;
+    }
+    .card {
+      background: #fff; border: 1px solid #e6e8ec; border-radius: 14px;
+      padding: 18px; box-shadow: 0 1px 2px rgba(16,24,40,.03);
+      transition: box-shadow .16s ease, border-color .16s ease;
+      position: relative;
+    }
+    .card:hover { border-color: #d5dbe4; box-shadow: 0 10px 26px rgba(16,24,40,.07); }
+    .card-head { display: flex; align-items: center; gap: 11px; }
+    .avatar {
+      width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 600;
+    }
+    .card-title { min-width: 0; flex: 1; }
+    .card-title h3 {
+      margin: 0; font-size: 15px; letter-spacing: .2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-title .sub {
+      display: block; margin-top: 3px; color: #98a1af; font-size: 11px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex: 0 0 auto; }
+    .dot.online { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.13); }
+    .more {
+      border: 0; background: transparent; color: #9aa4b2; font-size: 18px;
+      line-height: 1; width: 28px; height: 28px; border-radius: 7px; cursor: pointer;
+    }
+    .more:hover { background: #f2f4f7; color: #4b5563; }
+    .menu {
+      position: absolute; right: 14px; top: 52px; z-index: 5;
+      background: #fff; border: 1px solid #e6e8ec; border-radius: 10px;
+      box-shadow: 0 12px 30px rgba(16,24,40,.12); padding: 5px; min-width: 120px;
+    }
+    .menu button {
+      display: block; width: 100%; text-align: left; border: 0; background: transparent;
+      padding: 8px 10px; border-radius: 7px; font-size: 12px; color: #374151; cursor: pointer;
+    }
+    .menu button:hover { background: #f5f6f8; }
+    .menu button.danger { color: #dc2626; }
+    .stats {
+      display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 0;
+      background: #f8f9fb; border: 1px solid #eef0f3; border-radius: 10px;
+      padding: 10px 4px; margin: 15px 0 14px;
+    }
+    .stats > div { padding: 0 10px; min-width: 0; }
+    .stats > div + div { border-left: 1px solid #e9ecf1; }
+    .stats span { display: block; color: #98a1af; font-size: 10px; margin-bottom: 5px; }
+    .stats b {
+      display: block; font-size: 12px; font-weight: 500; color: #374151;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-actions { display: flex; gap: 8px; }
+    .card-actions .btn { flex: 1; padding: 8px 6px; font-size: 12px; }
+    .empty {
+      border: 1px dashed #d5dbe4; border-radius: 14px; padding: 60px 20px;
+      text-align: center; color: #8a93a1; background: #fbfcfe;
+    }
+    .empty b { display: block; color: #4b5563; font-size: 15px; margin-bottom: 6px; }
+
+    .modal {
+      position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,.42);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-card {
+      width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto;
+      background: #fff; border-radius: 16px; padding: 22px;
+      box-shadow: 0 30px 70px rgba(15,23,42,.22);
+    }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .modal-head h2 { margin: 0; font-size: 17px; }
+    .modal-head .btn { padding: 6px 10px; font-size: 12px; }
+    .modal-hint { color: #8a93a1; font-size: 12px; line-height: 1.65; margin: 8px 0 16px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid label { display: flex; flex-direction: column; gap: 5px; color: #6b7280; font-size: 11px; }
+    .form-grid label.span2 { grid-column: span 2; }
+    .form-grid .check { flex-direction: row; align-items: center; gap: 8px; font-size: 12px; }
+    .form-grid input, .form-grid select {
+      width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #e2e5ea;
+      background: #fbfcfe; outline: none; font-size: 13px;
+    }
+    .form-grid input:focus, .form-grid select:focus {
+      border-color: #93b4ff; background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.08);
+    }
+    .form-grid input:disabled { color: #9aa4b2; background: #f2f4f7; }
+    .form-grid input[type="checkbox"] { width: auto; }
+    .modal-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+    .modal-actions .primary { margin-left: auto; }
+    .modal-error { color: #dc2626; font-size: 12px; flex: 1; line-height: 1.45; }
+    .modal-actions .danger { color: #dc2626; border-color: #fecaca; }
+
+    #status-content {
+      background: #0f172a; color: #cbd5e1; border-radius: 10px; padding: 14px;
+      font: 11px/1.6 Consolas, Menlo, monospace; white-space: pre-wrap;
+      max-height: 360px; overflow: auto;
+    }
+    .toast {
+      position: fixed; left: 50%; bottom: 30px; transform: translate(-50%, 20px);
+      background: #111827; color: #fff; padding: 10px 16px; border-radius: 9px;
+      font-size: 12px; opacity: 0; pointer-events: none; transition: .2s ease; z-index: 80;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .hidden { display: none !important; }
+    @media (max-width: 760px) {
+      .topbar { padding: 0 14px; gap: 12px; }
+      .tabs { overflow-x: auto; }
+      .server-chip { display: none; }
+      .wrap { padding: 18px 14px 40px; }
+      .page-head { flex-wrap: wrap; }
+      .page-actions { width: 100%; }
+      .search, .search input { width: 100%; }
+      .search { flex: 1; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid label.span2 { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-logo">▦</span> ESP32 控制台 <span class="brand-ver">0.3</span></div>
+    <nav class="tabs">
+      <a class="tab active" href="/console/">终端屏</a>
+      <a class="tab" id="nav-editor" href="/editor/">布局编辑</a>
+      <button class="tab" id="nav-status" type="button">服务状态</button>
+    </nav>
+    <div class="top-right">
+      <span id="server-chip" class="server-chip">服务端 —</span>
+      <button class="icon-btn" id="refresh-btn" type="button" title="刷新">↻</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="page-head">
+      <div class="title-icon">▤</div>
+      <div>
+        <h1>终端屏</h1>
+        <p id="device-count">共 0 块屏</p>
+      </div>
+      <div class="page-actions">
+        <div class="search"><input id="search" placeholder="搜索备注名 / 设备 ID / IP"></div>
+        <button class="btn primary" id="add-device" type="button">+ 添加屏幕</button>
+      </div>
+    </section>
+
+    <section id="grid" class="grid"></section>
+    <div id="empty" class="empty hidden">
+      <b>还没有终端屏</b>
+      设备配网后会显示 IP；点「添加屏幕」输入 IP 即可接入。
+    </div>
+  </main>
+
+  <div id="device-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="device-modal-title">添加屏幕</h2>
+        <button class="btn" id="device-modal-close" type="button">关闭</button>
+      </div>
+      <p class="modal-hint" id="device-modal-hint">
+        在设备屏幕读取 IP。用户只需在手机配网页填 Wi-Fi；API 地址和密钥在这里（电脑端）填写。
+      </p>
+      <div class="form-grid">
+        <label>设备 IP<input id="dev-ip" placeholder="192.168.1.50" autocomplete="off"></label>
+        <label>备注名<input id="dev-name" placeholder="主屏" maxlength="32"></label>
+        <label class="span2">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
+        <label>API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
+        <label>服务类型
+          <select id="dev-provider">
+            <option value="auto">auto（自动探测）</option>
+            <option value="halogen">halogen</option>
+            <option value="gufo">gufo</option>
+            <option value="strata">strata</option>
+            <option value="lmstudio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+            <option value="openai">OpenAI 兼容</option>
+          </select>
+        </label>
+        <label class="span2">主机监控地址（可选）<input id="dev-host-agent" placeholder="http://192.168.1.100:8732"></label>
+        <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn danger hidden" id="device-delete" type="button">删除屏幕</button>
+        <span class="modal-error" id="device-error"></span>
+        <button class="btn primary" id="device-save" type="button">添加并下发</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>服务状态</h2>
+        <button class="btn" id="status-close" type="button">关闭</button>
+      </div>
+      <p class="modal-hint">服务端指标源、WS 客户端与设备在线情况。</p>
+      <div id="status-content">加载中…</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    (() => {
+      'use strict';
+      const state = {
+        devices: [],
+        serverUrl: '',
+        modalMode: null,
+        editingId: null,
+        query: '',
+        poll: null,
+      };
+      const $ = (id) => document.getElementById(id);
+      const grid = $('grid');
+      const toastEl = $('toast');
+      let toastTimer = null;
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+
+      function toast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+      }
+
+      async function api(path, options = {}) {
+        const resp = await fetch(path, {
+          ...options,
+          headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        });
+        const text = await resp.text();
+        let data = null;
+        if (text) {
+          try { data = JSON.parse(text); } catch { data = text; }
+        }
+        if (!resp.ok) {
+          const detail = data && typeof data === 'object' && data.detail
+            ? data.detail : `HTTP ${resp.status}`;
+          throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        }
+        return data;
+      }
+
+      function relTime(ts) {
+        if (!ts) return '—';
+        const diff = Date.now() / 1000 - ts;
+        if (diff < 60) return '刚刚';
+        if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+        return `${Math.floor(diff / 86400)} 天前`;
+      }
+
+      function addr(device) {
+        return device.port && device.port !== 80
+          ? `${device.ip}:${device.port}` : device.ip;
+      }
+
+      const AVATARS = [
+        ['#fff1e7', '#c2410c'], ['#eef4ff', '#1d4ed8'], ['#eefbf3', '#047857'],
+        ['#f6efff', '#7e22ce'], ['#fff1f2', '#be123c'], ['#eff8ff', '#0369a1'],
+      ];
+      function avatarStyle(id) {
+        let h = 0;
+        for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+        const [bg, fg] = AVATARS[h % AVATARS.length];
+        return `background:${bg};color:${fg}`;
+      }
+
+      function filtered() {
+        const q = state.query.trim().toLowerCase();
+        if (!q) return state.devices;
+        return state.devices.filter((d) =>
+          `${d.name} ${d.id} ${d.ip}`.toLowerCase().includes(q)
+        );
+      }
+
+      function render() {
+        const devices = filtered();
+        const online = state.devices.filter((d) => d.online).length;
+        $('device-count').textContent =
+          `共 ${state.devices.length} 块屏${state.devices.length ? ` · ${online} 在线` : ''}`;
+        $('server-chip').textContent = state.serverUrl ? `服务端 ${state.serverUrl}` : '服务端 —';
+        $('server-chip').title = state.serverUrl || '';
+        const first = state.devices.find((d) => d.online) || state.devices[0];
+        $('nav-editor').href = first ? `/editor/?device=${encodeURIComponent(first.id)}` : '/editor/';
+        $('empty').classList.toggle('hidden', devices.length > 0);
+        grid.innerHTML = devices.map((d) => `
+          <article class="card" data-id="${esc(d.id)}">
+            <div class="card-head">
+              <div class="avatar" style="${avatarStyle(d.id)}">${esc((d.name || '屏').slice(0, 1))}</div>
+              <div class="card-title">
+                <h3 title="${esc(d.name)}">${esc(d.name)}</h3>
+                <span class="sub" title="${esc(d.id)}">${esc(d.id)}</span>
+              </div>
+              <span class="dot ${d.online ? 'online' : ''}" title="${d.online ? '在线' : '离线'}"></span>
+              <button class="more" type="button" data-action="menu" aria-label="更多">⋯</button>
+            </div>
+            <div class="stats">
+              <div><span>分辨率</span><b>${esc(d.profile || '—')}</b></div>
+              <div><span>IP</span><b title="${esc(addr(d))}">${esc(addr(d))}</b></div>
+              <div><span>最近在线</span><b>${d.online ? '在线' : relTime(d.last_seen)}</b></div>
+            </div>
+            <div class="card-actions">
+              <button class="btn" type="button" data-action="config">配置</button>
+              <button class="btn" type="button" data-action="layout">布局</button>
+              <button class="btn" type="button" data-action="reboot">重启</button>
+            </div>
+            <div class="menu hidden">
+              <button type="button" data-action="rename">重命名</button>
+              <button type="button" data-action="delete" class="danger">删除屏幕</button>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      async function refresh() {
+        try {
+          const data = await api('/api/v1/devices');
+          state.devices = Array.isArray(data.devices) ? data.devices : [];
+          state.serverUrl = data.server_url || state.serverUrl;
+          render();
+        } catch (error) {
+          toast(`刷新失败：${error.message}`);
+        }
+      }
+
+      function openDeviceModal(mode, device) {
+        state.modalMode = mode;
+        state.editingId = device ? device.id : null;
+        $('device-error').textContent = '';
+        $('device-modal-title').textContent = mode === 'connect' ? '添加屏幕' : '屏幕配置';
+        $('device-modal-hint').textContent = mode === 'connect'
+          ? '在设备屏幕读取 IP。用户只需在手机配网页填 Wi-Fi；API 地址和密钥在这里（电脑端）填写。'
+          : '修改后会通过 WS（在线）或管理 HTTP（离线）下发。布局请点卡片上的「布局」。';
+        $('device-save').textContent = mode === 'connect' ? '添加并下发' : '保存并下发';
+        $('dev-ip').value = device ? addr(device) : '';
+        $('dev-ip').disabled = mode !== 'connect';
+        $('dev-name').value = device ? device.name : '';
+        const cfg = (device && device.api) || {};
+        $('dev-api-url').value = cfg.url || '';
+        $('dev-api-key').value = cfg.key || '';
+        $('dev-provider').value = cfg.provider || 'auto';
+        $('dev-host-agent').value = cfg.host_agent || '';
+        $('dev-rot180').checked = !!(device && device.rot180);
+        $('device-delete').classList.toggle('hidden', mode === 'connect');
+        $('device-modal').classList.remove('hidden');
+        setTimeout(() => {
+          if (mode === 'connect') $('dev-ip').focus();
+          else $('dev-name').focus();
+        }, 30);
+      }
+
+      function closeDeviceModal() {
+        $('device-modal').classList.add('hidden');
+        state.modalMode = null;
+        state.editingId = null;
+      }
+
+      function formApi() {
+        return {
+          url: $('dev-api-url').value.trim(),
+          key: $('dev-api-key').value,
+          provider: $('dev-provider').value,
+          host_agent: $('dev-host-agent').value.trim(),
+        };
+      }
+
+      async function saveDevice() {
+        const btn = $('device-save');
+        const errorEl = $('device-error');
+        errorEl.textContent = '';
+        btn.disabled = true;
+        btn.textContent = '下发中…';
+        try {
+          const name = $('dev-name').value.trim();
+          const apiCfg = formApi();
+          const rot180 = $('dev-rot180').checked;
+          let result;
+          if (state.modalMode === 'connect') {
+            const ip = $('dev-ip').value.trim();
+            if (!ip) throw new Error('请填写设备 IP');
+            result = await api('/api/v1/devices/connect', {
+              method: 'POST',
+              body: JSON.stringify({ ip, name, api: apiCfg, rot180 }),
+            });
+          } else {
+            if (!state.editingId) throw new Error('未选择屏幕');
+            result = await api(`/api/v1/devices/${encodeURIComponent(state.editingId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ name, api: apiCfg, rot180 }),
+            });
+          }
+          const via = result.via || 'http';
+          toast(via === 'pending' ? '已保存，屏幕上线后自动同步' : '配置已下发');
+          closeDeviceModal();
+          await refresh();
+        } catch (error) {
+          errorEl.textContent = error.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = state.modalMode === 'connect' ? '添加并下发' : '保存并下发';
+        }
+      }
+
+      async function rebootDevice(device) {
+        if (!confirm(`重启「${device.name}」？`)) return;
+        try {
+          const result = await api(`/api/v1/devices/${encodeURIComponent(device.id)}/reboot`, { method: 'POST' });
+          toast(result.via === 'ws' ? '重启指令已通过 WS 发送' : '重启指令已发送');
+        } catch (error) {
+          toast(`重启失败：${error.message}`);
+        }
+      }
+
+      async function deleteDevice(device) {
+        if (!confirm(`从控制台移除「${device.name}」？设备本身不会被重置。`)) return;
+        try {
+          await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, { method: 'DELETE' });
+          toast('已移除屏幕');
+          closeDeviceModal();
+          await refresh();
+        } catch (error) {
+          toast(`删除失败：${error.message}`);
+        }
+      }
+
+      function deviceById(id) {
+        return state.devices.find((d) => d.id === id) || null;
+      }
+
+      grid.addEventListener('click', (event) => {
+        const card = event.target.closest('.card');
+        if (!card) return;
+        const device = deviceById(card.dataset.id);
+        if (!device) return;
+        const action = event.target.dataset.action;
+        if (action === 'menu') {
+          event.stopPropagation();
+          const menu = card.querySelector('.menu');
+          const wasHidden = menu.classList.contains('hidden');
+          document.querySelectorAll('.menu').forEach((m) => m.classList.add('hidden'));
+          if (wasHidden) menu.classList.remove('hidden');
+          return;
+        }
+        if (action === 'config' || action === 'rename') {
+          openDeviceModal('settings', device);
+          return;
+        }
+        if (action === 'layout') {
+          location.href = `/editor/?device=${encodeURIComponent(device.id)}`;
+          return;
+        }
+        if (action === 'reboot') {
+          rebootDevice(device);
+          return;
+        }
+        if (action === 'delete') {
+          deleteDevice(device);
+        }
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!event.target.closest('.menu') && !event.target.closest('.more')) {
+          document.querySelectorAll('.menu').forEach((m) => m.classList.add('hidden'));
+        }
+      });
+
+      $('search').addEventListener('input', (event) => {
+        state.query = event.target.value;
+        render();
+      });
+      $('add-device').addEventListener('click', () => openDeviceModal('connect'));
+      $('device-modal-close').addEventListener('click', closeDeviceModal);
+      $('device-modal').addEventListener('click', (event) => {
+        if (event.target === $('device-modal')) closeDeviceModal();
+      });
+      $('device-save').addEventListener('click', saveDevice);
+      $('device-delete').addEventListener('click', () => {
+        const device = deviceById(state.editingId);
+        if (device) deleteDevice(device);
+      });
+      $('refresh-btn').addEventListener('click', () => {
+        refresh();
+        toast('已刷新');
+      });
+      $('status-close').addEventListener('click', () => $('status-modal').classList.add('hidden'));
+      $('status-modal').addEventListener('click', (event) => {
+        if (event.target === $('status-modal')) $('status-modal').classList.add('hidden');
+      });
+      $('nav-status').addEventListener('click', async () => {
+        $('status-modal').classList.remove('hidden');
+        $('status-content').textContent = '加载中…';
+        try {
+          const health = await api('/api/v1/health');
+          const sources = (health.sources || []).map((s) =>
+            `${s.name.padEnd(8)} ${s.ok ? 'OK' : 'FAIL'}  polls=${s.polls} failures=${s.failures}`
+          ).join('\n');
+          $('status-content').textContent =
+`版本      ${health.version}
+WS 连接   ${health.clients}
+设备      ${health.devices_online?.length || 0}/${health.device_total || 0} 在线
+在线 ID   ${(health.devices_online || []).join(', ') || '—'}
+
+数据源
+${sources || '—'}`;
+        } catch (error) {
+          $('status-content').textContent = `加载失败：${error.message}`;
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          closeDeviceModal();
+          $('status-modal').classList.add('hidden');
+        }
+      });
+
+      refresh();
+      state.poll = setInterval(refresh, 5000);
+    })();
+  </script>
+</body>
+</html>

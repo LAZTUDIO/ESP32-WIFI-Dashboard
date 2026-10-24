@@ -23,6 +23,7 @@ class Settings:
     gpu_interval_s: float = 5.0
     host: str = "0.0.0.0"
     port: int = 8080
+    public_url: str = ""         # 下发给设备的服务端地址；留空自动用局域网 IP
     font_path: str = ""          # 可选的 CJK 字体文件；留空自动探测系统字体
 
 

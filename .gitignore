@@ -32,6 +32,10 @@ server/.venv/
 server/.venv-mac/
 server/config.json
 server/data/layouts/
+server/data/devices.json
+server/.launcher-server.log
+server/.launcher-server.pid
+server/.launcher-error.log
 
 # 本地抓帧与调试图片（保留文档截图）
 *.png

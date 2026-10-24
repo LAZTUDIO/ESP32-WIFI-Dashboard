@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.c" "display.c" "board_touch.c" "debug_console.c"
          "app_config.c" "wifi_mgr.c" "portal.c" "api_client.c" "metrics.c"
-         "dashboard_client.c"
+         "dashboard_client.c" "device_api.c"
          "../../ui/src/ui_widgets.c"
          "../../ui/src/font_cjk_16.c"
          "../../ui/src/dash_metric_store.c" "../../ui/src/ui_dynamic.c"
@@ -16,4 +16,4 @@ idf_component_register(
 # lodepng 头文件走 lvgl 组件已导出的 src 目录，无需额外 INCLUDE_DIRS
 
 # 设置页底部显示的固件版本（PC 模拟器不定义，默认显示 "sim"）
-target_compile_definitions(${COMPONENT_LIB} PRIVATE DASH_FW_VERSION="v0.1.0")
+target_compile_definitions(${COMPONENT_LIB} PRIVATE DASH_FW_VERSION="v0.3.0")

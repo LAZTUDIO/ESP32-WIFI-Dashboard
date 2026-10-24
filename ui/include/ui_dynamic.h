@@ -16,9 +16,11 @@
 extern "C" {
 #endif
 
-/** 设置动态 UI 使用的中文字体（服务端下发的 binfont）；NULL 恢复内置子集。
- *  需在 LVGL 锁内调用，且只影响之后创建的控件。 */
-void ui_dynamic_set_cjk_font(const lv_font_t *font);
+/** 设置动态 UI 使用的三档中文字体（服务端下发的 11/13/15 binfont）；
+ *  任一参数为 NULL 时该档回退内置 16px 子集。需在 LVGL 锁内调用。 */
+void ui_dynamic_set_cjk_fonts(const lv_font_t *small,
+                              const lv_font_t *medium,
+                              const lv_font_t *large);
 
 typedef struct {
     uint32_t apply_count;
@@ -68,6 +70,11 @@ void ui_dynamic_set_page_anim(int mode);
 /** 显示/隐藏配网提示浮层；必须在 LVGL 锁内调用。 */
 void ui_dynamic_show_portal(bool show, const char *ssid, const char *pass,
                             const char *ip);
+
+/** 显示/隐藏网络信息浮层（STA 已连接、等待服务端）；必须在 LVGL 锁内调用。 */
+void ui_dynamic_show_network(bool show, const char *ssid, const char *ip,
+                             const char *device_id, const char *name,
+                             bool server_connected);
 
 /** 删除动态屏幕；必须在 LVGL 锁内调用。 */
 void ui_dynamic_destroy(void);

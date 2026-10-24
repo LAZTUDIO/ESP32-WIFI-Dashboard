@@ -42,6 +42,10 @@ void config_load(app_config_t *cfg)
     nvs_get_str(h, "ssid", cfg->wifi_ssid, &len);
     len = sizeof(cfg->wifi_pass);
     nvs_get_str(h, "pass", cfg->wifi_pass, &len);
+    len = sizeof(cfg->device_id);
+    nvs_get_str(h, "devid", cfg->device_id, &len);
+    len = sizeof(cfg->device_name);
+    nvs_get_str(h, "dname", cfg->device_name, &len);
     len = sizeof(cfg->server_url);
     nvs_get_str(h, "server", cfg->server_url, &len);
     len = sizeof(cfg->api_key);
@@ -57,8 +61,9 @@ void config_load(app_config_t *cfg)
     nvs_close(h);
 
     config_normalize(cfg);
-    ESP_LOGI(TAG, "loaded: wifi=%s api=%s dashboard=%s provider=%s",
+    ESP_LOGI(TAG, "loaded: wifi=%s id=%s api=%s dashboard=%s provider=%s",
              cfg->wifi_ssid[0] ? cfg->wifi_ssid : "(none)",
+             cfg->device_id[0] ? cfg->device_id : "(none)",
              cfg->server_url[0] ? cfg->server_url : "(none)",
              cfg->dashboard_url[0] ? cfg->dashboard_url : "(none)",
              cfg->provider);
@@ -76,6 +81,8 @@ bool config_save(const app_config_t *cfg)
     bool ok = true;
     ok &= nvs_set_str(h, "ssid", cfg->wifi_ssid) == ESP_OK;
     ok &= nvs_set_str(h, "pass", cfg->wifi_pass) == ESP_OK;
+    ok &= nvs_set_str(h, "devid", cfg->device_id) == ESP_OK;
+    ok &= nvs_set_str(h, "dname", cfg->device_name) == ESP_OK;
     ok &= nvs_set_str(h, "server", cfg->server_url) == ESP_OK;
     ok &= nvs_set_str(h, "key", cfg->api_key) == ESP_OK;
     ok &= nvs_set_str(h, "provider", cfg->provider) == ESP_OK;

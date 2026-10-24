@@ -93,6 +93,8 @@ typedef struct {
     int row_count;
     bool list_show_labels;
     int list_font_size;
+    int list_row_height;
+    int list_label_width;
 
     char value_unit[16];
     int value_precision;
@@ -181,6 +183,13 @@ static dyn_view_t *s_staging;
 static lv_obj_t *s_pending_blank;
 static bool s_engaged;
 static lv_obj_t *s_portal_overlay;
+static lv_obj_t *s_network_overlay;
+static lv_obj_t *s_net_state;
+static lv_obj_t *s_net_ip;
+static lv_obj_t *s_net_ssid;
+static lv_obj_t *s_net_name;
+static lv_obj_t *s_net_id;
+static lv_obj_t *s_net_hint;
 static lv_obj_t *s_portal_ssid;
 static lv_obj_t *s_portal_pass;
 static lv_obj_t *s_portal_url;
@@ -360,6 +369,8 @@ static bool parse_widget(cJSON *wj, dyn_widget_t *w)
         w->list_show_labels = jbool(options, "show_labels", true);
         const char *fs = jstr(options, "font_size", "M");
         w->list_font_size = (fs[0] == 'S') ? 0 : (fs[0] == 'L') ? 2 : 1;
+        w->list_row_height = jint(options, "row_height", 0);
+        w->list_label_width = jint(options, "label_width", 0);
     } else {
         copy_str(w->title, sizeof(w->title), type_label(w->type));
     }
@@ -526,17 +537,34 @@ static void grid_rect(int gx, int gy, int gw, int gh,
     *oh = (int)lroundf(gh * ch + (gh - 1) * GRID_GAP);
 }
 
-/* 运行时中文字体：服务端按布局文字下发的 binfont；失败时回退内置子集 */
-static const lv_font_t *s_cjk_font;
+/* 运行时中文字体：服务端按布局文字下发的三档 binfont（11/13/15）；
+ * 失败时回退内置 16px 子集 */
+static const lv_font_t *s_cjk_small;
+static const lv_font_t *s_cjk_medium;
+static const lv_font_t *s_cjk_large;
 
-static const lv_font_t *cjk_font(void)
+static const lv_font_t *cjk_small(void)
 {
-    return s_cjk_font ? s_cjk_font : UI_F_CJK;
+    return s_cjk_small ? s_cjk_small : UI_F_CJK;
 }
 
-void ui_dynamic_set_cjk_font(const lv_font_t *font)
+static const lv_font_t *cjk_medium(void)
 {
-    s_cjk_font = font;
+    return s_cjk_medium ? s_cjk_medium : UI_F_CJK;
+}
+
+static const lv_font_t *cjk_large(void)
+{
+    return s_cjk_large ? s_cjk_large : UI_F_CJK;
+}
+
+void ui_dynamic_set_cjk_fonts(const lv_font_t *small,
+                              const lv_font_t *medium,
+                              const lv_font_t *large)
+{
+    s_cjk_small = small;
+    s_cjk_medium = medium;
+    s_cjk_large = large;
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text,
@@ -590,7 +618,7 @@ static void build_status(dyn_widget_t *w)
     lv_obj_set_style_pad_column(w->body, 6, 0);
 
     w->status_dot = make_dot(w->body, 9);
-    w->status_model = make_label(w->body, "—", cjk_font(), ui_theme()->text);
+    w->status_model = make_label(w->body, "—", cjk_medium(), ui_theme()->text);
     lv_obj_set_flex_grow(w->status_model, 1);
     lv_obj_set_style_max_width(w->status_model, LV_PCT(70), 0);
     lv_obj_set_height(w->status_model, 20);
@@ -615,10 +643,10 @@ static void build_kpi_like(dyn_widget_t *w)
     w->kpi_value = make_label(row, "--", value_font, ui_theme()->text);
     lv_label_set_long_mode(w->kpi_value, LV_LABEL_LONG_MODE_DOTS);
     lv_obj_set_style_max_width(w->kpi_value, LV_PCT(72), 0);
-    w->kpi_unit = make_label(row, w->value_unit, UI_F_CAP, ui_theme()->text_mut);
+    w->kpi_unit = make_label(row, w->value_unit, &lv_font_montserrat_12, ui_theme()->text_mut);
 
     if (!w->show_title) {
-        lv_obj_t *label = make_label(w->body, w->value_label, cjk_font(),
+        lv_obj_t *label = make_label(w->body, w->value_label, cjk_small(),
                                      ui_theme()->text_mut);
         lv_obj_set_width(label, LV_PCT(100));
         lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
@@ -641,24 +669,28 @@ static void build_server(dyn_widget_t *w)
     const int body_w = w->body_w;
     const int body_h = w->body_h;
     int row_h = body_h / 4;
-    if (row_h < 16) row_h = 16;
+    if (row_h < 18) row_h = 18;
     const int label_w = body_w * 45 / 100;
     const int value_w = body_w - label_w;
+    const int label_y = (row_h - cjk_medium()->line_height) / 2;
+    const int value_y = (row_h - (&lv_font_montserrat_12)->line_height) / 2;
 
     for (int i = 0; i < 4; i++) {
         lv_obj_t *row = ui_group_create(w->body);
         lv_obj_set_pos(row, 0, i * row_h);
         lv_obj_set_size(row, body_w, row_h);
 
-        w->server_label[i] = make_label(row, w->server[i].label, cjk_font(),
+        w->server_label[i] = make_label(row, w->server[i].label, cjk_medium(),
                                         ui_theme()->text_mut);
-        lv_obj_set_pos(w->server_label[i], 0, 0);
-        lv_obj_set_size(w->server_label[i], label_w, row_h);
+        lv_obj_set_pos(w->server_label[i], 0, label_y > 0 ? label_y : 0);
+        lv_obj_set_size(w->server_label[i], label_w,
+                        cjk_medium()->line_height);
         lv_label_set_long_mode(w->server_label[i], LV_LABEL_LONG_MODE_DOTS);
 
-        w->server_value[i] = make_label(row, "--", UI_F_CAP, ui_theme()->text);
-        lv_obj_set_pos(w->server_value[i], label_w, 0);
-        lv_obj_set_size(w->server_value[i], value_w, row_h);
+        w->server_value[i] = make_label(row, "--", &lv_font_montserrat_12, ui_theme()->text);
+        lv_obj_set_pos(w->server_value[i], label_w, value_y > 0 ? value_y : 0);
+        lv_obj_set_size(w->server_value[i], value_w,
+                        (&lv_font_montserrat_12)->line_height);
         lv_obj_set_style_text_align(w->server_value[i], LV_TEXT_ALIGN_RIGHT, 0);
         lv_label_set_long_mode(w->server_value[i], LV_LABEL_LONG_MODE_DOTS);
     }
@@ -667,14 +699,22 @@ static void build_server(dyn_widget_t *w)
 static void build_metric_list(dyn_widget_t *w)
 {
     const int body_w = w->body_w;
-    const int body_h = w->body_h;
-    const int count = w->row_count > 0 ? w->row_count : 1;
-    int row_h = body_h / count;
-    if (row_h < 14) row_h = 14;
 
-    const lv_font_t *value_font = (w->list_font_size == 0) ? UI_F_CAP
-                                   : (w->list_font_size == 2) ? UI_F_H3
-                                                              : UI_F_BODY;
+    const lv_font_t *value_font =
+        (w->list_font_size == 0) ? &lv_font_montserrat_12
+        : (w->list_font_size == 2) ? &lv_font_montserrat_16
+                                   : &lv_font_montserrat_14;
+    const lv_font_t *label_font = (w->list_font_size == 0) ? cjk_small()
+                                  : (w->list_font_size == 2) ? cjk_large()
+                                                             : cjk_medium();
+
+    /* 与 Web 编辑器一致：默认行高 22、标签宽 60，可在属性面板覆盖 */
+    int row_h = w->list_row_height > 0 ? w->list_row_height : 22;
+    int min_row_h = label_font->line_height + 1;
+    if (row_h < min_row_h) row_h = min_row_h;
+    int label_y = (row_h - label_font->line_height) / 2;
+    if (label_y < 0) label_y = 0;
+
     for (int i = 0; i < w->row_count; i++) {
         dyn_row_t *r = &w->rows[i];
         lv_obj_t *row = ui_group_create(w->body);
@@ -685,23 +725,28 @@ static void build_metric_list(dyn_widget_t *w)
         bool bool_status = (strcmp(r->mtype, "bool") == 0) ||
                            (strcmp(r->kind, "status") == 0);
         bool show_dot = bool_status;
-        const lv_font_t *row_value_font = bool_status ? cjk_font() : value_font;
+        const lv_font_t *row_value_font = bool_status ? label_font : value_font;
         if (show_dot) {
             w->list_dot[i] = make_dot(row, 7);
             lv_obj_set_pos(w->list_dot[i], 0, (row_h - 7) / 2);
             x += 9;
         }
-        int label_w = w->list_show_labels ? body_w * 38 / 100 : 0;
+        int label_w = 0;
         if (w->list_show_labels) {
-            w->list_label[i] = make_label(row, r->label, cjk_font(), ui_theme()->text_mut);
-            lv_obj_set_pos(w->list_label[i], x, 0);
-            lv_obj_set_size(w->list_label[i], label_w, row_h);
+            label_w = w->list_label_width > 0 ? w->list_label_width : 60;
+            if (label_w > body_w - x) label_w = body_w - x;
+            w->list_label[i] = make_label(row, r->label, label_font, ui_theme()->text_mut);
+            lv_obj_set_pos(w->list_label[i], x, label_y);
+            lv_obj_set_size(w->list_label[i], label_w, label_font->line_height);
             lv_label_set_long_mode(w->list_label[i], LV_LABEL_LONG_MODE_DOTS);
             x += label_w;
         }
+        int value_y = (row_h - row_value_font->line_height) / 2;
+        if (value_y < 0) value_y = 0;
         w->list_value[i] = make_label(row, "--", row_value_font, ui_theme()->text);
-        lv_obj_set_pos(w->list_value[i], x, 0);
-        lv_obj_set_size(w->list_value[i], body_w - x, row_h);
+        lv_obj_set_pos(w->list_value[i], x, value_y);
+        lv_obj_set_size(w->list_value[i], body_w - x,
+                        row_value_font->line_height);
         lv_obj_set_style_text_align(w->list_value[i], LV_TEXT_ALIGN_RIGHT, 0);
         lv_label_set_long_mode(w->list_value[i], LV_LABEL_LONG_MODE_DOTS);
     }
@@ -995,7 +1040,7 @@ static void build_widget_ui(dyn_widget_t *w, lv_obj_t *parent)
 
     int header_h = 0;
     if (w->show_title) {
-        lv_obj_t *title = make_label(card, w->title, cjk_font(), ui_theme()->text_dim);
+        lv_obj_t *title = make_label(card, w->title, cjk_small(), ui_theme()->text_dim);
         lv_obj_set_pos(title, 8, 4);
         lv_obj_set_size(title, ww - 16, 18);
         lv_label_set_long_mode(title, LV_LABEL_LONG_MODE_DOTS);
@@ -1129,7 +1174,8 @@ static void apply_widget(dyn_widget_t *w)
             if (!text[0]) text = "—";
             label_set_if_changed(w->status_model, text);
             /* 模型名通常是英文：用 Montserrat，避免子集字库的拉丁字形被拉挤 */
-            const lv_font_t *font = text_is_ascii(text) ? UI_F_BODY : cjk_font();
+            const lv_font_t *font = text_is_ascii(text) ? &lv_font_montserrat_14
+                                                        : cjk_medium();
             if (lv_obj_get_style_text_font(w->status_model, 0) != font) {
                 lv_obj_set_style_text_font(w->status_model, font, 0);
             }
@@ -1140,7 +1186,8 @@ static void apply_widget(dyn_widget_t *w)
                                    : "未知";
             if (!text[0]) text = "未知";
             label_set_if_changed(w->status_phase, text);
-            const lv_font_t *font = text_is_ascii(text) ? UI_F_CAP : cjk_font();
+            const lv_font_t *font = text_is_ascii(text) ? &lv_font_montserrat_10
+                                                        : cjk_small();
             if (lv_obj_get_style_text_font(w->status_phase, 0) != font) {
                 lv_obj_set_style_text_font(w->status_phase, font, 0);
             }
@@ -1646,17 +1693,17 @@ void ui_dynamic_show_portal(bool show, const char *ssid, const char *pass,
         lv_obj_set_style_pad_all(card, 16, 0);
         lv_obj_set_style_pad_row(card, 8, 0);
 
-        make_label(card, "配网模式", cjk_font(), ui_theme()->accent);
-        make_label(card, "连接热点后打开浏览器", cjk_font(), ui_theme()->text_mut);
-        s_portal_ssid = make_label(card, "Wi-Fi: ", cjk_font(), ui_theme()->text);
+        make_label(card, "配网模式", cjk_large(), ui_theme()->accent);
+        make_label(card, "连接热点后打开浏览器", cjk_large(), ui_theme()->text_mut);
+        s_portal_ssid = make_label(card, "Wi-Fi: ", cjk_large(), ui_theme()->text);
         lv_obj_set_width(s_portal_ssid, LV_PCT(100));
         lv_label_set_long_mode(s_portal_ssid, LV_LABEL_LONG_MODE_DOTS);
-        s_portal_pass = make_label(card, "密码: ", cjk_font(), ui_theme()->text);
+        s_portal_pass = make_label(card, "密码: ", cjk_large(), ui_theme()->text);
         lv_obj_set_width(s_portal_pass, LV_PCT(100));
         lv_label_set_long_mode(s_portal_pass, LV_LABEL_LONG_MODE_DOTS);
         s_portal_url = make_label(card, "http://192.168.4.1", UI_F_H3,
                                   ui_theme()->accent);
-        make_label(card, "保存后设备自动重启并连接", cjk_font(), ui_theme()->text_mut);
+        make_label(card, "保存后设备自动重启并连接", cjk_large(), ui_theme()->text_mut);
     }
 
     lv_label_set_text_fmt(s_portal_ssid, "Wi-Fi: %s", ssid ? ssid : "");
@@ -1665,6 +1712,78 @@ void ui_dynamic_show_portal(bool show, const char *ssid, const char *pass,
                           ip ? ip : "192.168.4.1");
     lv_obj_remove_flag(s_portal_overlay, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_portal_overlay);
+    if (s_network_overlay) {
+        lv_obj_add_flag(s_network_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void ui_dynamic_show_network(bool show, const char *ssid, const char *ip,
+                             const char *device_id, const char *name,
+                             bool server_connected)
+{
+    if (!show) {
+        if (s_network_overlay) {
+            lv_obj_add_flag(s_network_overlay, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+
+    if (!s_network_overlay) {
+        lv_obj_t *top = lv_layer_top();
+        s_network_overlay = lv_obj_create(top);
+        lv_obj_remove_style_all(s_network_overlay);
+        lv_obj_set_pos(s_network_overlay, 0, 0);
+        lv_obj_set_size(s_network_overlay, PROFILE_W, PROFILE_H);
+        lv_obj_set_style_bg_color(s_network_overlay, lv_color_hex(ui_theme()->bg), 0);
+        lv_obj_set_style_bg_opa(s_network_overlay, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(s_network_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *card = ui_card_create(s_network_overlay);
+        lv_obj_set_size(card, 292, 272);
+        lv_obj_center(card);
+        lv_obj_set_style_pad_all(card, 16, 0);
+        lv_obj_set_style_pad_row(card, 6, 0);
+
+        make_label(card, "网络已连接", cjk_large(), ui_theme()->accent);
+        s_net_ip = make_label(card, "IP: --", &lv_font_montserrat_32,
+                              ui_theme()->text);
+        s_net_ssid = make_label(card, "Wi-Fi: --", cjk_small(),
+                                ui_theme()->text_mut);
+        s_net_name = make_label(card, "名称: --", cjk_small(),
+                                ui_theme()->text_dim);
+        s_net_id = make_label(card, "ID: --", &lv_font_montserrat_12,
+                              ui_theme()->text_mut);
+        s_net_state = make_label(card, "等待服务端连接", cjk_small(),
+                                 ui_theme()->warn);
+        s_net_hint = make_label(card,
+                                "在服务端输入屏幕 IP\n连接后自动显示看板",
+                                cjk_small(), ui_theme()->text_mut);
+        lv_obj_t *labels[] = {s_net_ssid, s_net_name, s_net_state};
+        for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++) {
+            lv_obj_set_width(labels[i], LV_PCT(100));
+            lv_label_set_long_mode(labels[i], LV_LABEL_LONG_MODE_DOTS);
+        }
+        lv_obj_set_width(s_net_hint, LV_PCT(100));
+        lv_label_set_long_mode(s_net_hint, LV_LABEL_LONG_MODE_WRAP);
+    }
+
+    lv_label_set_text_fmt(s_net_ip, "IP: %s", (ip && ip[0]) ? ip : "--");
+    lv_label_set_text_fmt(s_net_ssid, "Wi-Fi: %s",
+                          (ssid && ssid[0]) ? ssid : "--");
+    lv_label_set_text_fmt(s_net_name, "名称: %s",
+                          (name && name[0]) ? name : "未命名");
+    lv_label_set_text_fmt(s_net_id, "ID: %s",
+                          (device_id && device_id[0]) ? device_id : "--");
+    lv_label_set_text(s_net_state,
+                      server_connected ? "服务端已连接" : "等待服务端连接");
+    lv_obj_set_style_text_color(
+        s_net_state,
+        lv_color_hex(server_connected ? ui_theme()->ok : ui_theme()->warn), 0);
+    lv_obj_remove_flag(s_network_overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_network_overlay);
+    if (s_portal_overlay) {
+        lv_obj_add_flag(s_portal_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 /* ---------------- public build ---------------- */

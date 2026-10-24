@@ -36,7 +36,10 @@ FONT_CANDIDATES = (
 
 _LOCK = threading.Lock()
 _CACHE: dict[tuple[str, int, int, str], bytes] = {}
-_FORMAT_VERSION = 2   # 生成器格式/参数变更时递增，避免命中旧缓存
+_FORMAT_VERSION = 3   # 生成器格式/参数变更时递增，避免命中旧缓存
+
+# 与 Web 设计字号一致：标题/说明 11、服务器卡 13、指标列表 S/M/L 11/13/15
+FONT_SIZES = (11, 13, 15)
 
 
 def find_font_path(explicit: str = "") -> str | None:
@@ -104,6 +107,7 @@ def build_binfont(chars: Iterable[int], size: int, font_path: str) -> bytes:
         raise ValueError("empty character set")
 
     font = ImageFont.truetype(font_path, size, index=0)
+    ascent, descent_px = font.getmetrics()
 
     glyphs: list[tuple[int, int, int, int, int, bytes]] = []
     for cp in codepoints:
@@ -116,13 +120,16 @@ def build_binfont(chars: Iterable[int], size: int, font_path: str) -> bytes:
             bbox, mask, adv = (0, 0, 0, 0), None, size // 2
         left, top, right, bottom = bbox
         box_w, box_h = max(0, right - left), max(0, bottom - top)
+        # LVGL 的 ofs_y 是“字形底部相对基线”的偏移：
+        # 字形底边在基线上方为正，下方为负。Pillow 的 bbox 以行顶为原点。
+        ofs_y = ascent - bottom
         if mask is None or box_w == 0 or box_h == 0:
             box_w = box_h = 0
             bitmap = b""
-            ofs_x = ofs_y = 0
+            ofs_x = 0
         else:
             bitmap = _pack_bitmap(bytes(mask))
-            ofs_x, ofs_y = left, top
+            ofs_x = left
         # 8.4 定点：保留亚像素步进，英文高低宽窄不同的字母才不会挤在一起
         adv = max(0, min(65535, int(round(font.getlength(ch) * 16.0))))
         ofs_x = max(-128, min(127, ofs_x))
@@ -145,17 +152,17 @@ def build_binfont(chars: Iterable[int], size: int, font_path: str) -> bytes:
         pos += len(record)
 
     min_y = min((g[2] for g in glyphs), default=0)
-    max_y = max((g[2] + g[4] for g in glyphs), default=0)
+    max_y = max((g[2] + g[4] for g in glyphs), default=ascent)
 
     header = struct.pack(
         "<IHHHhHhHhhHHBBBBBBBBBBhH",
         4,              # version
         3,              # tables_count（<4 表示没有 kerning 段）
         size,           # font_size
-        15,             # ascent
-        -5,             # descent
-        15,             # typo_ascent
-        -5,             # typo_descent
+        ascent,         # ascent
+        -descent_px,    # descent
+        ascent,         # typo_ascent
+        -descent_px,    # typo_descent
         0,              # typo_line_gap
         min_y,          # min_y
         max_y,          # max_y
@@ -222,6 +229,7 @@ def font_bytes(
             return cached, chars
     data = build_binfont(chars, size, font_path)
     with _LOCK:
-        _CACHE.clear()  # 只保留最近一份，避免换布局后无限增长
+        if len(_CACHE) > 12:
+            _CACHE.clear()
         _CACHE[key] = data
     return data, chars

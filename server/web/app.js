@@ -17,6 +17,10 @@
     dirty: false,
     interacting: false,
     paletteDragging: false,
+    devices: [],
+    deviceId: null,
+    serverUrl: '',
+    modalMode: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -28,6 +32,17 @@
   const profileSelect = $('profile-select');
   const themeSelect = $('theme-select');
   const toastEl = $('toast');
+  const deviceSelect = $('device-select');
+  const deviceModal = $('device-modal');
+
+  const escHtml = (value) =>
+    String(value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
 
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const esc = (value) =>
@@ -1596,6 +1611,199 @@
     renderInspector();
   }
 
+  function currentDevice() {
+    return state.devices.find((device) => device.id === state.deviceId) || null;
+  }
+
+  function deviceAddr(device) {
+    if (!device) return '';
+    return device.port && device.port !== 80
+      ? `${device.ip}:${device.port}`
+      : device.ip;
+  }
+
+  function updateServerUrl() {
+    const el = $('server-url');
+    el.textContent = state.serverUrl || '—';
+    el.title = state.serverUrl || '';
+  }
+
+  function updateDeviceBar() {
+    const device = currentDevice();
+    const status = $('device-status');
+    if (!device) {
+      status.textContent = state.devices.length ? '未选择屏幕' : '未连接屏幕';
+      status.className = 'device-status';
+      $('device-settings-btn').disabled = true;
+      $('save-btn').disabled = true;
+      return;
+    }
+    status.textContent = `${device.online ? '在线' : '离线'} · ${deviceAddr(device)}`;
+    status.className = `device-status ${device.online ? 'online' : 'offline'}`;
+    $('device-settings-btn').disabled = false;
+    $('save-btn').disabled = false;
+  }
+
+  function renderDeviceSelect() {
+    if (!state.devices.length) {
+      deviceSelect.innerHTML = '<option value="">未连接屏幕</option>';
+      deviceSelect.value = '';
+      return;
+    }
+    deviceSelect.innerHTML = state.devices
+      .map((device) => {
+        const label = `${device.name} · ${device.online ? '在线' : '离线'} · ${deviceAddr(device)}`;
+        return `<option value="${escHtml(device.id)}">${escHtml(label)}</option>`;
+      })
+      .join('');
+    deviceSelect.value = state.deviceId || '';
+  }
+
+  async function refreshDevices() {
+    const data = await api('/api/v1/devices');
+    state.devices = Array.isArray(data.devices) ? data.devices : [];
+    state.serverUrl = data.server_url || state.serverUrl;
+    updateServerUrl();
+    if (state.deviceId && !state.devices.some((d) => d.id === state.deviceId)) {
+      state.deviceId = null;
+    }
+    if (!state.deviceId && state.devices.length) {
+      const online = state.devices.find((d) => d.online);
+      state.deviceId = (online || state.devices[0]).id;
+    }
+    renderDeviceSelect();
+    updateDeviceBar();
+    return state.devices;
+  }
+
+  async function selectDevice(deviceId) {
+    if ((deviceId || null) === state.deviceId) return;
+    if (state.dirty && !confirm('切换屏幕会放弃未保存的修改，继续？')) {
+      renderDeviceSelect();
+      return;
+    }
+    state.deviceId = deviceId || null;
+    updateDeviceBar();
+    await loadLayout();
+  }
+
+  function openDeviceModal(mode) {
+    const device = currentDevice();
+    state.modalMode = mode;
+    $('device-modal-error').textContent = '';
+    $('device-modal-title').textContent = mode === 'connect' ? '连接屏幕' : '屏幕设置';
+    $('device-modal-hint').textContent =
+      mode === 'connect'
+        ? '在设备屏幕上读取 IP 填入此处；设备需与电脑在同一局域网。连接后会下发服务端地址、API 设置和该屏幕的布局。'
+        : '修改后会立即下发到屏幕；布局与配色请在画布中编辑。';
+    $('device-modal-save').textContent = mode === 'connect' ? '连接并下发' : '保存并下发';
+    const apiCfg = (device && device.api) || {};
+    $('dev-ip').value = device ? deviceAddr(device) : '';
+    $('dev-ip').disabled = mode === 'settings';
+    $('dev-name').value = device ? device.name : '';
+    $('dev-api-url').value = apiCfg.url || '';
+    $('dev-api-key').value = apiCfg.key || '';
+    $('dev-provider').value = apiCfg.provider || 'auto';
+    $('dev-host-agent').value = apiCfg.host_agent || '';
+    $('dev-rot180').checked = !!(device && device.rot180);
+    $('device-reboot-btn').classList.toggle('hidden', mode !== 'settings');
+    $('device-delete-btn').classList.toggle('hidden', mode !== 'settings');
+    deviceModal.classList.remove('hidden');
+    setTimeout(() => {
+      if (mode === 'connect') $('dev-ip').focus();
+      else $('dev-name').focus();
+    }, 30);
+  }
+
+  function closeDeviceModal() {
+    deviceModal.classList.add('hidden');
+    state.modalMode = null;
+  }
+
+  function apiFromForm() {
+    return {
+      url: $('dev-api-url').value.trim(),
+      key: $('dev-api-key').value,
+      provider: $('dev-provider').value,
+      host_agent: $('dev-host-agent').value.trim(),
+    };
+  }
+
+  async function submitDeviceModal() {
+    const button = $('device-modal-save');
+    const errorEl = $('device-modal-error');
+    errorEl.textContent = '';
+    button.disabled = true;
+    try {
+      const name = $('dev-name').value.trim();
+      const apiCfg = apiFromForm();
+      const rot180 = $('dev-rot180').checked;
+      let device;
+      if (state.modalMode === 'connect') {
+        const ip = $('dev-ip').value.trim();
+        if (!ip) throw new Error('请填写设备 IP');
+        const data = await api('/api/v1/devices/connect', {
+          method: 'POST',
+          body: JSON.stringify({ ip, name, api: apiCfg, rot180 }),
+        });
+        device = data.device;
+        toast('已下发配置，等待屏幕上线');
+      } else {
+        if (!state.deviceId) throw new Error('未选择屏幕');
+        const data = await api(
+          `/api/v1/devices/${encodeURIComponent(state.deviceId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ name, api: apiCfg, rot180 }),
+          }
+        );
+        device = data.device;
+        toast('设置已下发');
+      }
+      closeDeviceModal();
+      await refreshDevices();
+      if (device && device.id) {
+        state.deviceId = device.id;
+        renderDeviceSelect();
+        await loadLayout();
+      }
+    } catch (error) {
+      errorEl.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function rebootDevice() {
+    if (!state.deviceId) return;
+    if (!confirm('确定重启这块屏幕？')) return;
+    try {
+      await api(`/api/v1/devices/${encodeURIComponent(state.deviceId)}/reboot`, {
+        method: 'POST',
+      });
+      toast('重启指令已发送');
+    } catch (error) {
+      $('device-modal-error').textContent = error.message;
+    }
+  }
+
+  async function deleteDevice() {
+    if (!state.deviceId) return;
+    if (!confirm('从服务端移除这块屏幕？设备本身不会被重置。')) return;
+    try {
+      await api(`/api/v1/devices/${encodeURIComponent(state.deviceId)}`, {
+        method: 'DELETE',
+      });
+      state.deviceId = null;
+      closeDeviceModal();
+      await refreshDevices();
+      await loadLayout();
+      toast('已移除屏幕');
+    } catch (error) {
+      $('device-modal-error').textContent = error.message;
+    }
+  }
+
   function connectWS() {
     if (state.ws) {
       try {
@@ -1624,6 +1832,7 @@
         return;
       }
       if (message.type === 'layout_changed') {
+        if (message.device_id && message.device_id !== state.deviceId) return;
         if (state.lastSaveAt && Date.now() - state.lastSaveAt < 2000) return;
         if (state.dirty) {
           toast('服务端布局已更新，点击「重载」获取最新版本');
@@ -1656,11 +1865,14 @@
   }
 
   async function loadLayout() {
-    const saved = await api(
-      `/api/v1/layout?profile=${encodeURIComponent(state.profile)}`
-    );
+    const device = currentDevice();
+    const saved = device
+      ? await api(`/api/v1/devices/${encodeURIComponent(device.id)}/layout`)
+      : await api(`/api/v1/layout?profile=${encodeURIComponent(state.profile)}`);
     state.layout = normalizeLayout(saved);
     state.profile = state.layout.profile;
+    profileSelect.value = state.profile;
+    profileSelect.disabled = !!device;
     state.activePage = 0;
     state.selectedId = null;
     state.dirty = false;
@@ -1669,28 +1881,35 @@
     applyTheme();
     renderCanvas();
     renderInspector();
+    updateDeviceBar();
   }
 
   async function saveLayout() {
     if (!state.layout) return;
+    const device = currentDevice();
+    if (!device) {
+      toast('请先连接屏幕，再保存布局');
+      return;
+    }
     const button = $('save-btn');
     button.disabled = true;
     button.textContent = '保存中…';
     try {
       state.layout.v = 2;
       state.lastSaveAt = Date.now();
-      await api('/api/v1/layout', {
+      await api(`/api/v1/devices/${encodeURIComponent(device.id)}/layout`, {
         method: 'PUT',
         body: JSON.stringify(state.layout),
       });
       state.dirty = false;
       updateDirty();
-      toast('布局已保存');
+      toast(`布局已保存并下发给 ${device.name}`);
     } catch (error) {
       toast(`保存失败：${error.message}`);
     } finally {
       button.disabled = false;
       button.textContent = '保存布局';
+      updateDeviceBar();
     }
   }
 
@@ -1701,7 +1920,29 @@
       loadLayout().catch((error) => toast(error.message));
     });
 
+    deviceSelect.addEventListener('change', () => {
+      selectDevice(deviceSelect.value).catch((error) => toast(error.message));
+    });
+    $('device-connect-btn').addEventListener('click', () => openDeviceModal('connect'));
+    $('device-settings-btn').addEventListener('click', () => openDeviceModal('settings'));
+    $('device-modal-close').addEventListener('click', closeDeviceModal);
+    deviceModal.addEventListener('click', (event) => {
+      if (event.target === deviceModal) closeDeviceModal();
+    });
+    $('device-modal-save').addEventListener('click', submitDeviceModal);
+    $('device-reboot-btn').addEventListener('click', rebootDevice);
+    $('device-delete-btn').addEventListener('click', deleteDevice);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !deviceModal.classList.contains('hidden')) {
+        closeDeviceModal();
+      }
+    });
+
     profileSelect.addEventListener('change', () => {
+      if (state.deviceId) {
+        profileSelect.value = state.profile;
+        return;
+      }
       if (state.dirty && !confirm('切换画布会放弃未保存的修改，继续？')) {
         profileSelect.value = state.profile;
         return;
@@ -1795,8 +2036,38 @@
       profileSelect.value = state.profile;
 
       renderPalette();
-      await loadLayout();
+
+      await refreshDevices();
+      const requestedDevice = new URLSearchParams(location.search).get('device');
+      if (requestedDevice && state.devices.some((d) => d.id === requestedDevice)) {
+        state.deviceId = requestedDevice;
+        renderDeviceSelect();
+        updateDeviceBar();
+      }
+      try {
+        await loadLayout();
+      } catch (error) {
+        if (!state.deviceId) throw error;
+        state.deviceId = null;
+        renderDeviceSelect();
+        updateDeviceBar();
+        await loadLayout();
+        toast(`屏幕布局加载失败，已切到模板：${error.message}`);
+      }
       connectWS();
+      if (!state.devices.length) openDeviceModal('connect');
+
+      setInterval(async () => {
+        const before = state.deviceId;
+        try {
+          await refreshDevices();
+        } catch {
+          return;
+        }
+        if (!!before !== !!state.deviceId) {
+          loadLayout().catch((error) => toast(error.message));
+        }
+      }, 5000);
     } catch (error) {
       toast(`初始化失败：${error.message}`);
       setConn('初始化失败', 'offline');
