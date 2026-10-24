@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-#define WIFI_AP_SSID "ESP32-LLM-Setup"
-#define WIFI_AP_PASS "llm123456"
+#define WIFI_AP_SSID "ESP32-WIFI-Dashboard"
+#define WIFI_AP_PASS "12345678"
 #define WIFI_AP_IP   "192.168.4.1"
 
 esp_err_t wifi_mgr_init(void);

@@ -1,4 +1,4 @@
-# ESP32-S3 LLM Server Dashboard
+# ESP32-WIFI-Dashboard
 
 English | [简体中文](README.md)
 
@@ -70,7 +70,7 @@ The first build downloads LVGL 9.6, `esp_lvgl_port` and friends through the comp
 
 ### 2. Provision
 
-1. Join the `ESP32-LLM-Setup` hotspot (password `llm123456`)
+1. Join the `ESP32-WIFI-Dashboard` hotspot (password `12345678`)
 2. Open `http://192.168.4.1` (the captive portal usually pops up by itself)
 3. Pick your Wi-Fi and optionally fill in:
    - **① Traditional API** (e.g. `http://192.168.1.100:8000`) with provider/key, may be empty

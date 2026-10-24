@@ -1,4 +1,4 @@
-# LLM Dashboard 0.2 协议（v1）
+# ESP32-WIFI-Dashboard 0.2 协议（v1）
 
 服务端与 Web 编辑器、ESP32 固件之间的最小契约。M0/M1 先实现 REST + WebSocket 快照；后续可在此基础上加增量、主题下发和命令通道。
 

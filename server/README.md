@@ -1,4 +1,4 @@
-# llmdash-server（0.2 M0/M1）
+# ESP32-WIFI-Dashboard Server（0.2 M0/M1）
 
 专用采集服务：把 halogen-panel、系统、GPU 等多源数据统一成一套指标，通过 WebSocket 推给 Web 编辑器和后续的 ESP32 固件。
 

@@ -1,4 +1,4 @@
-# ESP32-S3 LLM 服务监控看板
+# ESP32-WIFI-Dashboard
 
 简体中文 | [English](README.en.md)
 
@@ -74,7 +74,7 @@ idf.py -p /dev/cu.usbmodem21401 flash
 
 ### 2. 配网
 
-1. 手机连接热点 `ESP32-LLM-Setup`（密码 `llm123456`）
+1. 手机连接热点 `ESP32-WIFI-Dashboard`（密码 `12345678`）
 2. 浏览器打开 `http://192.168.4.1`（Captive Portal 会自动弹出）
 3. 选择 Wi-Fi；按需填写：
    - **① 传统 API 地址**（如 `http://192.168.1.100:8000`）+ 服务类型/密钥，可留空

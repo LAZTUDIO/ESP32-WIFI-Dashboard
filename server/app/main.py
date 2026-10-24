@@ -20,7 +20,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
-log = logging.getLogger("llmdash.main")
+log = logging.getLogger("esp32wifi.main")
 
 
 @asynccontextmanager
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
         connections.run(store, 1.0), name="ws-broadcast"
     )
     log.info(
-        "LLM Dashboard server 0.2.0 ready, panel=%s, editor=http://%s:%s/editor/",
+        "ESP32-WIFI-Dashboard server 0.2.0 ready, panel=%s, editor=http://%s:%s/editor/",
         settings.panel_url,
         settings.host,
         settings.port,
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
         await aggregator.stop()
 
 
-app = FastAPI(title="LLM Dashboard Server", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="ESP32-WIFI-Dashboard Server", version="0.2.0", lifespan=lifespan)
 
 
 @app.middleware("http")

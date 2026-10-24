@@ -10,7 +10,7 @@ import httpx
 from ..core.store import MetricStore
 from .base import Adapter
 
-log = logging.getLogger("llmdash.panel")
+log = logging.getLogger("esp32wifi.panel")
 
 _DURATION_RE = re.compile(r"(\d+)\s*(天|小时|分|秒)")
 _UNIT_SECONDS = {"天": 86400, "小时": 3600, "分": 60, "秒": 1}

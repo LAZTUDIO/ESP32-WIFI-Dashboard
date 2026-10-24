@@ -1,5 +1,5 @@
 /*
- * ESP32-S3-Touch-LCD-3.5-C —— LLM 服务监控看板
+ * ESP32-S3-Touch-LCD-3.5-C —— ESP32-WIFI-Dashboard
  *
  * 启动顺序：NVS → LVGL → 屏幕/触摸 → Wi-Fi（失败则开配网热点）
  *           → 动态看板客户端（拉布局 / WS 指标）

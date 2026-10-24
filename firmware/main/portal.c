@@ -143,7 +143,7 @@ static esp_err_t handle_root(httpd_req_t *req)
     append(&html, &used, cap,
         "<!DOCTYPE html><html lang=\"zh\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>LLM 看板配网</title><style>"
+        "<title>ESP32-WIFI-Dashboard 配网</title><style>"
         "*{box-sizing:border-box}"
         "body{margin:0;background:#0b0f16;color:#e8eef7;font:15px/1.5 -apple-system,"
         "\"PingFang SC\",\"Microsoft YaHei\",sans-serif}"

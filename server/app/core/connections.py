@@ -7,7 +7,7 @@ from fastapi import WebSocket
 
 from .store import MetricStore
 
-log = logging.getLogger("llmdash.ws")
+log = logging.getLogger("esp32wifi.ws")
 
 
 class ConnectionManager:

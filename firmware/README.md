@@ -1,6 +1,6 @@
 # firmware —— ESP-IDF 工程
 
-LLM 服务监控看板的固件部分。项目介绍、配网流程、支持的服务类型见[根目录 README](../README.md)。
+ESP32-WIFI-Dashboard 的固件部分。项目介绍、配网流程、支持的服务类型见[根目录 README](../README.md)。
 
 ## 构建
 

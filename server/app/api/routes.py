@@ -13,7 +13,7 @@ from ..core.fonts import find_font_path, font_bytes
 from ..core.resolve import resolve_layout
 from ..core.validate import LayoutError, validate_layout
 
-log = logging.getLogger("llmdash.api")
+log = logging.getLogger("esp32wifi.api")
 
 router = APIRouter(prefix="/api/v1")
 ws_router = APIRouter()

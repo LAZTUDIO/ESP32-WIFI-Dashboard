@@ -7,7 +7,7 @@ import time
 from ..core.store import MetricStore
 from .base import Adapter
 
-log = logging.getLogger("llmdash.system")
+log = logging.getLogger("esp32wifi.system")
 
 try:
     import psutil

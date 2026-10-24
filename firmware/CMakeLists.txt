@@ -1,5 +1,5 @@
-# ESP32-S3 + LVGL 9 LLM 服务监控看板
+# ESP32-S3 + LVGL 9 ESP32-WIFI-Dashboard
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(esp32_llm_dashboard)
+project(esp32_wifi_dashboard)

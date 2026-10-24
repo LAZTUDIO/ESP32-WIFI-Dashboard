@@ -1,4 +1,4 @@
-menu "LLM Dashboard Configuration"
+menu "ESP32-WIFI-Dashboard Configuration"
 
     config DEMO_LCD_ENABLE
         bool "Drive the on-board ST7796 LCD (Waveshare ESP32-S3-Touch-LCD-3.5)"

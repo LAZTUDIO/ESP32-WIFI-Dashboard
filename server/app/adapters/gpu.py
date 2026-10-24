@@ -9,7 +9,7 @@ import time
 from ..core.store import MetricStore
 from .base import Adapter
 
-log = logging.getLogger("llmdash.gpu")
+log = logging.getLogger("esp32wifi.gpu")
 
 _GPU_METRICS = (
     "server.gpu_available",

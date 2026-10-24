@@ -11,7 +11,7 @@ from .adapters.system import SystemAdapter
 from .config import Settings
 from .core.store import MetricStore
 
-log = logging.getLogger("llmdash.aggregator")
+log = logging.getLogger("esp32wifi.aggregator")
 
 
 class Aggregator:
