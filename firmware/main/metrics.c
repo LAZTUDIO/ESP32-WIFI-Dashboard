@@ -28,6 +28,7 @@ static char *s_small;
 
 static dash_provider_t s_prov;
 static bool s_probed;
+static bool s_last_ok;
 static char s_base[160];
 static char s_key[192];
 static char s_provider[16];
@@ -127,6 +128,20 @@ static dash_provider_t provider_from_name(const char *name)
     if (strcmp(name, "openai") == 0) return DASH_PROV_OPENAI;
     if (strcmp(name, "panel") == 0) return DASH_PROV_PANEL;
     return DASH_PROV_UNKNOWN;
+}
+
+static const char *provider_key(dash_provider_t p)
+{
+    switch (p) {
+    case DASH_PROV_HALOGEN: return "halogen";
+    case DASH_PROV_GUFO:    return "gufo";
+    case DASH_PROV_STRATA:  return "strata";
+    case DASH_PROV_LMSTUDIO:return "lmstudio";
+    case DASH_PROV_OLLAMA:  return "ollama";
+    case DASH_PROV_OPENAI:  return "openai";
+    case DASH_PROV_PANEL:   return "panel";
+    default:                return "unknown";
+    }
 }
 
 static const char *provider_name(dash_provider_t p)
@@ -994,6 +1009,7 @@ void metrics_init(void)
 bool metrics_poll(const app_config_t *cfg, dash_metrics_t *out)
 {
     memset(out, 0, sizeof(*out));
+    s_last_ok = false;
 
     if (!s_buf || !s_small) return false;
 
@@ -1060,9 +1076,11 @@ bool metrics_poll(const app_config_t *cfg, dash_metrics_t *out)
 
     s_last = *out;
     s_have_last = true;
+    s_last_ok = true;
     return true;
 
 failed:
+    s_last_ok = false;
     s_fail++;
     if (s_fail >= 3) s_probed = false;
 
@@ -1169,4 +1187,19 @@ void metrics_reset_peak(void)
 dash_provider_t metrics_provider(void)
 {
     return s_prov;
+}
+
+const char *metrics_provider_name(void)
+{
+    return provider_name(s_prov);
+}
+
+const char *metrics_provider_key(void)
+{
+    return provider_key(s_prov);
+}
+
+bool metrics_last_ok(void)
+{
+    return s_last_ok;
 }

@@ -20,7 +20,12 @@
     devices: [],
     deviceId: null,
     serverUrl: '',
+    forward: { enabled: false, base_url: '', provider: 'auto' },
+    lastRuntimeKey: '',
     modalMode: null,
+    selectOpen: false,
+    inspectorPending: false,
+    lastInspectorRefresh: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -810,21 +815,47 @@
     }
     return state.catalog.list;
   }
-  const SOURCE_GROUPS = [
-    ['api', '传统 API · LLM 服务直连'],
-    ['server', '专用 Server · 服务端本机'],
-  ];
-  function appendMetricOptions(select, metrics) {
-    const buckets = new Map(SOURCE_GROUPS.map(([id]) => [id, []]));
+
+  const SERVER_CARD_BINDINGS = {
+    cpu: ['host.cpu_pct', 'server.cpu_pct', 'host.cpu_freq_mhz'],
+    ram_used: ['host.ram_used_mb', 'server.ram_used_mb'],
+    ram_total: ['host.ram_total_mb', 'server.ram_total_mb'],
+    gpu_temp: ['host.gpu_temp_c', 'server.gpu_temp_c'],
+    ip: ['host.lan_ip'],
+  };
+  // 主机监控地址独立于 API 类型：配置后这些测点由设备轮询 host agent 得到
+  const HOST_AGENT_METRICS = new Set([
+    'host.uptime_s',
+    'host.gpu_available',
+    'host.gpu_util_pct',
+    'host.gpu_temp_c',
+    'host.gpu_power_w',
+    'host.gpu_vram_used_mb',
+    'host.gpu_vram_total_mb',
+    'host.ram_used_mb',
+    'host.ram_total_mb',
+  ]);
+  function appendDisabledGroup(select, label, text) {
+    const group = document.createElement('optgroup');
+    group.label = label;
+    group.disabled = true;
+    const option = document.createElement('option');
+    option.disabled = true;
+    option.textContent = text;
+    group.appendChild(option);
+    select.appendChild(group);
+  }
+
+  function appendMetricGroup(select, metrics, prefix) {
+    const buckets = new Map();
     for (const metric of metrics) {
-      const source = metric.source === 'server' ? 'server' : 'api';
-      buckets.get(source).push(metric);
+      const key = metric.group || '其他';
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(metric);
     }
-    for (const [source, label] of SOURCE_GROUPS) {
-      const items = buckets.get(source);
-      if (!items.length) continue;
+    for (const [groupName, items] of buckets) {
       const group = document.createElement('optgroup');
-      group.label = label;
+      group.label = `${prefix} · ${groupName}`;
       for (const metric of items) {
         const option = document.createElement('option');
         option.value = metric.id;
@@ -832,6 +863,75 @@
         group.appendChild(option);
       }
       select.appendChild(group);
+    }
+  }
+
+  /** 控件属性里的测点：只列当前屏幕真实可用的来源。
+   *  专用服务端 = 服务端 snapshot 里已有数据的指标；
+   *  设备直连 / 服务端转发 = 按屏幕上报的 provider 过滤；
+   *  设备主机监控 = 该屏配置了主机监控地址时由设备轮询 host agent 得到的测点。 */
+  function appendMetricOptions(select, metrics) {
+    const available = new Set(
+      Object.entries(state.values || {})
+        .filter(([, value]) => value && value.a !== false)
+        .map(([id]) => id)
+    );
+    const serverMetrics = metrics.filter((metric) => available.has(metric.id));
+    if (serverMetrics.length) {
+      appendMetricGroup(select, serverMetrics, '专用服务端');
+    } else {
+      appendDisabledGroup(
+        select, '专用服务端 · 等待数据…', '服务端暂未上报可用测点'
+      );
+    }
+
+    const device = currentDevice();
+    const apiUrl = device && device.api ? device.api.url : '';
+    const hostAgent = device && device.api ? device.api.host_agent : '';
+    const hostMetrics = hostAgent
+      ? metrics.filter(
+          (metric) =>
+            metric.source === 'api' && HOST_AGENT_METRICS.has(metric.id)
+        )
+      : [];
+    const hostIds = new Set(hostMetrics.map((metric) => metric.id));
+
+    if (apiUrl) {
+      const usesForward = deviceUsesForward(device);
+      const provider = deviceRuntimeProvider(device);
+      if (usesForward && !state.forward.enabled) {
+        appendDisabledGroup(
+          select, '服务端转发 · 未启用', '请先在控制台「服务设置」启用转发'
+        );
+      } else if (!provider) {
+        appendDisabledGroup(
+          select, '设备 API · 等待识别',
+          '屏幕上报 API 类型后自动显示对应测点'
+        );
+      } else {
+        const source = usesForward
+          ? `服务端转发 · ${providerLabel(provider)}`
+          : `设备直连 · ${providerLabel(provider)}`;
+        const apiMetrics = metrics.filter(
+          (metric) =>
+            metric.source === 'api' &&
+            !hostIds.has(metric.id) &&
+            Array.isArray(metric.providers) &&
+            metric.providers.includes(provider)
+        );
+        if (apiMetrics.length) {
+          const offline = device.runtime && device.runtime.api_ok === false;
+          appendMetricGroup(
+            select,
+            apiMetrics,
+            `${source}${offline ? '（API 未连接）' : ''}`
+          );
+        }
+      }
+    }
+
+    if (hostMetrics.length) {
+      appendMetricGroup(select, hostMetrics, '设备主机监控');
     }
   }
 
@@ -987,13 +1087,7 @@
       kindSelect.value = row.kind || 'auto';
       kindSelect.addEventListener('change', () => {
         row.kind = kindSelect.value;
-        const candidates = metricOptionsForKind(row.kind);
-        if (
-          !candidates.some((metric) => metric.id === row.binding) &&
-          candidates.length
-        ) {
-          row.binding = candidates[0].id;
-        }
+        row.binding = '';
         markDirty();
         renderCanvas();
         renderInspector();
@@ -1002,10 +1096,15 @@
       const metricSelect = document.createElement('select');
       const candidates = metricOptionsForKind(row.kind || 'auto');
       appendMetricOptions(metricSelect, candidates);
-      if (!candidates.some((metric) => metric.id === row.binding)) {
+      if (
+        row.binding &&
+        !Array.from(metricSelect.options).some(
+          (option) => option.value === row.binding
+        )
+      ) {
         const option = document.createElement('option');
-        option.value = row.binding || '';
-        option.textContent = `不兼容：${row.binding || '未绑定'}`;
+        option.value = row.binding;
+        option.textContent = `当前绑定 · ${row.binding}（数据源暂不可用）`;
         metricSelect.appendChild(option);
       }
       metricSelect.value = row.binding || '';
@@ -1100,7 +1199,19 @@
     inspectorEl.appendChild(labelWidthField);
   }
 
+  function closeSelect() {
+    state.selectOpen = false;
+    if (!state.inspectorPending) return;
+    state.inspectorPending = false;
+    renderInspector();
+  }
+
   function renderInspector() {
+    if (state.selectOpen) {
+      state.inspectorPending = true;
+      return;
+    }
+    state.inspectorPending = false;
     const widget = currentWidgets().find(
       (item) => item.id === state.selectedId
     );
@@ -1161,11 +1272,29 @@
       none.value = '';
       none.textContent = '— 不绑定 —';
       select.appendChild(none);
-      appendMetricOptions(
-        select,
-        state.catalog.list.filter((metric) => binding.types.includes(metric.type))
+      let candidates = state.catalog.list.filter((metric) =>
+        binding.types.includes(metric.type)
       );
-      select.value = widget.bindings[binding.key] || '';
+      if (widget.type === 'server_card') {
+        const allowed = SERVER_CARD_BINDINGS[binding.key];
+        if (allowed) {
+          candidates = candidates.filter((metric) => allowed.includes(metric.id));
+        }
+      }
+      appendMetricOptions(select, candidates);
+      const currentBinding = widget.bindings[binding.key] || '';
+      if (
+        currentBinding &&
+        !Array.from(select.options).some((option) => option.value === currentBinding)
+      ) {
+        const fallback = document.createElement('option');
+        fallback.value = currentBinding;
+        fallback.textContent = `当前绑定 · ${currentBinding}（${
+          widget.type === 'server_card' ? '不适用于此字段' : '数据源暂不可用'
+        }）`;
+        select.appendChild(fallback);
+      }
+      select.value = currentBinding;
       select.addEventListener('change', () => {
         widget.bindings[binding.key] = select.value;
         markDirty();
@@ -1200,6 +1329,13 @@
       inspectorEl.appendChild(field);
     }
 
+    if (widget.type === 'server_card') {
+      const note = document.createElement('p');
+      note.className = 'meta';
+      note.textContent =
+        '服务器卡按字段限定 CPU/内存/GPU/IP 测点；LLM/TTS/NPU 等任意指标请使用大数字或指标列表。';
+      inspectorEl.appendChild(note);
+    }
     if (widget.type === 'metric_list') {
       appendMetricListEditor(widget, def);
     }
@@ -1638,13 +1774,23 @@
       $('save-btn').disabled = true;
       return;
     }
-    status.textContent = `${device.online ? '在线' : '离线'} · ${deviceAddr(device)}`;
+    const parts = [device.online ? '在线' : '离线', deviceAddr(device)];
+    if (device.api && device.api.url) {
+      if (deviceUsesForward(device)) {
+        parts.push(state.forward.enabled ? '转发' : '转发未启用');
+      }
+      const provider = deviceRuntimeProvider(device);
+      if (provider) parts.push(providerLabel(provider));
+    }
+    status.textContent = parts.join(' · ');
     status.className = `device-status ${device.online ? 'online' : 'offline'}`;
     $('device-settings-btn').disabled = false;
     $('save-btn').disabled = false;
   }
 
   function renderDeviceSelect() {
+    // 下拉展开时不要重建选项，否则菜单会被定时刷新顶掉
+    if (document.activeElement === deviceSelect) return;
     if (!state.devices.length) {
       deviceSelect.innerHTML = '<option value="">未连接屏幕</option>';
       deviceSelect.value = '';
@@ -1663,6 +1809,7 @@
     const data = await api('/api/v1/devices');
     state.devices = Array.isArray(data.devices) ? data.devices : [];
     state.serverUrl = data.server_url || state.serverUrl;
+    state.forward = { ...state.forward, ...(data.forward || {}) };
     updateServerUrl();
     if (state.deviceId && !state.devices.some((d) => d.id === state.deviceId)) {
       state.deviceId = null;
@@ -1673,7 +1820,43 @@
     }
     renderDeviceSelect();
     updateDeviceBar();
+    const device = currentDevice();
+    if (device) {
+      const runtimeKey = `${device.runtime?.provider || ''}|${device.runtime?.api_ok ? 1 : 0}|${device.api?.url || ''}|${state.forward.enabled ? 1 : 0}|${state.forward.base_url || ''}`;
+      if (runtimeKey !== state.lastRuntimeKey) {
+        state.lastRuntimeKey = runtimeKey;
+        if (state.selectedId && state.layout) renderInspector();
+      }
+    }
     return state.devices;
+  }
+
+  const PROVIDER_LABELS = {
+    halogen: 'Halogen',
+    gufo: 'Gufo',
+    strata: 'Strata',
+    lmstudio: 'LM Studio',
+    ollama: 'Ollama',
+    openai: 'OpenAI 兼容',
+    panel: '自定义 API',
+  };
+  function providerLabel(provider) {
+    return PROVIDER_LABELS[provider] || provider || '未识别';
+  }
+  function normUrl(value) {
+    return String(value || '').replace(/\/+$/, '');
+  }
+  function deviceUsesForward(device) {
+    const apiUrl = device && device.api ? device.api.url : '';
+    const base = state.forward ? state.forward.base_url : '';
+    return !!(apiUrl && base && normUrl(apiUrl) === normUrl(base));
+  }
+  function deviceRuntimeProvider(device) {
+    if (!device) return '';
+    const runtime = device.runtime || {};
+    if (runtime.provider && runtime.provider !== 'unknown') return runtime.provider;
+    const configured = device.api ? device.api.provider : '';
+    return configured && configured !== 'auto' ? configured : '';
   }
 
   async function selectDevice(deviceId) {
@@ -1831,6 +2014,19 @@
       } catch {
         return;
       }
+      if (message.type === 'device_status') {
+        const device = state.devices.find((d) => d.id === message.device_id);
+        if (device) device.runtime = message.runtime || {};
+        if (message.device_id === state.deviceId) {
+          const runtimeKey = `${message.runtime?.provider || ''}|${message.runtime?.api_ok ? 1 : 0}|${device?.api?.url || ''}|${state.forward.enabled ? 1 : 0}|${state.forward.base_url || ''}`;
+          if (runtimeKey !== state.lastRuntimeKey) {
+            state.lastRuntimeKey = runtimeKey;
+            updateDeviceBar();
+            if (state.selectedId) renderInspector();
+          }
+        }
+        return;
+      }
       if (message.type === 'layout_changed') {
         if (message.device_id && message.device_id !== state.deviceId) return;
         if (state.lastSaveAt && Date.now() - state.lastSaveAt < 2000) return;
@@ -1844,7 +2040,18 @@
         return;
       }
       if (message.type !== 'snapshot' || !message.values) return;
+      const beforeKeys = Object.keys(state.values || {}).sort().join(',');
       state.values = message.values;
+      const afterKeys = Object.keys(state.values).sort().join(',');
+      // 测点清单只随可用集合变化刷新，且限流：避免实时数据把下拉菜单顶掉
+      if (
+        beforeKeys !== afterKeys &&
+        state.selectedId &&
+        Date.now() - state.lastInspectorRefresh > 5000
+      ) {
+        state.lastInspectorRefresh = Date.now();
+        renderInspector();
+      }
       collectHistory();
       if (!state.interacting) refreshWidgetBodies();
     });
@@ -1923,6 +2130,7 @@
     deviceSelect.addEventListener('change', () => {
       selectDevice(deviceSelect.value).catch((error) => toast(error.message));
     });
+    deviceSelect.addEventListener('blur', () => renderDeviceSelect());
     $('device-connect-btn').addEventListener('click', () => openDeviceModal('connect'));
     $('device-settings-btn').addEventListener('click', () => openDeviceModal('settings'));
     $('device-modal-close').addEventListener('click', closeDeviceModal);
@@ -1965,6 +2173,20 @@
       if (!state.layout) return;
       state.layout.page_animation = $('page-animation').value;
       markDirty();
+    });
+
+    // 下拉打开时不要重建属性面板，否则菜单会被实时数据刷新顶掉
+    inspectorEl.addEventListener('focusin', (event) => {
+      if (event.target instanceof HTMLSelectElement) state.selectOpen = true;
+    });
+    inspectorEl.addEventListener('mousedown', (event) => {
+      if (event.target instanceof HTMLSelectElement) state.selectOpen = true;
+    });
+    inspectorEl.addEventListener('change', (event) => {
+      if (event.target instanceof HTMLSelectElement) setTimeout(closeSelect, 80);
+    });
+    inspectorEl.addEventListener('focusout', (event) => {
+      if (event.target instanceof HTMLSelectElement) setTimeout(closeSelect, 200);
     });
 
     canvas.addEventListener('dragover', (event) => {
@@ -2036,6 +2258,12 @@
       profileSelect.value = state.profile;
 
       renderPalette();
+      try {
+        const snapshot = await api('/api/v1/snapshot');
+        state.values = snapshot.values || {};
+      } catch {
+        state.values = {};
+      }
 
       await refreshDevices();
       const requestedDevice = new URLSearchParams(location.search).get('device');

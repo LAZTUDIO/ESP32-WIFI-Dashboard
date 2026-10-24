@@ -28,6 +28,9 @@ void metrics_publish(const dash_metrics_t *m);
 
 void metrics_reset_peak(void);
 dash_provider_t metrics_provider(void);
+const char *metrics_provider_name(void);
+const char *metrics_provider_key(void);
+bool metrics_last_ok(void);
 
 #ifdef __cplusplus
 }

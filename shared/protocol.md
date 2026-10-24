@@ -14,7 +14,11 @@
 - `a`：available，false 表示当前取不到（界面显示 `--`）
 - `t`：采集时间（Unix 秒）
 
-数值的标签、单位、精度、是否适合画曲线由 `shared/catalog/metrics.json` 提供。
+数值的标签、单位、精度、是否适合画曲线由 `shared/catalog/metrics.json` 提供。每个指标还带：
+
+- `source`：`api`（设备轮询传统 API 得到）或 `server`（服务端聚合得到）
+- `providers`：能提供该测点的 API 类型数组（`halogen` / `gufo` / `strata` / `lmstudio` / `ollama` / `openai`）；空数组表示只能由服务端快照提供。编辑器按屏幕实际探测到的类型筛选测点。
+- 硬件测点（`host.*`）只有 `strata` / `panel` 的接口会直接返回；配置了主机监控地址（`host_agent`）的屏幕由设备轮询 host agent 获得，编辑器会单独列成「设备主机监控」分组。
 
 ## REST
 
@@ -36,7 +40,9 @@
 | GET/PUT | `/api/v1/devices/{id}/layout` | 该屏布局；`resolved=1` 注入 `theme_tokens` |
 | GET | `/api/v1/devices/{id}/font/meta` | 该屏 11/13/15 字体元信息 |
 | GET | `/api/v1/devices/{id}/font?size=11` | 该屏指定字号 binfont |
-| GET | `/api/v1/server-info` | 下发给设备的服务端地址 |
+| GET | `/api/v1/server-info` | 下发给设备的服务端地址（含转发地址） |
+| GET/PUT | `/api/v1/forward` | 读取/修改 API 转发设置 |
+| GET | `/api/v1/forward/{path}` | 把设备请求转发到上游 API；服务端注入密钥，不缓存 |
 | GET/PUT | `/api/v1/layout` | 旧接口/模板布局（兼容） |
 
 ## WebSocket `/ws?device_id=<id>`
@@ -58,6 +64,15 @@
 - 保存某屏布局后，服务端向该设备 + 所有 viewer 发送
   `{"type":"layout_changed","device_id":"esp32-a1b2c3","profile":"320x480"}`；
   其他设备不会收到。设备重新拉取该设备的 `resolved=1` 布局并重载 UI，无需重启。
+- 设备在 WS 连接建立时以及 API 类型/连接状态变化时上报：
+
+```json
+{"type": "status", "provider": "lmstudio", "api_ok": true, "api_configured": true}
+```
+
+  服务端把它写入设备 `runtime`，并向该设备与所有 viewer 广播
+  `{"type":"device_status","device_id":"esp32-a1b2c3","runtime":{"provider":"lmstudio","api_ok":true,"api_configured":true,"ts":1729671234.5}}`。
+  `provider` 为机器键（`halogen` / `gufo` / `strata` / `lmstudio` / `ollama` / `openai` / `panel` / `unknown`），编辑器据此筛选测点。
 - 服务端回复 `{"type":"pong"}`。
 - 连接断开后客户端每 2 秒重连，重连后需要重新订阅。
 
@@ -92,6 +107,7 @@ HTTP `/api/v1/config` body：
 ```
 
 - 设备保存到 NVS；API/名称/服务端地址立即生效，WS 重连并重拉布局；`rot180` 变更会重建设备 UI。
+- 若屏幕 API 地址指向 `http://<服务端>:8080/api/v1/forward`，设备仍按自身逻辑探测/解析，服务端只做反向代理并注入 `Authorization: Bearer <key>`；转发设置保存在服务端 `server/data/forward.json`，未启用时该路径返回 503。
 - 服务端在设备 WS 上线时会补发一次 `config`，离线期间改的配置自动同步；设备会比较后只应用变化。
 - 设备 ID 由 MAC 派生（`esp32-xxxxxx`），服务端只登记，不能改。
 - 管理接口无鉴权，仅限局域网；AP 配网时让位给 portal。

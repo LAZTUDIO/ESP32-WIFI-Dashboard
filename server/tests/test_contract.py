@@ -339,5 +339,56 @@ class ContractTest(unittest.TestCase):
         self.assertAlmostEqual(self.store.values["host.ram_used_mb"].value, 8192.0)
 
 
+class MetricProviderTest(unittest.TestCase):
+    PROVIDERS = {"halogen", "gufo", "strata", "lmstudio", "ollama", "openai", "panel"}
+
+    def test_every_metric_has_known_providers(self) -> None:
+        catalog = json.loads(
+            (SERVER_DIR.parent / "shared" / "catalog" / "metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )["metrics"]
+        for metric in catalog:
+            self.assertIsInstance(
+                metric.get("providers"), list, msg=f"{metric['id']} 缺少 providers"
+            )
+            self.assertIn(
+                metric.get("source"),
+                ("api", "server"),
+                msg=f"{metric['id']} source 非法",
+            )
+            for provider in metric["providers"]:
+                self.assertIn(provider, self.PROVIDERS, msg=f"{metric['id']} 未知类型")
+
+
+class ForwardConfigTest(unittest.TestCase):
+    def test_roundtrip_and_validation(self) -> None:
+        import tempfile
+
+        from app.core.forward import ForwardConfig
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forward.json"
+            cfg = ForwardConfig(path)
+            self.assertFalse(cfg.get().enabled)
+            with self.assertRaises(ValueError):
+                cfg.update({"enabled": True, "url": ""})
+            with self.assertRaises(ValueError):
+                cfg.update({"enabled": True, "url": "http://127.0.0.1:8000", "provider": "nope"})
+            saved = cfg.update(
+                {
+                    "enabled": True,
+                    "url": "http://127.0.0.1:8000/v1/",
+                    "key": "secret",
+                    "provider": "lmstudio",
+                }
+            )
+            self.assertEqual(saved.url, "http://127.0.0.1:8000/v1")
+            reloaded = ForwardConfig(path).get()
+            self.assertTrue(reloaded.enabled)
+            self.assertEqual(reloaded.key, "secret")
+            self.assertEqual(reloaded.provider, "lmstudio")
+
+
 if __name__ == "__main__":
     unittest.main()

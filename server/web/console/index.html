@@ -106,6 +106,12 @@
       margin: 0; font-size: 15px; letter-spacing: .2px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .mini-tag {
+      display: inline-block; margin-left: 6px; padding: 1px 6px;
+      border-radius: 999px; border: 1px solid #bfdbfe; background: #eff6ff;
+      color: #2563eb; font-size: 9px; font-weight: 500; vertical-align: 1px;
+    }
+    .mini-tag.warn { border-color: #fde68a; background: #fffbeb; color: #b45309; }
     .card-title .sub {
       display: block; margin-top: 3px; color: #98a1af; font-size: 11px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -212,6 +218,7 @@
       <a class="tab active" href="/console/">终端屏</a>
       <a class="tab" id="nav-editor" href="/editor/">布局编辑</a>
       <button class="tab" id="nav-status" type="button">服务状态</button>
+      <button class="tab" id="nav-forward" type="button">服务设置</button>
     </nav>
     <div class="top-right">
       <span id="server-chip" class="server-chip">服务端 —</span>
@@ -264,6 +271,7 @@
             <option value="openai">OpenAI 兼容</option>
           </select>
         </label>
+        <label class="check span2 hidden" id="dev-forward-row"><input id="dev-use-forward" type="checkbox"> 使用服务端转发（API Key 留在服务端）</label>
         <label class="span2">主机监控地址（可选）<input id="dev-host-agent" placeholder="http://192.168.1.100:8732"></label>
         <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
       </div>
@@ -271,6 +279,40 @@
         <button class="btn danger hidden" id="device-delete" type="button">删除屏幕</button>
         <span class="modal-error" id="device-error"></span>
         <button class="btn primary" id="device-save" type="button">添加并下发</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="forward-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>服务设置 · API 转发</h2>
+        <button class="btn" id="forward-close" type="button">关闭</button>
+      </div>
+      <p class="modal-hint">
+        服务端运行在 API 机器上时，可在这里配置上游 API；屏幕只需填「设备转发地址」，
+        密钥保存在电脑端，不再在手机或屏幕上输入。
+      </p>
+      <div class="form-grid">
+        <label class="check span2"><input id="forward-enabled" type="checkbox"> 启用服务端转发</label>
+        <label class="span2">上游 API 地址<input id="forward-url" placeholder="http://127.0.0.1:8000"></label>
+        <label>API Key<input id="forward-key" type="password" autocomplete="new-password"></label>
+        <label>服务类型
+          <select id="forward-provider">
+            <option value="auto">auto（自动探测）</option>
+            <option value="halogen">halogen</option>
+            <option value="gufo">gufo</option>
+            <option value="strata">strata</option>
+            <option value="lmstudio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+            <option value="openai">OpenAI 兼容</option>
+          </select>
+        </label>
+        <label class="span2">设备转发地址（填到屏幕的 API 地址）<input id="forward-base" disabled></label>
+      </div>
+      <div class="modal-actions">
+        <span class="modal-error" id="forward-error"></span>
+        <button class="btn primary" id="forward-save" type="button">保存</button>
       </div>
     </div>
   </div>
@@ -298,6 +340,8 @@
         editingId: null,
         query: '',
         poll: null,
+        forward: { enabled: false, base_url: '', provider: 'auto' },
+        directDraft: null,
       };
       const $ = (id) => document.getElementById(id);
       const grid = $('grid');
@@ -346,6 +390,14 @@
           ? `${device.ip}:${device.port}` : device.ip;
       }
 
+      const normUrl = (value) => String(value || '').replace(/\/+$/, '');
+      function isForward(device) {
+        return !!(
+          device && device.api && device.api.url && state.forward.base_url &&
+          normUrl(device.api.url) === normUrl(state.forward.base_url)
+        );
+      }
+
       const AVATARS = [
         ['#fff1e7', '#c2410c'], ['#eef4ff', '#1d4ed8'], ['#eefbf3', '#047857'],
         ['#f6efff', '#7e22ce'], ['#fff1f2', '#be123c'], ['#eff8ff', '#0369a1'],
@@ -380,7 +432,7 @@
             <div class="card-head">
               <div class="avatar" style="${avatarStyle(d.id)}">${esc((d.name || '屏').slice(0, 1))}</div>
               <div class="card-title">
-                <h3 title="${esc(d.name)}">${esc(d.name)}</h3>
+                <h3 title="${esc(d.name)}">${esc(d.name)}${isForward(d) ? `<span class="mini-tag${state.forward.enabled ? '' : ' warn'}">${state.forward.enabled ? '转发' : '转发未启用'}</span>` : ''}</h3>
                 <span class="sub" title="${esc(d.id)}">${esc(d.id)}</span>
               </div>
               <span class="dot ${d.online ? 'online' : ''}" title="${d.online ? '在线' : '离线'}"></span>
@@ -409,6 +461,7 @@
           const data = await api('/api/v1/devices');
           state.devices = Array.isArray(data.devices) ? data.devices : [];
           state.serverUrl = data.server_url || state.serverUrl;
+          state.forward = { ...state.forward, ...(data.forward || {}) };
           render();
         } catch (error) {
           toast(`刷新失败：${error.message}`);
@@ -433,12 +486,47 @@
         $('dev-provider').value = cfg.provider || 'auto';
         $('dev-host-agent').value = cfg.host_agent || '';
         $('dev-rot180').checked = !!(device && device.rot180);
+        state.directDraft = {
+          url: cfg.url || '',
+          key: cfg.key || '',
+          provider: cfg.provider || 'auto',
+        };
+        $('dev-forward-row').classList.toggle('hidden', !state.forward.enabled);
+        const forwardMode = isForward(device);
+        $('dev-use-forward').checked = forwardMode;
+        applyForwardMode(forwardMode, false);
         $('device-delete').classList.toggle('hidden', mode === 'connect');
         $('device-modal').classList.remove('hidden');
         setTimeout(() => {
           if (mode === 'connect') $('dev-ip').focus();
           else $('dev-name').focus();
         }, 30);
+      }
+
+      function applyForwardMode(checked, captureDraft = true) {
+        const ids = ['dev-api-url', 'dev-api-key', 'dev-provider'];
+        if (checked) {
+          if (!state.forward.base_url) {
+            $('dev-use-forward').checked = false;
+            return;
+          }
+          if (captureDraft) {
+            state.directDraft = {
+              url: $('dev-api-url').value,
+              key: $('dev-api-key').value,
+              provider: $('dev-provider').value,
+            };
+          }
+          $('dev-api-url').value = state.forward.base_url;
+          $('dev-api-key').value = '';
+          $('dev-provider').value = 'auto';
+        } else {
+          const draft = state.directDraft || {};
+          $('dev-api-url').value = draft.url || '';
+          $('dev-api-key').value = draft.key || '';
+          $('dev-provider').value = draft.provider || 'auto';
+        }
+        for (const id of ids) $(id).disabled = !!checked;
       }
 
       function closeDeviceModal() {
@@ -464,7 +552,15 @@
         btn.textContent = '下发中…';
         try {
           const name = $('dev-name').value.trim();
-          const apiCfg = formApi();
+          let apiCfg = formApi();
+          if ($('dev-use-forward').checked && state.forward.enabled) {
+            apiCfg = {
+              url: state.forward.base_url,
+              key: '',
+              provider: 'auto',
+              host_agent: apiCfg.host_agent,
+            };
+          }
           const rot180 = $('dev-rot180').checked;
           let result;
           if (state.modalMode === 'connect') {
@@ -512,6 +608,50 @@
           await refresh();
         } catch (error) {
           toast(`删除失败：${error.message}`);
+        }
+      }
+
+      async function openForwardModal() {
+        $('forward-error').textContent = '';
+        try {
+          const data = await api('/api/v1/forward');
+          state.forward = { ...state.forward, ...data };
+          $('forward-enabled').checked = !!data.enabled;
+          $('forward-url').value = data.url || '';
+          $('forward-key').value = data.key || '';
+          $('forward-provider').value = data.provider || 'auto';
+          $('forward-base').value = data.base_url || '';
+          $('forward-modal').classList.remove('hidden');
+          setTimeout(() => $('forward-url').focus(), 30);
+        } catch (error) {
+          toast(`读取转发设置失败：${error.message}`);
+        }
+      }
+
+      async function saveForward() {
+        const btn = $('forward-save');
+        const errorEl = $('forward-error');
+        errorEl.textContent = '';
+        btn.disabled = true;
+        try {
+          const data = await api('/api/v1/forward', {
+            method: 'PUT',
+            body: JSON.stringify({
+              enabled: $('forward-enabled').checked,
+              url: $('forward-url').value.trim(),
+              key: $('forward-key').value,
+              provider: $('forward-provider').value,
+            }),
+          });
+          state.forward = { ...state.forward, ...data };
+          $('forward-base').value = data.base_url || '';
+          $('forward-modal').classList.add('hidden');
+          await refresh();
+          toast('转发设置已保存');
+        } catch (error) {
+          errorEl.textContent = error.message;
+        } finally {
+          btn.disabled = false;
         }
       }
 
@@ -566,6 +706,15 @@
         if (event.target === $('device-modal')) closeDeviceModal();
       });
       $('device-save').addEventListener('click', saveDevice);
+      $('dev-use-forward').addEventListener('change', () => {
+        applyForwardMode($('dev-use-forward').checked);
+      });
+      $('nav-forward').addEventListener('click', openForwardModal);
+      $('forward-close').addEventListener('click', () => $('forward-modal').classList.add('hidden'));
+      $('forward-modal').addEventListener('click', (event) => {
+        if (event.target === $('forward-modal')) $('forward-modal').classList.add('hidden');
+      });
+      $('forward-save').addEventListener('click', saveForward);
       $('device-delete').addEventListener('click', () => {
         const device = deviceById(state.editingId);
         if (device) deleteDevice(device);
@@ -602,6 +751,7 @@ ${sources || '—'}`;
         if (event.key === 'Escape') {
           closeDeviceModal();
           $('status-modal').classList.add('hidden');
+          $('forward-modal').classList.add('hidden');
         }
       });
 

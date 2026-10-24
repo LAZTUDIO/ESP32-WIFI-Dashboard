@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import socket
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -359,20 +360,90 @@ def font(request: Request, profile: str = "320x480", size: int = 16) -> Response
 @router.get("/server-info")
 def server_info(request: Request) -> dict[str, Any]:
     settings = request.app.state.settings
+    base = _server_base(request, settings)
+    forward = request.app.state.forward.get()
     return {
-        "public_url": _server_base(request, settings),
+        "public_url": base,
         "lan_ip": _lan_ip(),
         "port": settings.port,
+        "forward": {
+            "enabled": forward.enabled,
+            "base_url": f"{base}/api/v1/forward",
+        },
     }
+
+
+def _forward_payload(request: Request) -> dict[str, Any]:
+    forward = request.app.state.forward.get()
+    base = _server_base(request, request.app.state.settings)
+    return {
+        **forward.public(),
+        "base_url": f"{base}/api/v1/forward",
+    }
+
+
+@router.get("/forward")
+def get_forward(request: Request) -> dict[str, Any]:
+    return _forward_payload(request)
+
+
+@router.put("/forward")
+def update_forward(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    try:
+        request.app.state.forward.update(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, **_forward_payload(request)}
+
+
+@router.get("/forward/{path:path}")
+async def forward_api(path: str, request: Request) -> Response:
+    """把设备对传统 API 的请求转发到上游，密钥只保存在服务端。"""
+    forward = request.app.state.forward.get()
+    if not forward.enabled or not forward.url:
+        raise HTTPException(status_code=503, detail="服务端转发未启用")
+    if any(segment == ".." for segment in path.split("/")):
+        raise HTTPException(status_code=400, detail="非法转发路径")
+    upstream = f"{forward.url.rstrip('/')}/{path.lstrip('/')}"
+    if request.url.query:
+        upstream = f"{upstream}?{request.url.query}"
+    headers = {"Accept": request.headers.get("accept", "application/json")}
+    if forward.key:
+        headers["Authorization"] = f"Bearer {forward.key}"
+    elif request.headers.get("authorization"):
+        headers["Authorization"] = request.headers["authorization"]
+    try:
+        async with httpx.AsyncClient(
+            timeout=forward.timeout_s, follow_redirects=True
+        ) as client:
+            resp = await client.get(upstream, headers=headers)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"转发失败（{upstream}）：{exc}"
+        ) from exc
+    media = resp.headers.get("content-type", "application/octet-stream")
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=media,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/devices")
 def list_devices(request: Request) -> dict[str, Any]:
     registry = _devices(request)
     connections = request.app.state.connections
+    server_base = _server_base(request, request.app.state.settings)
+    forward = request.app.state.forward.get()
     return {
-        "server_url": _server_base(request, request.app.state.settings),
+        "server_url": server_base,
         "online": connections.device_count,
+        "forward": {
+            "enabled": forward.enabled,
+            "base_url": f"{server_base}/api/v1/forward",
+            "provider": forward.provider,
+        },
         "devices": [
             device.public(connections.device_online(device.id))
             for device in registry.list()
@@ -679,6 +750,24 @@ async def websocket_endpoint(
                     await websocket.send_json(store.snapshot())
             elif kind == "ping":
                 await websocket.send_json({"type": "pong"})
+            elif kind == "status" and device_id:
+                runtime = {
+                    "provider": str(message.get("provider") or ""),
+                    "api_ok": bool(message.get("api_ok", False)),
+                    "api_configured": bool(
+                        message.get("api_configured", False)
+                    ),
+                    "ts": time.time(),
+                }
+                registry.update(device_id, runtime=runtime)
+                await manager.broadcast_event(
+                    {
+                        "type": "device_status",
+                        "device_id": device_id,
+                        "runtime": runtime,
+                    },
+                    device_id=device_id,
+                )
     except WebSocketDisconnect:
         pass
     except Exception:

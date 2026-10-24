@@ -28,6 +28,7 @@ class Device:
     profile: str = "320x480"
     api: dict[str, Any] = field(default_factory=dict)
     rot180: bool = False
+    runtime: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
     last_seen: float = 0.0
     last_info: dict[str, Any] = field(default_factory=dict)
@@ -41,6 +42,7 @@ class Device:
             "profile": self.profile,
             "api": self.api,
             "rot180": self.rot180,
+            "runtime": self.runtime,
             "online": online,
             "created_at": self.created_at,
             "last_seen": self.last_seen,
@@ -83,6 +85,7 @@ class DeviceRegistry:
                         profile=str(item.get("profile") or "320x480"),
                         api=dict(item.get("api") or {}),
                         rot180=bool(item.get("rot180", False)),
+                        runtime=dict(item.get("runtime") or {}),
                         created_at=float(item.get("created_at") or 0),
                         last_seen=float(item.get("last_seen") or 0),
                         last_info=dict(item.get("last_info") or {}),
@@ -105,6 +108,7 @@ class DeviceRegistry:
                     "profile": d.profile,
                     "api": d.api,
                     "rot180": d.rot180,
+                    "runtime": d.runtime,
                     "created_at": d.created_at,
                     "last_seen": d.last_seen,
                     "last_info": d.last_info,
@@ -187,7 +191,7 @@ class DeviceRegistry:
             device = self._devices.get(device_id)
             if device is None:
                 return None
-            for key in ("name", "ip", "port", "profile", "api", "rot180"):
+            for key in ("name", "ip", "port", "profile", "api", "rot180", "runtime"):
                 if key in fields and fields[key] is not None:
                     setattr(device, key, fields[key])
             self._save()

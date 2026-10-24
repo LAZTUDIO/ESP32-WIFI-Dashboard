@@ -14,6 +14,7 @@ from .config import DATA_DIR, LAYOUT_DIR, SHARED_DIR, WEB_DIR, load_settings
 from .core.catalog import load_catalog
 from .core.connections import ConnectionManager
 from .core.devices import DeviceRegistry
+from .core.forward import ForwardConfig
 from .core.store import MetricStore
 
 logging.basicConfig(
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
     devices = DeviceRegistry(
         DATA_DIR / "devices.json", LAYOUT_DIR, SHARED_DIR / "presets"
     )
+    forward = ForwardConfig(DATA_DIR / "forward.json")
 
     app.state.settings = settings
     app.state.catalog = catalog
@@ -42,6 +44,7 @@ async def lifespan(app: FastAPI):
     app.state.aggregator = aggregator
     app.state.connections = connections
     app.state.devices = devices
+    app.state.forward = forward
 
     await aggregator.start()
     broadcast_task = asyncio.create_task(

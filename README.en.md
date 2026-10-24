@@ -13,7 +13,8 @@ A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware
 - **Web colour themes** — Classic / STRIX / TUF token sets (background, card, border, accents, radius); switch in the dropdown for instant preview, save to sync the device
 - **Dual data sources** — configure both a legacy API URL and a dashboard server URL; two machines can provide API and server metrics, or both can point at one machine
 - **Live metrics** — decode/prefill TPS, concurrency, queue depth, KV usage, MTP, token totals and host hardware; direct API and server WebSocket write into the same metric store
-- **Source grouping** — metric dropdowns in the editor are grouped as “Traditional API” / “Dedicated Server”
+- **Source-aware metric filtering** — editor dropdowns only list metrics the selected screen can actually receive: the API type reported by the device (halogen / gufo / strata / LM Studio / Ollama / OpenAI-compatible) drives direct metrics, and the server snapshot drives dedicated metrics; portrait and landscape widgets behave the same
+- **Server-side API forwarding** — when the server runs on the API machine, keep the upstream URL and long-lived key in the console; the device only points at `http://<PC>:8080/api/v1/forward`. One port carries everything, and dropdowns label “Forwarded” versus “Dedicated server” metrics
 - **Desktop pet widget** — bind a numeric/boolean metric and switch between sleep/idle/happy/busy/alert/offline procedural animations; the busy state can bind `llm.busy`, and thresholds are editable in the inspector
 - **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan plus separate traditional API and dashboard server fields
 - **Self-healing Wi-Fi** — keeps retrying in the background after a failed boot connect, and hides the provisioning overlay once online
@@ -27,7 +28,6 @@ Traditional APIs are polled **directly by the device**; the dedicated server als
 
 | Service | Probe endpoints | Metrics available |
 | --- | --- | --- |
-| **halogen-panel (8800)** | `/api/status` | model/version, live & average TPS, slots/context, in_flight/queued, KV, MTP, GPU/RAM/uptime (public, no key) |
 | **halogen** | `/health` + `/metrics` | model/version, slots, context, in_flight/queued, KV pool, token counters, MTP, cache |
 | **gufo** | `/health` + `/v1/slots` | same as above; falls back to `n_decoded` deltas when `/metrics` is absent |
 | **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / engine start time |
@@ -35,14 +35,26 @@ Traditional APIs are polled **directly by the device**; the dedicated server als
 | **Ollama** | `/api/ps` | loaded models, size, context |
 | **OpenAI-compatible** | `/v1/models` | model list |
 
-The provider defaults to `auto` (probed in the order above) and can be pinned in the provisioning page (`panel` for port 8800).
-The panel's `/api/usage`, `/api/params`, `/api/logs` and TTS/embedding endpoints remain password-protected and are never read by the firmware.
+The provider defaults to `auto` (probed in the order above) and can be pinned per screen in the console.
+
+### Server-side API forwarding
+
+When the server runs on the same machine as the inference API, enable forwarding in the console's “Service settings” tab (upstream URL, key, optional provider) and point the screen's API URL at:
+
+```text
+http://<server-ip>:8080/api/v1/forward
+```
+
+- The device still performs its own provider detection/parsing; the server only proxies requests and injects `Authorization: Bearer <key>`, so the key never reaches device NVS
+- Forwarding settings are stored in `server/data/forward.json` and apply immediately
+- Editor dropdowns separate “Forwarded · <provider>” from “Dedicated server · <group>”, and show a hint when forwarding is disabled or the API is unreachable
+- Direct connections remain available per screen; the two modes can coexist
 
 > TPS note: gauges such as `llamacpp:predicted_tokens_seconds` read 0 on some servers, so the dashboard always derives live speed from the deltas of `tokens_predicted_total` and `tokens_predicted_seconds_total`.
 
 ## Where do hardware metrics come from?
 
-LLM APIs do **not** expose GPU power, temperature, utilisation or RAM (halogen's `/metrics` contains inference counters only), so the **server** fills those in. The recommended source is halogen-panel's public `/api/status` on `:8800`: point `panel_url` in `server/config.json` at it, no key required.
+LLM APIs do **not** expose GPU power, temperature, utilisation or RAM (halogen's `/metrics` contains inference counters only), so the **server** fills those in. The optional `panel_url` in `server/config.json` can point at a private aggregation panel; the firmware never reads the panel's protected endpoints. Without a panel, the server can collect its own host system/GPU metrics.
 
 Without a panel, run the host agent on the machine that runs the model:
 

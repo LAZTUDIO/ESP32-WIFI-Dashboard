@@ -1,6 +1,6 @@
 # ESP32-WIFI-Dashboard Server（0.3 多屏管理）
 
-专用采集服务：把面板、系统、GPU 等多源数据统一成一套指标，通过 WebSocket 推给 Web 编辑器和 ESP32 屏；同时管理多块屏的配置与独立布局。
+专用采集服务：把面板、系统、GPU 等多源数据统一成一套指标，通过 WebSocket 推给 Web 编辑器和 ESP32 屏；同时管理多块屏的配置与独立布局。服务端与推理 API 同机时，还可作为设备请求的转发端口，把上游地址和密钥收在服务端。
 
 ## 运行
 
@@ -44,6 +44,8 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 
 - 一台服务端可接多块屏；每屏独立布局/配色/API，服务端指标（panel/system/GPU）共享
 - 控制台 `/console/` 按卡片管理屏幕：搜索、添加、配置、重命名、删除、布局、重启、服务状态
+- 控制台「服务设置」可启用 API 转发：填写上游地址与密钥后，屏幕 API 地址填 `http://<服务端IP>:8080/api/v1/forward` 即可；设备仍自行探测 API 类型，服务端只转发并注入密钥
+- 设备卡片会显示屏幕上报的 API 类型与连接状态；编辑器据此动态筛选测点，并区分「服务端转发」与「专用服务端」
 - 设备在线时管理 HTTP 会停止以释放内部 RAM；配置/重启改走 WS。设备离线时保存配置会标记 pending，上线后自动同步
 - 设备断线 10 秒后会自动重新开放管理 HTTP，方便按 IP 重新接入
 - 新屏首次登记会从 `data/layouts/<profile>.json` 或 `shared/presets/default-<profile>.json` 复制初始布局
@@ -64,7 +66,8 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 
 本地数据：
 
-- `server/data/devices.json`：设备注册表（ID、备注名、IP、API 设置、在线时间）
+- `server/data/devices.json`：设备注册表（ID、备注名、IP、API 设置、运行时 API 类型/连接状态、在线时间）
+- `server/data/forward.json`：API 转发设置（启用、上游地址、密钥、类型、超时）；密钥只保存在服务端
 - `server/data/layouts/<device_id>.json`：每块屏的独立布局
 - `server/data/layouts/<profile>.json` 与 `shared/presets/default-<profile>.json`：新屏的初始布局模板
 
@@ -99,7 +102,10 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 | `GET /api/v1/devices/{id}/font/meta` | 该屏字体的 11/13/15 三档元信息 |
 | `GET /api/v1/devices/{id}/font?size=11` | 该屏指定字号的 binfont |
 | `/ws?device_id=...` | 设备 WS（带 device_id）；编辑器连 `/ws` 作为 viewer |
-| `/api/v1/layout?profile=...` | 旧接口/模板布局（兼容） |
+| `/api/v1/server-info` | 下发给设备的服务端地址（含转发地址） |
+| `GET/PUT /api/v1/forward` | 读取/修改 API 转发设置（`enabled/url/key/provider/timeout_s`） |
+| `GET /api/v1/forward/{path}` | 转发到上游 API；服务端注入 `Authorization: Bearer <key>`，不缓存 |
+| `GET/PUT /api/v1/layout?profile=...` | 旧接口/模板布局（兼容） |
 | `/api/v1/font/meta`、`/api/v1/font` | 旧接口/模板字体（兼容） |
 
 `layout_changed` 事件带 `device_id`，只发给目标设备与编辑器 viewer；保存某屏布局不会影响其他屏。设备上线时服务端会补发一次 `config` 消息，离线期间改的配置会自动同步。`config` / `reboot` 消息仅在线时通过 WS 下发。
@@ -108,4 +114,9 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 
 「设备管理 → 每屏布局/字体 → WebSocket 指标 → Web 编辑器 / ESP32」链路已打通。服务端 Web 按 IP 接入设备，每块屏有独立布局、配色和 API 设置；保存布局只通知目标屏。
 
-设备可以同时启用两路数据源：传统 API 由 ESP32 直连轮询（地址/密钥由服务端下发），专用 Server（本服务）通过 WebSocket 推送服务端指标。`shared/catalog/metrics.json` 的每个指标带 `source` 字段（`api` / `server`），编辑器据此分组。
+设备可以同时启用两路数据源：传统 API 由 ESP32 直连轮询（地址/密钥由服务端下发），专用 Server（本服务）通过 WebSocket 推送服务端指标。`shared/catalog/metrics.json` 的每个指标带 `source`（`api` / `server`）和 `providers`（可提供该测点的 API 类型）字段；设备通过 WS `status` 消息上报实际探测到的类型（halogen / gufo / strata / lmstudio / ollama / openai），编辑器据此动态筛选：
+
+- 「专用服务端 · <分组>」只列服务端快照里当前有值的指标
+- 「设备直连 · <类型>」或「服务端转发 · <类型>」只列该类型 `providers` 包含的 API 测点
+- 「设备主机监控 · <分组>」在该屏配置了主机监控地址（`host_agent`）时出现，列出设备由 host agent 轮询得到的硬件测点
+- 转发未启用、类型未识别、API 断开时在下拉里给出对应提示，不再把全部测点混在一起

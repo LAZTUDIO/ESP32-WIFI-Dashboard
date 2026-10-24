@@ -24,6 +24,7 @@
 #include "app_runtime.h"
 #include "dash_metric_store.h"
 #include "display.h"
+#include "metrics.h"
 #include "ui_dynamic.h"
 #include "wifi_mgr.h"
 
@@ -164,6 +165,25 @@ static void send_subscribe(void)
     int sent = esp_websocket_client_send_text(s_ws, sub, (int)strlen(sub),
                                               pdMS_TO_TICKS(2000));
     ESP_LOGI(TAG, "subscribe sent: %d bytes", sent);
+}
+
+/** 把屏幕实际识别到的 API provider / 可用状态发给服务端，编辑器据此过滤测点。 */
+static void send_status(void)
+{
+    if (!s_ws || !esp_websocket_client_is_connected(s_ws)) return;
+    app_config_t cfg;
+    app_runtime_snapshot(&cfg);
+    const char *provider = metrics_provider_key();
+    char msg[192];
+    snprintf(msg, sizeof(msg),
+             "{\"type\":\"status\",\"provider\":\"%s\",\"api_ok\":%s,"
+             "\"api_configured\":%s}",
+             provider, metrics_last_ok() ? "true" : "false",
+             cfg.server_url[0] ? "true" : "false");
+    int sent = esp_websocket_client_send_text(s_ws, msg, (int)strlen(msg),
+                                              pdMS_TO_TICKS(1000));
+    ESP_LOGI(TAG, "status sent: %d bytes provider=%s api_ok=%d", sent,
+             provider, metrics_last_ok() ? 1 : 0);
 }
 
 static const char *json_str(cJSON *obj, const char *key)
@@ -633,6 +653,7 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
         ESP_LOGI(TAG, "websocket connected");
         app_runtime_set_server_connected(true);
         send_subscribe();
+        send_status();
         if (s_refresh_q) {
             uint32_t token = 1;
             xQueueSend(s_refresh_q, &token, 0);
@@ -761,6 +782,18 @@ static void dashboard_task(void *arg)
             }
             ESP_LOGI(TAG, "websocket started: %s", s_ws_uri);
             ws_started = true;
+        }
+
+        if (s_ws && esp_websocket_client_is_connected(s_ws)) {
+            static char last_provider[20];
+            static int last_api_ok = -1;
+            const char *provider = metrics_provider_name();
+            int api_ok = metrics_last_ok() ? 1 : 0;
+            if (strcmp(provider, last_provider) != 0 || api_ok != last_api_ok) {
+                send_status();
+                snprintf(last_provider, sizeof(last_provider), "%s", provider);
+                last_api_ok = api_ok;
+            }
         }
 
         uint32_t token = 0;
