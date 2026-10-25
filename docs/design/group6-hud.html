@@ -1,0 +1,1057 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LVGL 性能监视屏 · 主题抽卡（10 选）</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#080a0e;color:#dbe4ef;font-family:'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif}
+  .top{max-width:1180px;margin:0 auto;padding:32px 24px 6px}
+  h1{font-size:21px;margin:0 0 8px;letter-spacing:.3px}
+  .lead{font-size:12.5px;line-height:1.85;color:#8b98ab;max-width:900px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+  .chip{font-size:11px;border:1px solid #232c3a;background:#0f141d;border-radius:99px;padding:4px 11px;color:#9fb0c6}
+  button{margin-left:auto;background:#ffd54a;color:#141414;border:0;border-radius:99px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+  button:active{transform:translateY(1px)}
+  .gallery{max-width:1180px;margin:0 auto;padding:20px 24px 70px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+  .card{background:#0d1118;border:1px solid #1d2635;border-radius:18px;padding:12px;width:max-content;max-width:100%;transition:border-color .35s,box-shadow .35s}
+  .card:hover{border-color:#2c3a4f}
+  .card.pick{border-color:#ffd54a;box-shadow:0 0 0 3px rgba(255,213,74,.18)}
+  .meta{display:flex;align-items:center;gap:10px;padding:2px 6px 10px;font-size:12px;color:#8b98ab}
+  .meta .id{font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#6f8099;border:1px solid #1f2939;background:#0a0e15;border-radius:6px;padding:2px 6px}
+  .meta b{font-size:13px;color:#f2f6fb;font-weight:650}
+  .meta .ori{margin-left:auto;font-size:10px;color:#63748c;letter-spacing:.5px}
+  .scr{position:relative;overflow:hidden;border-radius:12px;display:block;border:1px solid #1a2230}
+  .scr,.scr *{box-sizing:border-box}
+  .spec{margin-top:12px;padding:4px 6px 2px;display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.65;color:#93a1b5;max-width:480px}
+  .spec b{color:#cfd9e6;font-weight:600;margin-right:7px}
+  .spec code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#7f93ad}
+  .swatches{display:flex;align-items:center;gap:6px}
+  .swatches i{width:24px;height:14px;border-radius:4px;display:block;border:1px solid rgba(255,255,255,.08)}
+  .swatches code{margin-left:4px}
+  .led{animation:blink 2.2s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .orbit,.sweep{transform-box:view-box;animation:spin 12s linear infinite}
+  .orbit{animation-duration:18s}
+  .sweep{animation-duration:5s}
+  @keyframes sway{from{transform:rotate(-1.4deg)}to{transform:rotate(1.4deg)}}
+  .sway{animation:sway 3.6s ease-in-out infinite alternate}
+  .blink{animation:blink 1.6s ease-in-out infinite}
+  @keyframes g6-spin{to{transform:rotate(360deg)}}
+  @keyframes g6-pulse{0%,100%{opacity:1}50%{opacity:.28}}
+  .g6-spin{transform-box:view-box;animation:g6-spin 6s linear infinite}
+  .g6-pulse{animation:g6-pulse 1.9s ease-in-out infinite}
+  footer{max-width:1180px;margin:0 auto;padding:0 24px 50px;font-size:11px;color:#5c6b80;line-height:1.7}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>LVGL 性能监视屏 · 第 6 组：Game HUD</h1>
+  <p class="lead">
+    第 6 组 10 屏游戏 HUD 方向：战术终端、机甲反应堆、潜行链路、街机计分板、无人机地平仪、狙击镜、散热塔、装备槽、动力装甲与扫描雷达。
+    5 横 480×320 + 5 竖 320×480，5 个 LLM 推理监视 + 5 个电脑性能监视。深色荧光绿/橙/青，等宽数字、角括号、准星、分段弹药条与热管理条，
+    面板感全部靠边框、角标与细线建立，不用切角与六边形。仅用 LVGL 可实现元素：纯色/两段线性渐变、描边、圆角、圆弧环、分段条、折线、LED、刻度与透明度/旋转动画。
+  </p>
+  <div class="bar">
+    <span class="chip">横屏 480×320 ×5</span>
+    <span class="chip">竖屏 320×480 ×5</span>
+    <span class="chip">LLM ×5</span>
+    <span class="chip">PC ×5</span>
+    <span class="chip">按 R 或点右侧按钮随机抽一张</span>
+    <button onclick="window.__pick()">随机抽一张</button>
+  </div>
+</header>
+
+<div id="app"></div>
+
+<footer>
+  提示：文字最小 8–9px 仅用于标签，正文 10–12px，数值 13–24px，主值 30–60px，保证在 480×320 的 IPS 小屏上清晰可读。
+  交给开发时可按“LVGL 映射”一栏直接落地；配色可直接作为 lv_style 的 color 值。
+</footer>
+
+<script>
+/* ================= 基础绘图助手（全部对应 LVGL 能力） ================= */
+const FONT="'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif";
+const MONO="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace";
+
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+function arcD(cx,cy,r,a0,a1){
+  const s=polar(cx,cy,r,a0),e=polar(cx,cy,r,a1),big=(a1-a0)>180?1:0;
+  return `M${s[0].toFixed(2)} ${s[1].toFixed(2)}A${r} ${r} 0 ${big} 1 ${e[0].toFixed(2)} ${e[1].toFixed(2)}`;
+}
+function gauge(o){
+  const s=o.s,w=o.w||10,cx=s/2,cy=s/2,r=o.r||(s/2-w/2-2);
+  const a0=o.a0==null?225:o.a0,a1=o.a1==null?495:o.a1,pct=Math.max(0,Math.min(100,o.pct));
+  const endA=a0+(a1-a0)*pct/100;
+  let out=`<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">`;
+  out+=`<path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>`;
+  if(o.glow) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w+10}" stroke-linecap="round" opacity=".14"/>`;
+  if(pct>0) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>`;
+  out+='</svg>';
+  return out;
+}
+function ticks(cx,cy,r1,r2,a0,a1,n,color,w,op){
+  let s='';const ww=w||1.5,oo=op==null?.4:op;
+  for(let i=0;i<=n;i++){
+    const a=a0+(a1-a0)*i/n,p1=polar(cx,cy,r1,a),p2=polar(cx,cy,r2,a);
+    s+=`<line x1="${p1[0].toFixed(1)}" y1="${p1[1].toFixed(1)}" x2="${p2[0].toFixed(1)}" y2="${p2[1].toFixed(1)}" stroke="${color}" stroke-width="${ww}" opacity="${i%5===0?Math.min(1,oo+.4):oo}"/>`;
+  }
+  return s;
+}
+function needleGauge(o){
+  const s=o.s,w=o.w||7,cx=s/2,cy=s/2,a0=225,a1=495,r=cx-w-8;
+  const pct=Math.max(0,Math.min(100,o.pct)),ang=a0+(a1-a0)*pct/100;
+  const np=polar(cx,cy,r-22,ang);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">
+    <path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>
+    <path d="${arcD(cx,cy,r,a0+(a1-a0)*0.88,a1)}" fill="none" stroke="${o.redline||'#ff3b30'}" stroke-width="${w}" stroke-linecap="round" opacity=".8"/>
+    <path d="${arcD(cx,cy,r,a0,ang)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>
+    ${ticks(cx,cy,r-9,r-3,a0,a1,27,o.tick||'#777',1.1,.28)}
+    <g class="sway" style="transform-origin:${cx}px ${cy}px">
+      <line x1="${cx}" y1="${cy}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="${o.needle||'#fff'}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="${cx}" cy="${cy}" r="4.5" fill="${o.needle||'#fff'}"/>
+    </g>
+  </svg>`;
+}
+function ringSVG(size,r,w,pct,color,track){
+  const c=2*Math.PI*r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${track}" stroke-width="${w}"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"
+      stroke-dasharray="${(c*Math.max(0,Math.min(100,pct))/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>
+  </svg>`;
+}
+function ringStack(size,list,track){
+  let s=`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`;
+  list.forEach(function(rg){
+    const c=2*Math.PI*rg.r;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${track}" stroke-width="${rg.w}"/>`;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${rg.c}" stroke-width="${rg.w}" stroke-linecap="round" stroke-dasharray="${(c*rg.pct/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>`;
+  });
+  return s+'</svg>';
+}
+function spark(w,h,data,color,o){
+  o=o||{};const pad=o.pad||2,min=o.min==null?Math.min.apply(null,data):o.min,max=o.max==null?Math.max.apply(null,data):o.max;
+  const n=data.length;
+  const pts=data.map(function(v,i){return [pad+i*(w-2*pad)/(n-1),h-pad-((v-min)/((max-min)||1))*(h-2*pad)];});
+  const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+  let s='';
+  if(o.fill) s+=`<path d="${d}L${pts[n-1][0].toFixed(1)} ${h}L${pts[0][0].toFixed(1)} ${h}Z" fill="${color}" opacity="${o.op==null?.14:o.op}"/>`;
+  s+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="${o.lw||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if(o.dot) s+=`<circle class="blink" cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="${o.dotR||3}" fill="${color}"/>`;
+  const grid=o.grid?Array.from({length:o.grid},function(_,i){return `<line x1="0" x2="${w}" y1="${(h/(o.grid-1))*i}" y2="${(h/(o.grid-1))*i}" stroke="${o.gridColor||color}" opacity=".10"/>`;}).join(''):'';
+  return `<svg width="${w}" height="${h}" style="display:block">${grid}${s}</svg>`;
+}
+function multiSpark(w,h,list){
+  let all=[];list.forEach(function(s){all=all.concat(s.data);});
+  const min=Math.min.apply(null,all),max=Math.max.apply(null,all);
+  let out='';
+  for(let i=0;i<3;i++) out+=`<line x1="0" x2="${w}" y1="${(h/2)*i}" y2="${(h/2)*i}" stroke="#ffffff" opacity=".06"/>`;
+  list.forEach(function(s){
+    const n=s.data.length;
+    const pts=s.data.map(function(v,i){return [i*(w-2)/(n-1)+1,h-2-((v-min)/((max-min)||1))*(h-4)];});
+    const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+    out+=`<path d="${d}L${w-1} ${h}L1 ${h}Z" fill="${s.color}" opacity=".11"/>`;
+    out+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const last=pts[n-1];
+    out+=`<circle class="blink" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+  });
+  return `<svg width="${w}" height="${h}" style="display:block">${out}</svg>`;
+}
+function rnd(seed){let s=seed;return function(){s=(s*9301+49297)%233280;return s/233280;};}
+function series(n,base,amp,seed){
+  const r=rnd(seed),a=[];let v=base;
+  for(let i=0;i<n;i++){v=Math.max(base*.35,Math.min(base*1.45,v+(r()-.48)*amp));a.push(v);}
+  return a;
+}
+function bar(pct,color,track,h,w){
+  const hh=h||7;
+  return `<div style="width:${w||'100%'};height:${hh}px;background:${track};border-radius:99px;overflow:hidden"><div style="width:${Math.max(0,Math.min(100,pct))}%;height:100%;background:${color};border-radius:99px"></div></div>`;
+}
+function seg(pct,color,dim,n,h){
+  const num=n||20,hh=h||10,on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;height:${hh}px;border-radius:2px;background:${i<on?color:dim}"></div>`;
+  return `<div style="display:flex;gap:2px">${s}</div>`;
+}
+function gridBG(w,h,color,step,op){
+  let s='';
+  for(let x=step;x<w;x+=step) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  for(let y=step;y<h;y+=step) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;inset:0;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function led(c,s){
+  const ss=s||7;
+  return `<span class="led" style="display:inline-block;width:${ss}px;height:${ss}px;border-radius:50%;background:${c};box-shadow:0 0 7px ${c}"></span>`;
+}
+function st(l,v,u,c,p,size){
+  return `<div style="min-width:0"><div style="font-size:9px;letter-spacing:1.2px;color:${p.dim};white-space:nowrap">${l}</div><div style="font-size:${size||15}px;font-weight:700;color:${c||p.txt};line-height:1.2;white-space:nowrap">${v}<span style="font-size:9px;font-weight:500;color:${p.dim}"> ${u||''}</span></div></div>`;
+}
+
+/* ================= 示例数据 ================= */
+const L={
+  model:'Qwen3-32B',decode:'42.3',avg:'38.1',max:'58.9',prefill:'1860',ttft:'0.32s',
+  gpu:78,vram:'18.2',vramTot:'24',vramPct:76,kv:61,power:312,temp:68,queue:2,batch:4,
+  uptime:'3d 14h',total:'1.28B',cache:87,cpu:22,ram:'41.7',ramTot:'64',net:128,fan:1450,ctx:'12.4k'
+};
+const Pd={
+  cpu:34,avg:27,max:91,freq:'4.82',temp:62,power:78,ram:'12.4',ramTot:'32',ramPct:39,
+  gpu:71,gpuTemp:67,gpuPower:210,vram:'6.8',vramTot:'12',vramPct:57,
+  diskR:540,diskW:120,netD:54,netU:8,fanC:1200,fanG:1650,up:'5d 02h',proc:214,batt:82,fps:141
+};
+
+
+/* ================= 第 6 组公共件：角括号 / 弹药条 ================= */
+function g6brk(color,len,t,inset,op){
+  const L=len||16,T=t||2,I=inset==null?8:inset,O=op==null?1:op;
+  const b=`position:absolute;width:${L}px;height:${L}px;border:0 solid ${color};opacity:${O};border-radius:1px`;
+  return `<i style="${b};left:${I}px;top:${I}px;border-left-width:${T}px;border-top-width:${T}px"></i>`
+    +`<i style="${b};right:${I}px;top:${I}px;border-right-width:${T}px;border-top-width:${T}px"></i>`
+    +`<i style="${b};left:${I}px;bottom:${I}px;border-left-width:${T}px;border-bottom-width:${T}px"></i>`
+    +`<i style="${b};right:${I}px;bottom:${I}px;border-right-width:${T}px;border-bottom-width:${T}px"></i>`;
+}
+function g6ammo(pct,color,dim,n,h,gap){
+  const num=n||16,hh=h||9,g=gap==null?2:gap;
+  const on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;min-width:0;height:${hh}px;border-radius:1px;background:${i<on?color:dim}"></div>`;
+  return `<div style="display:flex;gap:${g}px;align-items:flex-end">${s}</div>`;
+}
+function g6vseg(pct,color,dim,h,n){
+  const num=n||15,on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="height:8px;border-radius:1px;background:${i<on?color:dim};${i<on&&i>=num-3?'box-shadow:0 0 5px '+color:''}"></div>`;
+  return `<div style="height:${h||162}px;display:flex;flex-direction:column-reverse;gap:3px">${s}</div>`;
+}
+
+/* ================= H01 Tactical HUD ================= */
+function H01(){
+  const p={bg:'#0a0f0c',bg2:'#0c1710',acc:'#7cff4f',acc2:'#ffb020',dim:'#5d7a5a',track:'#1a2a1c',line:'#22381f',txt:'#d8f5d0'};
+  const cg=34;
+  const scope=`<svg width="136" height="136" viewBox="0 0 136 136" style="display:block;position:absolute;left:0;top:0">
+    <circle cx="68" cy="68" r="65" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <circle cx="68" cy="68" r="58" fill="none" stroke="${p.track}" stroke-width="3"/>
+    <path d="${arcD(68,68,58,0,360*cg/100)}" fill="none" stroke="${p.acc}" stroke-width="3" stroke-linecap="round"/>
+    ${ticks(68,68,60,66,0,360,36,p.acc,1,.22)}
+    <line x1="4" y1="68" x2="46" y2="68" stroke="${p.acc}" stroke-width="1" opacity=".38"/>
+    <line x1="90" y1="68" x2="132" y2="68" stroke="${p.acc}" stroke-width="1" opacity=".38"/>
+    <line x1="68" y1="4" x2="68" y2="46" stroke="${p.acc}" stroke-width="1" opacity=".38"/>
+    <line x1="68" y1="90" x2="68" y2="132" stroke="${p.acc}" stroke-width="1" opacity=".38"/>
+  </svg>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(155deg,${p.bg},${p.bg2} 58%,${p.bg});font-family:${FONT};color:${p.txt}">
+    ${gridBG(480,320,p.acc,40,.04)}
+    ${g6brk(p.acc,16,2,7,.9)}
+    <div style="position:absolute;left:20px;right:20px;top:13px;height:24px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:9px">
+        <span style="width:3px;height:15px;background:${p.acc}"></span>
+        <span style="font-size:12px;font-weight:800;letter-spacing:2.4px">TACTICAL HUD</span>
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">SYS-MON // PC-01</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+        ${led(p.acc,5)}<span style="color:${p.acc}">LINK</span><span>T+05:02</span><span style="color:${p.txt}">14:32</span>
+      </div>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:40px;height:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:22px;top:50px;width:152px">
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim};padding:0 2px">
+        <span>CPU LOAD</span><span style="color:${p.acc}">34%</span>
+      </div>
+      <div style="position:relative;width:136px;height:136px;margin:5px auto 0">
+        ${scope}
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="font-family:${MONO};font-size:27px;font-weight:700;line-height:1;color:${p.acc}">34<span style="font-size:11px">%</span></div>
+          <div style="font-size:8px;letter-spacing:2px;color:${p.dim};margin-top:3px">CPU</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8.5px;color:${p.dim};margin-top:6px;padding:0 2px">
+        <span>4.82 <span style="color:${p.txt}">GHz</span></span><span>62<span style="color:${p.txt}">°C</span></span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:306px;top:50px;width:152px">
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim};padding:0 2px">
+        <span>GPU LOAD</span><span style="color:${p.acc2}">71%</span>
+      </div>
+      <div style="position:relative;width:136px;height:136px;margin:5px auto 0">
+        ${gauge({s:136,r:58,w:6,pct:71,color:p.acc2,track:p.track,a0:225,a1:495})}
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="font-family:${MONO};font-size:27px;font-weight:700;line-height:1;color:${p.acc2}">71<span style="font-size:11px">%</span></div>
+          <div style="font-size:8px;letter-spacing:2px;color:${p.dim};margin-top:3px">GPU</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8.5px;color:${p.dim};margin-top:6px;padding:0 2px">
+        <span>210 <span style="color:${p.txt}">W</span></span><span>67<span style="color:${p.txt}">°C</span></span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:170px;top:48px;width:1px;height:190px;background:${p.line}"></div>
+    <div style="position:absolute;left:310px;top:48px;width:1px;height:190px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:178px;top:52px;width:124px;text-align:center">
+      <div style="font-size:8px;letter-spacing:3.2px;color:${p.dim}">FRAMES / SEC</div>
+      <div style="font-family:${MONO};font-size:52px;font-weight:700;line-height:1.02;letter-spacing:-1px;margin-top:1px">141</div>
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.acc2}">7.1 MS · 144 HZ</div>
+      <div style="margin-top:8px">${spark(124,40,series(22,140,14,7),p.acc,{fill:true,dot:true,grid:3,op:.12})}</div>
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim};margin-top:7px">
+        <span>1% <span style="color:${p.txt}">118</span></span><span>PEAK <span style="color:${p.txt}">166</span></span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:5px;margin-top:9px;font-family:${MONO};font-size:8px;color:${p.acc}">
+        ${led(p.acc,4)}SYS NOMINAL
+      </div>
+    </div>
+
+    <div style="position:absolute;left:20px;right:20px;top:244px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:22px;right:22px;top:253px;display:flex;gap:16px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">THERM</span>
+          <span style="font-family:${MONO};font-size:11.5px;font-weight:700">62<span style="font-size:8px;color:${p.dim}">°C</span></span>
+        </div>
+        ${g6ammo(62,p.acc2,p.track,14,9,2)}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">POWER</span>
+          <span style="font-family:${MONO};font-size:11.5px;font-weight:700">78<span style="font-size:8px;color:${p.dim}">W</span></span>
+        </div>
+        ${g6ammo(52,p.acc,p.track,14,9,2)}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+          <span style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">FAN</span>
+          <span style="font-family:${MONO};font-size:11.5px;font-weight:700">1200 <span style="font-size:8px;color:${p.dim}">RPM</span></span>
+        </div>
+        ${g6ammo(44,p.acc,p.track,14,9,2)}
+      </div>
+    </div>
+    <div style="position:absolute;left:22px;right:22px;top:294px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">
+      <span>MEM 12.4 / 32 G</span><span>NET 54 Mb/s</span><span style="color:${p.acc}">MODE // TACTICAL</span>
+    </div>
+  </div>`;
+}
+
+/* ================= H02 Mecha Core ================= */
+function H02(){
+  const p={bg:'#0e1116',bg2:'#121a24',acc:'#ff6b35',acc2:'#00d1ff',dim:'#6b7a8c',track:'#161d27',line:'#232d3a',txt:'#e8f0f7'};
+  const reac=`<svg width="196" height="196" viewBox="0 0 196 196" style="display:block">
+    <g class="g6-spin" style="transform-origin:98px 98px;animation-duration:18s">${ticks(98,98,92,98,0,360,60,p.acc2,1,.18)}</g>
+    <circle cx="98" cy="98" r="88" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <circle cx="98" cy="98" r="80" fill="none" stroke="${p.track}" stroke-width="7"/>
+    <path d="${arcD(98,98,80,-125,-125+250*0.78)}" fill="none" stroke="${p.acc}" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="98" cy="98" r="64" fill="none" stroke="${p.track}" stroke-width="3"/>
+    <path d="${arcD(98,98,64,150,150+240*0.61)}" fill="none" stroke="${p.acc2}" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="98" cy="98" r="46" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <line x1="98" y1="4" x2="98" y2="12" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="98" y1="184" x2="98" y2="192" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="4" y1="98" x2="12" y2="98" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="184" y1="98" x2="192" y2="98" stroke="${p.acc2}" stroke-width="2"/>
+  </svg>`;
+  const row=(l,v,u,c,pc)=>
+    `<div style="margin-bottom:13px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${MONO}">
+        <span style="font-size:8px;letter-spacing:1.2px;color:${p.dim}">${l}</span>
+        <span style="font-size:15px;font-weight:700;color:${p.txt};line-height:1.1">${v}<span style="font-size:8px;color:${p.dim};font-weight:400"> ${u}</span></span>
+      </div>
+      <div style="margin-top:4px">${bar(pc,c,p.track,4)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(160deg,${p.bg},${p.bg2} 55%,#0b0f15);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc2,18,2,7,.7)}
+    <div style="position:absolute;left:18px;right:18px;top:10px;height:26px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font-size:12px;font-weight:800;letter-spacing:2.6px;color:${p.acc}">MECHA CORE</span>
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">REACTOR · UNIT-07</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;border:1px solid ${p.line};padding:3px 7px;border-radius:2px">
+        <span style="display:flex;align-items:center;gap:3px;font-size:8px;color:${p.dim}">${led(p.acc2,4)}PWR</span>
+        <span style="display:flex;align-items:center;gap:3px;font-size:8px;color:${p.dim}">${led(p.acc2,4)}NET</span>
+        <span style="display:flex;align-items:center;gap:3px;font-size:8px;color:${p.dim}">${led(p.acc,4)}GPU</span>
+        <span style="display:flex;align-items:center;gap:3px;font-size:8px;color:${p.txt}">${led(p.acc,4)}WARN</span>
+      </div>
+    </div>
+    <div style="position:absolute;left:18px;right:18px;top:42px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:18px;right:18px;top:48px;height:4px">${g6ammo(62,p.acc,p.track,58,4,2)}</div>
+
+    <div style="position:absolute;left:14px;top:68px;width:126px">
+      ${row('PREFILL','1860','t/s',p.acc,74)}
+      ${row('TTFT','0.32','s',p.acc,88)}
+      ${row('VRAM','18.2','/24G',p.acc2,76)}
+      ${row('KV CACHE','61','%',p.acc2,61)}
+    </div>
+
+    <div style="position:absolute;left:142px;top:56px;width:196px;height:196px">
+      ${reac}
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:8px;letter-spacing:2.6px;color:${p.dim}">DECODE</div>
+        <div style="font-family:${MONO};font-size:35px;font-weight:700;line-height:1.05;color:${p.txt};letter-spacing:-1px">42.3</div>
+        <div style="font-family:${MONO};font-size:8.5px;letter-spacing:1.4px;color:${p.acc}">TOK/S</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:340px;top:68px;width:126px">
+      ${row('QUEUE','2','req',p.acc2,20)}
+      ${row('BATCH','4','seq',p.acc2,40)}
+      ${row('GPU','78','%',p.acc,78)}
+      ${row('CORE TEMP','68','°C',p.acc,68)}
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:282px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:20px;right:20px;top:290px;display:flex;justify-content:space-between;align-items:center;font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">
+      <span>CORE <span style="color:${p.txt}">68°C</span> · PWR <span style="color:${p.txt}">312W</span> · COOL <span style="color:${p.txt}">87%</span></span>
+      <span style="display:flex;align-items:center;gap:5px;color:${p.acc}">${led(p.acc,5)}STABLE</span>
+    </div>
+  </div>`;
+}
+/* ================= H03 Stealth Ops ================= */
+function H03(){
+  const p={bg:'#14171a',bg2:'#111417',acc:'#4ade80',gray:'#9ca3af',dim:'#5f6b66',track:'#1d2422',line:'#28322e',txt:'#d9e5de'};
+  const srow=(l,v,u)=>
+    `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid ${p.line}">
+      <span style="font-size:8px;letter-spacing:1.8px;color:${p.dim}">${l}</span>
+      <span style="font-family:${MONO};font-size:13px;font-weight:600;color:${p.txt}">${v}<span style="font-size:8px;color:${p.dim};font-weight:400"> ${u}</span></span>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(170deg,#161a1d,${p.bg2} 68%,#0f1214);font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;inset:10px;border:1px solid ${p.line}"></div>
+    <div style="position:absolute;left:24px;right:24px;top:20px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:10px;font-weight:600;letter-spacing:5px;color:${p.gray}">STEALTH OPS</span>
+      <span style="display:flex;align-items:center;gap:7px;font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">${led(p.acc,5)}SILENT</span>
+    </div>
+    <div style="position:absolute;left:24px;right:24px;top:48px;height:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:32px;top:78px;width:190px">
+      <div style="font-size:8px;letter-spacing:3px;color:${p.dim}">DECODE</div>
+      <div style="display:flex;align-items:flex-end;gap:7px;margin-top:1px">
+        <div style="font-family:${MONO};font-size:58px;font-weight:600;line-height:1.02;letter-spacing:-2px;color:${p.txt}">42.3</div>
+        <div style="font-size:10px;color:${p.dim};padding-bottom:8px">tok/s</div>
+      </div>
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.acc};margin-top:5px">Δ +3.2% / 10 MIN</div>
+      <div style="font-size:8px;letter-spacing:2.4px;color:${p.dim};margin-top:16px">LOW OBSERVABILITY LINK</div>
+    </div>
+
+    <div style="position:absolute;left:262px;top:80px;width:184px">
+      ${srow('AVG','38.1','tok/s')}
+      ${srow('PREFILL','1860','t/s')}
+      ${srow('TTFT','0.32','s')}
+      ${srow('QUEUE','2','req')}
+    </div>
+
+    <div style="position:absolute;left:32px;right:32px;top:204px;display:flex;justify-content:space-between;border-top:1px solid ${p.line};padding-top:9px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>CPU <span style="color:${p.txt}">22%</span></span>
+      <span>GPU <span style="color:${p.txt}">78%</span></span>
+      <span>RAM <span style="color:${p.txt}">41.7G</span></span>
+      <span>KV <span style="color:${p.txt}">61%</span></span>
+    </div>
+
+    <div style="position:absolute;left:32px;right:32px;top:240px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px">
+        <span style="font-size:8px;letter-spacing:2.2px;color:${p.dim}">THERMAL LOAD</span>
+        <span style="font-family:${MONO};font-size:10px;color:${p.gray}">68<span style="font-size:8px;color:${p.dim}">°C</span> · FAN 1450</span>
+      </div>
+      ${g6ammo(68,p.acc,p.track,32,9,3)}
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-family:${MONO};font-size:8px;color:${p.dim}">
+        <span>0</span><span>25</span><span>50</span><span>75</span><span style="color:${p.acc}">100%</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:24px;right:24px;top:294px;display:flex;align-items:center;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">
+      <span>SILENT MODE · NO TELEMETRY UPLINK</span>
+      <span style="display:flex;gap:3px">
+        <i style="width:5px;height:5px;background:${p.acc};display:block"></i>
+        <i style="width:5px;height:5px;background:${p.line};display:block"></i>
+        <i style="width:5px;height:5px;background:${p.line};display:block"></i>
+        <i style="width:5px;height:5px;background:${p.line};display:block"></i>
+      </span>
+    </div>
+  </div>`;
+}
+
+/* ================= H04 Arcade Score ================= */
+function H04(){
+  const p={bg:'#120a1c',bg2:'#1b0f2a',acc:'#ffcf00',acc2:'#ff3ea5',dim:'#8a7aa8',track:'#2c1b42',line:'#3d2660',txt:'#fff6d6'};
+  const cell=(pct,c)=>
+    `<div style="display:flex;gap:3px">
+      ${Array.from({length:5},function(_,i){return `<i style="width:12px;height:12px;display:block;background:${i<Math.round(pct/20)?c:p.track}"></i>`;}).join('')}
+    </div>`;
+  const barCol=(l,v,u,pc,c)=>
+    `<div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.acc2}">${l}</span>
+        <span style="font-family:${MONO};font-size:11px;font-weight:700;color:${p.txt}">${v}<span style="font-size:8px;color:${p.dim}">${u}</span></span>
+      </div>
+      ${g6ammo(pc,c,p.track,12,10,2)}
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(175deg,${p.bg2},${p.bg} 62%,#0d0714);font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:36px;background:${p.bg2};border-bottom:2px solid ${p.acc};display:flex;align-items:center;justify-content:space-between;padding:0 18px">
+      <span style="font-family:${MONO};font-size:9px;letter-spacing:2px;color:${p.acc2}">PLAYER 1</span>
+      <span style="font-family:${MONO};font-size:9px;letter-spacing:2.4px;color:${p.acc}">HIGH SCORE 99999</span>
+      <span style="font-family:${MONO};font-size:9px;letter-spacing:2px;color:${p.acc2}">CREDIT 03</span>
+    </div>
+    <div style="position:absolute;left:14px;top:42px;display:flex;gap:4px">
+      <i style="width:7px;height:7px;background:${p.acc};display:block"></i>
+      <i style="width:7px;height:7px;background:${p.acc2};display:block"></i>
+      <i style="width:7px;height:7px;background:${p.track};display:block"></i>
+    </div>
+
+    <div style="position:absolute;left:52px;top:58px;width:168px;text-align:center">
+      <div style="font-family:${MONO};font-size:10px;letter-spacing:4px;color:${p.acc2}">CPU</div>
+      <div style="font-family:${MONO};font-size:60px;font-weight:700;line-height:1;letter-spacing:-2px;color:${p.acc}">34<span style="font-size:22px;letter-spacing:0">%</span></div>
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:2.4px;color:${p.dim};margin-top:3px">PROCESSOR</div>
+      <div style="display:flex;justify-content:center;margin-top:9px">${cell(34,p.acc)}</div>
+    </div>
+    <div style="position:absolute;left:260px;top:58px;width:168px;text-align:center">
+      <div style="font-family:${MONO};font-size:10px;letter-spacing:4px;color:${p.acc}">FPS</div>
+      <div style="font-family:${MONO};font-size:60px;font-weight:700;line-height:1;letter-spacing:-2px;color:${p.acc2}">141</div>
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:2.4px;color:${p.dim};margin-top:3px">FRAME RATE</div>
+      <div style="display:flex;justify-content:center;margin-top:9px">${cell(90,p.acc2)}</div>
+    </div>
+
+    <div style="position:absolute;left:236px;top:62px;display:flex;flex-direction:column;gap:9px">
+      <i style="width:6px;height:6px;background:${p.acc2};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.track};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.acc};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.track};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.acc2};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.track};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.acc};display:block"></i>
+      <i style="width:6px;height:6px;background:${p.track};display:block"></i>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:192px;height:24px;border-top:1px solid ${p.line};border-bottom:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>AVG <span style="color:${p.txt}">27</span></span>
+      <span>PEAK <span style="color:${p.txt}">91</span></span>
+      <span>FREQ <span style="color:${p.txt}">4.82</span>GHz</span>
+      <span>GPU <span style="color:${p.txt}">71</span>%</span>
+      <span>VRAM <span style="color:${p.txt}">6.8</span>G</span>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:230px;display:flex;gap:16px">
+      ${barCol('CPU','34','%',34,p.acc)}
+      ${barCol('GPU','71','%',71,p.acc2)}
+      ${barCol('MEM','39','%',39,p.acc)}
+    </div>
+    <div style="position:absolute;left:18px;right:18px;top:276px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:22px;right:22px;top:284px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">
+      <span>TEMP 62°C</span><span>PWR 78W</span><span>FAN 1200</span><span style="color:${p.acc}">STAGE 04</span>
+    </div>
+    <div class="blink" style="position:absolute;left:0;right:0;top:300px;text-align:center;font-family:${MONO};font-size:8px;letter-spacing:3px;color:${p.acc2}">PRESS START</div>
+  </div>`;
+}
+/* ================= H05 Drone Link ================= */
+function H05(){
+  const p={bg:'#07110d',bg2:'#0a1a14',acc:'#00ff9d',acc2:'#ffb020',dim:'#4e7a68',track:'#12261e',line:'#1a3a2c',txt:'#d6fff0'};
+  const hz=`<svg width="208" height="150" viewBox="0 0 208 150" style="display:block">
+    ${ticks(104,280,264,254,-24,24,13,p.acc,1.2,.35)}
+    <path d="${arcD(104,280,264,-24,24)}" fill="none" stroke="${p.acc}" stroke-width="1" opacity=".3"/>
+    <path d="M99 8 L109 8 L104 15 Z" fill="${p.acc}"/>
+    <line x1="69" y1="62" x2="139" y2="62" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <line x1="69" y1="62" x2="69" y2="67" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <line x1="139" y1="62" x2="139" y2="67" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <line x1="56" y1="78" x2="152" y2="78" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="56" y1="78" x2="56" y2="84" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="152" y1="78" x2="152" y2="84" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="8" y1="94" x2="200" y2="94" stroke="${p.acc}" stroke-width="1.4" opacity=".85"/>
+    <line x1="56" y1="110" x2="152" y2="110" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="56" y1="110" x2="56" y2="104" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="152" y1="110" x2="152" y2="104" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    <line x1="69" y1="126" x2="139" y2="126" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <line x1="69" y1="126" x2="69" y2="121" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <line x1="139" y1="126" x2="139" y2="121" stroke="${p.acc}" stroke-width="1" opacity=".4"/>
+    <path d="M88 106 L104 94 L120 106" fill="none" stroke="${p.acc2}" stroke-width="1.6"/>
+    <circle cx="104" cy="94" r="2.6" fill="none" stroke="${p.acc2}" stroke-width="1.2"/>
+    <rect x="4" y="134" width="200" height="14" fill="none" stroke="${p.line}" stroke-width="1"/>
+    ${Array.from({length:25},function(_,i){const x=8+i*8,maj=i%4===0;return `<line x1="${x}" y1="${maj?136:139}" x2="${x}" y2="148" stroke="${p.acc}" stroke-width="1" opacity="${maj?.55:.25}"/>`;}).join('')}
+    <path d="M101 134 L107 134 L104 141 Z" fill="${p.acc2}"/>
+  </svg>`;
+  const col=(l,v,u,pc,c)=>
+    `<div style="margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${MONO}">
+        <span style="font-size:8px;letter-spacing:1.3px;color:${p.dim}">${l}</span>
+        <span style="font-size:16px;font-weight:700;color:${p.txt};line-height:1.15">${v}<span style="font-size:8px;color:${p.dim};font-weight:400"> ${u}</span></span>
+      </div>
+      <div style="margin-top:5px">${bar(pc,c,p.track,4,104)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(165deg,${p.bg},${p.bg2} 60%,#060f0b);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc,15,2,7,.75)}
+    <div style="position:absolute;left:18px;right:18px;top:11px;height:24px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:7px">
+        ${led(p.acc,6)}
+        <span style="font-size:11px;font-weight:800;letter-spacing:2.6px;color:${p.acc}">DRONE LINK</span>
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">LLM RELAY / AIR-04</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+        <span>LINK <span style="color:${p.acc}">98%</span></span><span>SAT 12</span><span style="color:${p.txt}">14:32</span>
+      </div>
+    </div>
+    <div style="position:absolute;left:18px;right:18px;top:36px;height:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:136px;top:42px;width:208px;text-align:center">
+      <div style="font-size:8px;letter-spacing:3px;color:${p.dim}">DECODE</div>
+      <div style="display:flex;align-items:flex-end;justify-content:center;gap:5px">
+        <div style="font-family:${MONO};font-size:36px;font-weight:700;line-height:1.05;letter-spacing:-1px">42.3</div>
+        <div style="font-family:${MONO};font-size:9px;color:${p.dim};padding-bottom:5px">tok/s</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:136px;top:84px;width:208px">${hz}</div>
+    <div style="position:absolute;left:136px;top:240px;width:208px;display:flex;align-items:center;justify-content:space-between;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>HDG <span style="color:${p.txt}">274°</span></span>
+      <span>PITCH <span style="color:${p.txt}">+1.2</span></span>
+      <span>ROLL <span style="color:${p.txt}">-0.4</span></span>
+    </div>
+    <div style="position:absolute;left:136px;top:258px;width:208px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>WP 04</span><span>DIST 1.8KM</span><span style="color:${p.acc}">AUTO HOLD</span>
+    </div>
+    <div style="position:absolute;left:136px;top:270px;width:208px">${g6ammo(66,p.acc,p.track,26,4,2)}</div>
+
+    <div style="position:absolute;left:128px;top:96px;width:1px;height:158px;background:${p.line}"></div>
+    <div style="position:absolute;left:352px;top:96px;width:1px;height:158px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:14px;top:98px;width:104px">
+      <div style="font-size:8px;letter-spacing:2px;color:${p.acc};margin-bottom:7px">TELEMETRY / L</div>
+      ${col('GPU','78','%',78,p.acc)}
+      ${col('TEMP','68','°C',68,p.acc2)}
+      ${col('VRAM','76','%',76,p.acc)}
+    </div>
+    <div style="position:absolute;left:360px;top:98px;width:104px">
+      <div style="font-size:8px;letter-spacing:2px;color:${p.acc};margin-bottom:7px">TELEMETRY / R</div>
+      ${col('QUEUE','2','req',20,p.acc2)}
+      ${col('LAT','24','ms',30,p.acc)}
+      ${col('NET','128','Mb',64,p.acc)}
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:286px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:20px;right:20px;top:293px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">
+      <span>ALT 120M · SPD 14.2M/S</span><span>KV 61% · CTX 12.4K</span><span style="color:${p.acc}">AUTOPILOT ENGAGED</span>
+    </div>
+  </div>`;
+}
+
+/* ================= H06 Sniper Scope ================= */
+function H06(){
+  const p={bg:'#07110d',bg2:'#08170f',acc:'#00ff9d',dim:'#3f6b57',track:'#122a1f',line:'#1b3e2c',txt:'#d8fff0'};
+  const scope=`<svg width="224" height="224" viewBox="0 0 224 224" style="display:block">
+    <circle cx="112" cy="112" r="110" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <circle cx="112" cy="112" r="100" fill="none" stroke="${p.track}" stroke-width="3"/>
+    <path d="${arcD(112,112,100,0,360)}" fill="none" stroke="${p.track}" stroke-width="3" opacity=".6"/>
+    <path d="${arcD(112,112,100,0,122)}" fill="none" stroke="${p.acc}" stroke-width="3" stroke-linecap="round"/>
+    ${ticks(112,112,103,110,0,360,60,p.acc,1,.3)}
+    <line x1="6" y1="112" x2="82" y2="112" stroke="${p.acc}" stroke-width="1.1" opacity=".7"/>
+    <line x1="142" y1="112" x2="218" y2="112" stroke="${p.acc}" stroke-width="1.1" opacity=".7"/>
+    <line x1="112" y1="6" x2="112" y2="82" stroke="${p.acc}" stroke-width="1.1" opacity=".7"/>
+    <line x1="112" y1="142" x2="112" y2="218" stroke="${p.acc}" stroke-width="1.1" opacity=".7"/>
+    <circle cx="62" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="74" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="86" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="138" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="150" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="162" cy="112" r="1.8" fill="${p.acc}" opacity=".8"/>
+    <circle cx="112" cy="112" r="34" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <line x1="42" y1="42" x2="58" y2="58" stroke="${p.acc}" stroke-width="1" opacity=".45"/>
+    <line x1="182" y1="42" x2="166" y2="58" stroke="${p.acc}" stroke-width="1" opacity=".45"/>
+    <line x1="42" y1="182" x2="58" y2="166" stroke="${p.acc}" stroke-width="1" opacity=".45"/>
+    <line x1="182" y1="182" x2="166" y2="166" stroke="${p.acc}" stroke-width="1" opacity=".45"/>
+  </svg>`;
+  const cor=(l,v,u,al)=>
+    `<div style="text-align:${al||'left'}">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:2px;color:${p.dim}">${l}</div>
+      <div style="font-family:${MONO};font-size:16px;font-weight:700;line-height:1.2;color:${p.txt}">${v}<span style="font-size:8px;color:${p.dim};font-weight:400"> ${u}</span></div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(170deg,${p.bg},${p.bg2} 55%,#06100c);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc,15,2,8,.8)}
+    <div style="position:absolute;left:20px;right:20px;top:14px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:10px;font-weight:800;letter-spacing:2.8px;color:${p.acc}">SNIPER SCOPE</span>
+      <span style="display:flex;align-items:center;gap:6px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,5)}×8.0</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:40px;height:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:24px;top:48px;width:96px">${cor('GPU','71','%')}</div>
+    <div style="position:absolute;right:24px;top:48px;width:96px">${cor('MEM','12.4','G','right')}</div>
+
+    <div style="position:absolute;left:48px;top:104px;width:224px;height:224px">
+      ${scope}
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-family:${MONO};font-size:29px;font-weight:700;line-height:1;color:${p.acc}">34<span style="font-size:13px">%</span></div>
+        <div style="font-size:8px;letter-spacing:2px;color:${p.dim};margin-top:6px">CPU LOAD</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:24px;top:338px;width:96px">${cor('TEMP','62','°C')}</div>
+    <div style="position:absolute;right:24px;top:338px;width:96px">${cor('NET','54','M','right')}</div>
+
+    <div style="position:absolute;left:24px;right:24px;top:388px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${p.dim}">THERMAL</span>
+        <span style="font-family:${MONO};font-size:11px;font-weight:700">62<span style="font-size:8px;color:${p.dim}">°C</span></span>
+      </div>
+      ${g6ammo(62,p.acc,p.track,20,9,3)}
+    </div>
+    <div style="position:absolute;left:24px;right:24px;top:428px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">
+      <span>RANGE 820M</span><span>WIND 3</span><span>PWR 210W</span><span style="color:${p.acc}">STABLE</span>
+    </div>
+  </div>`;
+}
+
+/* ================= H07 Heat Sink ================= */
+function H07(){
+  const p={bg:'#0e1116',bg2:'#131a22',acc:'#ff6b35',acc2:'#00d1ff',dim:'#6b7a8c',track:'#1b232e',line:'#232d3a',txt:'#e8f0f7'};
+  const col=(l,v,pc,c,sub)=>
+    `<div style="flex:1;min-width:0">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:2px;color:${p.dim}">${l}</div>
+      <div style="font-family:${MONO};font-size:17px;font-weight:700;line-height:1.2;color:${c}">${v}<span style="font-size:10px;color:${p.dim}"> %</span></div>
+      <div style="margin-top:6px">${g6vseg(pc,c,p.track,162,15)}</div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:6px;white-space:nowrap">${sub}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(160deg,${p.bg},${p.bg2} 50%,#0b0f14);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc2,16,2,8,.65)}
+    <div style="position:absolute;left:20px;right:20px;top:10px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:800;letter-spacing:2.4px;color:${p.acc}">HEAT SINK</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,5)}THERMAL MGMT</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:34px;height:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:22px;top:42px;width:180px">
+      <div style="font-size:8px;letter-spacing:2.6px;color:${p.dim}">DECODE</div>
+      <div style="display:flex;align-items:flex-end;gap:5px">
+        <div style="font-family:${MONO};font-size:44px;font-weight:700;line-height:1.05;letter-spacing:-1px">42.3</div>
+        <div style="font-family:${MONO};font-size:9px;color:${p.dim};padding-bottom:7px">tok/s</div>
+      </div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.acc2};letter-spacing:1px">Qwen3-32B · BATCH 4</div>
+    </div>
+    <div style="position:absolute;right:22px;top:44px;width:82px;text-align:right;font-family:${MONO};font-size:8px;color:${p.dim};line-height:1.7">
+      <div>AVG <span style="color:${p.txt}">38.1</span></div>
+      <div>MAX <span style="color:${p.txt}">58.9</span></div>
+      <div>GPU <span style="color:${p.acc}">78%</span></div>
+    </div>
+
+    <div style="position:absolute;left:26px;right:26px;top:118px;display:flex;gap:20px">
+      ${col('GPU','78',78,p.acc,'210W · 67°C')}
+      ${col('VRAM','76',76,p.acc2,'18.2 / 24G')}
+      ${col('KV','61',61,p.acc,'12.4K CTX')}
+    </div>
+
+    <div style="position:absolute;left:20px;right:20px;top:340px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:24px;top:350px;width:128px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">TEMP</span>
+        <span style="font-family:${MONO};font-size:12px;font-weight:700">68<span style="font-size:8px;color:${p.dim}">°C</span></span>
+      </div>
+      ${g6ammo(68,p.acc,p.track,10,7,2)}
+    </div>
+    <div style="position:absolute;right:24px;top:350px;width:128px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">POWER</span>
+        <span style="font-family:${MONO};font-size:12px;font-weight:700">312<span style="font-size:8px;color:${p.dim}">W</span></span>
+      </div>
+      ${g6ammo(58,p.acc2,p.track,10,7,2)}
+    </div>
+
+    <div style="position:absolute;left:24px;right:24px;top:398px;display:flex;align-items:center;justify-content:space-between;border:1px solid ${p.line};padding:8px 10px">
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc2,6)}NOMINAL</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,6)}WARN</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led('#4a3a30',6)}CRIT</span>
+      <span style="font-family:${MONO};font-size:8px;color:${p.acc}">COOL 87%</span>
+    </div>
+    <div style="position:absolute;left:24px;right:24px;top:444px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">
+      <span>FAN 1450 RPM</span><span>AMBIENT 32°C</span>
+    </div>
+  </div>`;
+}
+/* ================= H08 Loadout ================= */
+function H08(){
+  const p={bg:'#0a0f0c',bg2:'#0e1712',acc:'#7cff4f',acc2:'#ffb020',dim:'#5d7a5a',track:'#1a2a1c',line:'#22381f',txt:'#d8f5d0'};
+  const ico={
+    cpu:`<svg width="24" height="24" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" fill="none" stroke="${p.acc}" stroke-width="1.4"/><rect x="10.5" y="10.5" width="3" height="3" fill="${p.acc}" opacity=".7"/><path d="M9 7V4M12 7V4M15 7V4M9 20v-3M12 20v-3M15 20v-3M7 9H4M7 12H4M7 15H4M20 9h-3M20 12h-3M20 15h-3" stroke="${p.acc}" stroke-width="1.1" opacity=".75"/></svg>`,
+    gpu:`<svg width="24" height="24" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" fill="none" stroke="${p.acc2}" stroke-width="1.4"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="${p.acc2}" stroke-width="1.2"/><path d="M8 12h1.4M14.6 12H16M12 17v3" stroke="${p.acc2}" stroke-width="1.1" opacity=".8"/></svg>`,
+    ram:`<svg width="24" height="24" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="9" fill="none" stroke="${p.acc}" stroke-width="1.4"/><path d="M8 9.5v4M11.5 9.5v4M15 9.5v4" stroke="${p.acc}" stroke-width="1.1" opacity=".8"/><path d="M6 16v3M10 16v3M14 16v3M18 16v3" stroke="${p.acc}" stroke-width="1" opacity=".6"/></svg>`,
+    disk:`<svg width="24" height="24" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="4" fill="none" stroke="${p.acc}" stroke-width="1.3"/><rect x="5" y="10.5" width="14" height="4" fill="none" stroke="${p.acc}" stroke-width="1.3"/><rect x="5" y="16" width="14" height="3" fill="none" stroke="${p.acc}" stroke-width="1.3"/><circle cx="16" cy="7" r=".9" fill="${p.acc}"/><circle cx="16" cy="12.5" r=".9" fill="${p.acc}"/></svg>`
+  };
+  const cards=[
+    ['01','CPU','RYZEN 9 7950X','34','%','4.82 GHz · 62°C',34,p.acc,'cpu'],
+    ['02','GPU','RTX 4070 Ti','71','%','210W · 67°C · 6.8G',71,p.acc2,'gpu'],
+    ['03','MEMORY','DDR5 6000 32G','39','%','12.4 / 32 GB',39,p.acc,'ram'],
+    ['04','STORAGE','NVME GEN4','54','%','R 540 · W 120 MB/s',54,p.acc2,'disk']
+  ];
+  const card=(c)=>
+    `<div style="position:relative;height:88px;border:1px solid ${p.line};background:linear-gradient(150deg,#0d1712,#0a120e)">
+      ${g6brk(c[7]===p.acc?p.acc:p.acc2,7,1,4,.75)}
+      <div style="position:absolute;left:12px;top:26px;width:36px;height:36px;border:1px solid ${p.line};display:flex;align-items:center;justify-content:center">${ico[c[8]]}</div>
+      <div style="position:absolute;left:58px;top:9px;right:56px">
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <span style="font-family:${MONO};font-size:8px;color:${p.dim}">${c[0]}</span>
+          <span style="font-size:10px;font-weight:700;letter-spacing:2px;color:${p.txt}">${c[1]}</span>
+        </div>
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:.5px;color:${p.dim};margin-top:2px;white-space:nowrap">${c[2]}</div>
+        <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:2px;white-space:nowrap">${c[5]}</div>
+      </div>
+      <div style="position:absolute;right:12px;top:8px;font-family:${MONO};font-size:22px;font-weight:700;line-height:1;color:${c[7]}">${c[3]}<span style="font-size:10px">${c[4]}</span></div>
+      <div style="position:absolute;left:58px;right:12px;bottom:11px">${g6ammo(c[6],c[7],p.track,22,6,2)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(165deg,${p.bg},${p.bg2} 55%,#080d0a);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc,16,2,8,.85)}
+    <div style="position:absolute;left:20px;right:20px;top:11px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:800;letter-spacing:2.6px;color:${p.acc}">LOADOUT</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,5)}04 SLOTS</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:36px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:20px;right:20px;top:44px;display:flex;flex-direction:column;gap:8px">
+      ${cards.map(card).join('')}
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:430px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:20px;right:20px;top:438px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:.8px;color:${p.dim}">
+      <span>TEMP <span style="color:${p.txt}">62°C</span> · PWR <span style="color:${p.txt}">78W</span></span>
+      <span style="color:${p.acc}">ALL SLOTS OK</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:454px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>BUILD A · PC-01</span><span>BATT 82%</span>
+    </div>
+  </div>`;
+}
+
+/* ================= H09 Power Armor ================= */
+function H09(){
+  const p={bg:'#0e1116',bg2:'#131b24',acc:'#ff6b35',acc2:'#00d1ff',dim:'#6b7a8c',track:'#1b232e',line:'#232d3a',txt:'#e8f0f7'};
+  const core=`<svg width="200" height="200" viewBox="0 0 200 200" style="display:block">
+    <g class="g6-spin" style="transform-origin:100px 100px;animation-duration:18s">${ticks(100,100,94,100,0,360,48,p.acc2,1,.2)}</g>
+    <circle cx="100" cy="100" r="88" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <path d="${arcD(100,100,82,210,510)}" fill="none" stroke="${p.track}" stroke-width="6"/>
+    <path d="${arcD(100,100,82,210,210+300*0.78)}" fill="none" stroke="${p.acc}" stroke-width="6" stroke-linecap="round"/>
+    <path d="${arcD(100,100,68,210,510)}" fill="none" stroke="${p.track}" stroke-width="3"/>
+    <path d="${arcD(100,100,68,210,210+300*0.61)}" fill="none" stroke="${p.acc2}" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="100" cy="100" r="50" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <line x1="100" y1="6" x2="100" y2="16" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="100" y1="184" x2="100" y2="194" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="6" y1="100" x2="16" y2="100" stroke="${p.acc2}" stroke-width="2"/>
+    <line x1="184" y1="100" x2="194" y2="100" stroke="${p.acc2}" stroke-width="2"/>
+  </svg>`;
+  const cor=(l,v,u,al,c)=>
+    `<div style="text-align:${al||'left'}">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${p.dim}">${l}</div>
+      <div style="font-family:${MONO};font-size:15px;font-weight:700;line-height:1.25;color:${c||p.txt}">${v}<span style="font-size:8px;color:${p.dim};font-weight:400"> ${u}</span></div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(150deg,${p.bg},${p.bg2} 52%,#0b1017);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc2,16,2,8,.7)}
+    <div style="position:absolute;left:20px;right:20px;top:11px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:800;letter-spacing:2.4px;color:${p.acc2}">POWER ARMOR</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.acc}">${led(p.acc,5)}87%</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:36px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:20px;top:42px;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">FUSION CORE / MK-VII</div>
+
+    <div style="position:absolute;left:24px;top:60px;width:104px">${cor('PREFILL','1860','t/s')}</div>
+    <div style="position:absolute;right:24px;top:60px;width:104px">${cor('VRAM','18.2','/24G','right')}</div>
+    <div style="position:absolute;left:60px;top:110px;width:200px;text-align:center;font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${p.dim}">
+      ENERGY CORE <span style="color:${p.acc}">87%</span>
+    </div>
+
+    <div style="position:absolute;left:60px;top:136px;width:200px;height:200px">
+      ${core}
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:8px;letter-spacing:2.6px;color:${p.dim}">DECODE</div>
+        <div style="font-family:${MONO};font-size:32px;font-weight:700;line-height:1.08;letter-spacing:-1px;color:${p.txt}">42.3</div>
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.acc}">TOK/S</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:24px;top:352px;width:104px">${cor('TEMP','68','°C')}</div>
+    <div style="position:absolute;right:24px;top:352px;width:104px">${cor('QUEUE','2','req','right')}</div>
+
+    <div style="position:absolute;left:24px;right:24px;top:394px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:24px;top:402px;font-family:${MONO};font-size:8px;letter-spacing:2px;color:${p.dim}">TOTAL TOKENS</div>
+    <div style="position:absolute;left:24px;top:414px;display:flex;align-items:baseline;gap:8px">
+      <span style="font-family:${MONO};font-size:20px;font-weight:700;color:${p.acc}">1.28B</span>
+      <span style="font-family:${MONO};font-size:8px;color:${p.dim}">UPTIME 3d 14h</span>
+    </div>
+    <div style="position:absolute;right:24px;top:418px;font-family:${MONO};font-size:8px;color:${p.dim};text-align:right">E2E 0.94s<br>ERR 0</div>
+    <div style="position:absolute;left:24px;right:24px;top:446px;display:flex;align-items:center;gap:8px">
+      <span style="font-family:${MONO};font-size:8px;color:${p.dim};white-space:nowrap">INTEGRITY</span>
+      <div style="flex:1">${bar(98,p.acc2,p.track,4)}</div>
+      <span style="font-family:${MONO};font-size:8px;color:${p.acc2}">98%</span>
+    </div>
+  </div>`;
+}
+/* ================= H10 Sweep HUD ================= */
+function H10(){
+  const p={bg:'#0a0f0c',bg2:'#0d1611',acc:'#7cff4f',acc2:'#ffb020',dim:'#5d7a5a',track:'#1a2a1c',line:'#22381f',txt:'#d8f5d0'};
+  const blip=(r,deg,c,d)=>{const q=polar(100,100,r,deg);return `<circle class="g6-pulse" cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="3" fill="${c}" style="animation-delay:${d}s"/>`;};
+  const radar=`<svg width="200" height="200" viewBox="0 0 200 200" style="display:block">
+    <circle cx="100" cy="100" r="96" fill="none" stroke="${p.line}" stroke-width="1"/>
+    <circle cx="100" cy="100" r="64" fill="none" stroke="${p.track}" stroke-width="1"/>
+    <circle cx="100" cy="100" r="32" fill="none" stroke="${p.track}" stroke-width="1"/>
+    <line x1="4" y1="100" x2="196" y2="100" stroke="${p.track}" stroke-width="1"/>
+    <line x1="100" y1="4" x2="100" y2="196" stroke="${p.track}" stroke-width="1"/>
+    ${ticks(100,100,90,96,0,360,24,p.acc,1,.3)}
+    <g class="g6-spin" style="transform-origin:100px 100px">
+      <path d="M100 100 L100 4 A96 96 0 0 1 183.1 52 Z" fill="${p.acc}" opacity=".11"/>
+      <line x1="100" y1="100" x2="100" y2="4" stroke="${p.acc}" stroke-width="1.4" opacity=".8"/>
+    </g>
+    <circle cx="100" cy="100" r="3" fill="${p.acc}"/>
+    <circle cx="100" cy="100" r="9" fill="none" stroke="${p.acc}" stroke-width="1" opacity=".5"/>
+    ${blip(46,-40,p.acc,0)}
+    ${blip(74,35,p.acc2,.5)}
+    ${blip(56,120,p.acc,.9)}
+    ${blip(82,215,p.acc2,.3)}
+    ${blip(30,260,p.acc,.7)}
+    <text x="126" y="22" fill="${p.dim}" font-size="8" text-anchor="start" font-family="${MONO}">000</text>
+    <text x="178" y="103" fill="${p.dim}" font-size="8" text-anchor="middle" font-family="${MONO}">090</text>
+    <text x="100" y="183" fill="${p.dim}" font-size="8" text-anchor="middle" font-family="${MONO}">180</text>
+    <text x="22" y="103" fill="${p.dim}" font-size="8" text-anchor="middle" font-family="${MONO}">270</text>
+  </svg>`;
+  const cell=(l,v,u,pc,c)=>
+    `<div style="flex:1;min-width:0;border:1px solid ${p.line};padding:6px 8px 7px;background:#0b130e">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">${l}</span>
+        <span style="font-family:${MONO};font-size:16px;font-weight:700;color:${c}">${v}<span style="font-size:8px;color:${p.dim};margin-left:2px">${u}</span></span>
+      </div>
+      <div style="margin-top:6px">${g6ammo(pc,c,p.track,10,4,2)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(160deg,${p.bg},${p.bg2} 60%,#080d0a);font-family:${FONT};color:${p.txt}">
+    ${g6brk(p.acc,16,2,8,.85)}
+    <div style="position:absolute;left:20px;right:20px;top:11px;height:22px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:11px;font-weight:800;letter-spacing:2.6px;color:${p.acc}">SWEEP HUD</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,5)}SCAN 360°</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:36px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:22px;right:22px;top:42px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">
+      <span>RADAR / PC-01</span><span>GAIN 12 · R 5M</span>
+    </div>
+
+    <div style="position:absolute;left:60px;top:64px;width:200px;height:200px">${radar}</div>
+    <div style="position:absolute;left:22px;right:22px;top:270px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>SECTOR 04</span><span>5 TRACKS</span><span style="color:${p.acc}">LOCKED</span>
+    </div>
+
+    <div style="position:absolute;left:22px;right:22px;top:288px;display:flex;gap:10px">
+      ${cell('CPU','34','%',34,p.acc)}
+      ${cell('GPU','71','%',71,p.acc2)}
+    </div>
+    <div style="position:absolute;left:22px;right:22px;top:352px;display:flex;gap:10px">
+      ${cell('MEM','39','%',39,p.acc)}
+      ${cell('NET','54','M',54,p.acc2)}
+    </div>
+    <div style="position:absolute;left:22px;right:22px;top:416px;display:flex;justify-content:space-between;align-items:baseline">
+      <span style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">TIME 14:32:07</span>
+      <span style="font-family:${MONO};font-size:16px;font-weight:700;color:${p.acc}">141<span style="font-size:8px;color:${p.dim}"> FPS</span></span>
+    </div>
+
+    <div style="position:absolute;left:22px;right:22px;top:442px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:22px;right:22px;top:450px;display:flex;justify-content:space-between;align-items:center;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>TEMP <span style="color:${p.txt}">62°C</span> · PWR <span style="color:${p.txt}">78W</span> · FAN 1200</span>
+      <span style="display:flex;align-items:center;gap:4px;color:${p.acc}">${led(p.acc,5)}SYS OK</span>
+    </div>
+  </div>`;
+}
+
+
+
+/* ================= 主题清单：第 6 组 Game HUD ================= */
+const THEMES=[
+  {id:'H01',name:'Tactical HUD',ori:'L',cat:'电脑性能',style:'战术终端 · 双环准星',render:H01,
+   pal:['#0a0f0c','#7cff4f','#ffb020','#5d7a5a'],
+   hier:'FPS 141 居中为第一层；CPU 同心圆准星环、GPU 弧环分列左右为第二层；温度/功耗/风扇三条弹药式分段条压在底部；顶栏放链路与时间。',
+   art:'四角括号框屏、CPU 同心圆+十字准星+36 格周向刻度、GPU 300° 弧环、分段弹药条、细网格底纹与竖向分栏线。',
+   motion:'FPS 折线末点 1.6s 呼吸；LINK/LED 2.2s 明暗；无位移与旋转，静态读数稳定。',
+   tags:'lv_arc ×2 / lv_chart 折线 / lv_bar 分段自绘 / lv_label + MONO / lv_line 十字与刻度 / lv_led'},
+
+  {id:'H02',name:'Mecha Core',ori:'L',cat:'LLM 服务器',style:'机甲反应堆 · 双弧核心',render:H02,
+   pal:['#0e1116','#ff6b35','#00d1ff','#6b7a8c'],
+   hier:'DECODE 42.3 落在反应堆中心，为绝对主值；外环 78% 负载、内环 61% KV 为第二层；左右各四行读数；顶部一排警示灯与 58 段状态条。',
+   art:'双层反应堆弧环+60 格环向刻度、四向卡尺短线、橙色主弧与青色副弧、方形警示灯框、顶部细段状态条。',
+   motion:'刻度环 18s 慢速旋转；PWR/NET/GPU/WARN 四灯 2.2s 呼吸；弧值变化用 lv_anim 300ms 缓动。',
+   tags:'lv_arc ×2（主/副环）/ lv_label 大数 / lv_bar ×8 / lv_led ×4 / lv_line 刻度 / lv_obj 分段条'},
+
+  {id:'H03',name:'Stealth Ops',ori:'L',cat:'LLM 服务器',style:'潜行终端 · 极简细线',render:H03,
+   pal:['#14171a','#9ca3af','#4ade80','#5f6b66'],
+   hier:'58px DECODE 42.3 独占左侧；右侧四行遥测（AVG/预填/TTFT/队列）为次层；中段一行 CPU/GPU/RAM/KV；底部 32 段热管理条；静默脚注收尾。',
+   art:'10px 内嵌发丝线框、极细分隔线、32 段热管理条与 0–100 刻度、四格信号方块；全屏无圆角无阴影。',
+   motion:'仅 SILENT 指示灯 2.2s 呼吸；数值不滚动、不扫描，强调静默与低功耗。',
+   tags:'lv_obj 细线框 / lv_label ×10 / lv_bar 分段 32 格 / lv_led 单灯 / lv_line 刻度'},
+
+  {id:'H04',name:'Arcade Score',ori:'L',cat:'电脑性能',style:'街机计分板 · 像素方块',render:H04,
+   pal:['#120a1c','#ffcf00','#ff3ea5','#8a7aa8'],
+   hier:'CPU 34 与 FPS 141 双 60px 主值并列；中段一行 AVG/PEAK/频率/GPU/VRAM；底部 CPU/GPU/MEM 三条 12 段街机条；PRESS START 闪烁收尾。',
+   art:'2px 硬边框标题条、5 格方块像素表、点阵分隔柱、方块角标、12 段无圆角分段条。',
+   motion:'PRESS START 1.6s 闪烁；LED 2.2s 呼吸；分数不做滚动，保持街机静态感。',
+   tags:'lv_label 大数 ×2 / lv_bar 分段 ×3 / lv_obj 方块像素 / lv_led / lv_anim opacity'},
+
+  {id:'H05',name:'Drone Link',ori:'L',cat:'LLM 服务器',style:'无人机链路 · 人工地平仪',render:H05,
+   pal:['#07110d','#00ff9d','#ffb020','#4e7a68'],
+   hier:'DECODE 42.3 置顶居中；中央人工地平仪与航向刻度带为视觉核心；左右各三项遥测（GPU/温度/显存、队列/延迟/网络）；底部飞行状态。',
+   art:'滚转刻度弧+俯仰梯+地平中线+航向刻度带的地平仪、橙色飞行符号、左右遥测细条、竖向分栏线。',
+   motion:'LINK 灯 2.2s 呼吸；地平仪与航向带静止；若需滚动，可用 lv_anim 让刻度带 6s 循环位移。',
+   tags:'lv_line 地平仪/刻度 / lv_arc 滚转弧 / lv_label 航向 / lv_bar ×6 / lv_led'},
+
+  {id:'H06',name:'Sniper Scope',ori:'P',cat:'电脑性能',style:'狙击镜 · 同心刻度',render:H06,
+   pal:['#07110d','#00ff9d','#d8fff0','#3f6b57'],
+   hier:'镜心 CPU 34% 为唯一主值；四角 GPU/内存/温度/网络为次层；底部 20 段热管理弹药条；最底一行距离/风偏/功耗。',
+   art:'110px 镜筒环+60 格周向刻度、十字分划+密位点、内圈 34px 准星环、四角读数、20 段弹药条。',
+   motion:'×8.0 指示灯 2.2s 呼吸；镜心数值与十字线静止，模拟稳定持镜。',
+   tags:'lv_arc 进度环 / lv_line 十字与刻度 / lv_label ×10 / lv_bar 分段 20 格 / lv_led'},
+
+  {id:'H07',name:'Heat Sink',ori:'P',cat:'LLM 服务器',style:'散热塔 · 纵向三段柱',render:H07,
+   pal:['#0e1116','#ff6b35','#00d1ff','#6b7a8c'],
+   hier:'44px DECODE 42.3 置顶；GPU/VRAM/KV 三根纵向 15 段柱为主体；底部温度/功耗双条与三色警示灯箱；脚注风扇与环温。',
+   art:'纵向分段散热柱（自下而上点亮）、柱顶百分比、双横向分段条、灯箱式状态框、竖向等分三栏。',
+   motion:'柱顶 3 段高温段常亮辉光；NOMINAL/WARN 灯 2.2s 呼吸；柱值变化 300ms 缓动。',
+   tags:'lv_bar 纵向分段 ×3 / lv_label 大数 / lv_bar ×2 / lv_led ×3 / lv_obj 灯箱'},
+
+  {id:'H08',name:'Loadout',ori:'P',cat:'电脑性能',style:'装备槽 · 四卡列表',render:H08,
+   pal:['#0a0f0c','#7cff4f','#ffb020','#5d7a5a'],
+   hier:'CPU/GPU/内存/磁盘四张等高装备卡自上而下；每卡左图标、中型号与温度功耗、右大号百分比、底 22 段条；底部汇总一行。',
+   art:'装备槽卡片、几何芯片/显卡/内存/硬盘线稿图标、卡内四角括号、编号 01–04、分段条。',
+   motion:'仅右上 LED 2.2s 呼吸；卡片、图标与角标静止，静态列表便于快速扫读。',
+   tags:'lv_obj 卡片 ×4 / lv_img 图标（或 lv_line 绘制）/ lv_label / lv_bar 分段 ×4 / lv_led'},
+
+  {id:'H09',name:'Power Armor',ori:'P',cat:'LLM 服务器',style:'动力装甲 · 能量核心',render:H09,
+   pal:['#0e1116','#00d1ff','#ff6b35','#6b7a8c'],
+   hier:'DECODE 42.3 居中于能量核心；四角预填/显存/温度/队列为次层；底部累计 token 1.28B 与完整度条；顶部型号与核心负载。',
+   art:'双层能量弧环+48 格刻度+四向卡尺、四角括号读数、底部完整度条、核心内圈。',
+   motion:'外刻度环 18s 慢转；核心弧与 LED 2.2s 呼吸；数值 300ms 缓动。',
+   tags:'lv_arc ×2 / lv_line 刻度 / lv_label ×9 / lv_bar 完整度 / lv_led'},
+
+  {id:'H10',name:'Sweep HUD',ori:'P',cat:'电脑性能',style:'战术雷达 · 扫描扇',render:H10,
+   pal:['#0a0f0c','#7cff4f','#ffb020','#5d7a5a'],
+   hier:'200px 雷达为第一视觉；下方 2×2 方框读数（CPU/GPU/内存/网络）为第二层；再下 FPS 与时间；底部状态条。',
+   art:'同心圆雷达+24 格方位刻度+60° 扫描扇、5 个错峰脉冲光点、2×2 方框单元、分段小条。',
+   motion:'扫描扇 6s 匀速旋转；光点 1.9s 脉冲并错峰 0.3–0.9s；底部 LED 呼吸。',
+   tags:'lv_arc 扫描扇（旋转）/ lv_line 同心圆 / lv_obj 光点 / lv_bar ×4 / lv_label / lv_led'}
+];
+
+
+/* ================= 渲染画廊 ================= */
+const app=document.getElementById('app');
+const cards=THEMES.map(function(t){
+  return `<article class="card" id="card-${t.id}">
+    <div class="meta">
+      <span class="id">${t.id}</span>
+      <b>${t.name}</b>
+      <span style="font-size:10px;color:#67788f">${t.cat}</span>
+      <span class="ori">${t.ori==='L'?'横屏 480×320':'竖屏 320×480'}</span>
+    </div>
+    ${t.render()}
+    <div class="spec">
+      <div class="swatches"><i style="background:${t.pal[0]}"></i><i style="background:${t.pal[1]}"></i><i style="background:${t.pal[2]}"></i><i style="background:${t.pal[3]}"></i><code>${t.pal.join('  ')}</code></div>
+      <div><b>信息层级</b>${t.hier}</div>
+      <div><b>图形元素</b>${t.art}</div>
+      <div><b>动效</b>${t.motion}</div>
+      <div><b>LVGL 映射</b><code>${t.tags}</code></div>
+    </div>
+  </article>`;
+}).join('');
+app.innerHTML=`<div class="gallery">${cards}</div>`;
+
+window.__pick=function(){
+  const list=[].slice.call(document.querySelectorAll('.card'));
+  list.forEach(function(c){c.classList.remove('pick');});
+  const c=list[Math.floor(Math.random()*list.length)];
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('pick');
+  setTimeout(function(){c.classList.remove('pick');},2800);
+};
+document.addEventListener('keydown',function(e){
+  if(e.key==='r'||e.key==='R') window.__pick();
+});
+</script>
+</body>
+</html>

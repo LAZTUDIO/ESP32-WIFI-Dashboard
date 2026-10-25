@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LVGL 性能监视屏 · 第 3 组 / Swiss Minimal</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#e4e1da;color:#101010;font-family:'Helvetica Neue','Inter','PingFang SC','Microsoft YaHei',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .top{max-width:1180px;margin:0 auto;padding:38px 24px 18px;border-bottom:1px solid #c9c6be}
+  .kicker{display:flex;align-items:center;gap:10px;font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2.4px;color:#6f6d67;margin-bottom:14px}
+  .kicker i{width:22px;height:1px;background:#101010;display:block}
+  .kicker b{color:#e03131;font-weight:600}
+  h1{font-size:34px;line-height:1.05;letter-spacing:-1.2px;margin:0 0 12px;font-weight:700}
+  h1 span{color:#8a8880;font-weight:400}
+  .lead{font-size:12.5px;line-height:1.9;color:#4d4b46;max-width:880px;margin:0}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;align-items:center}
+  .chip{font-size:10px;letter-spacing:1px;border:1px solid #bdbab2;background:transparent;padding:5px 10px;color:#4d4b46}
+  button{margin-left:auto;background:#101010;color:#f6f5f2;border:0;padding:10px 20px;font-size:11px;letter-spacing:2px;font-weight:600;cursor:pointer;font-family:inherit}
+  button:active{transform:translateY(1px)}
+  .gallery{max-width:1180px;margin:0 auto;padding:26px 24px 70px;display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+  .card{background:#f6f5f2;border:1px solid #c9c6be;padding:10px;width:max-content;max-width:100%;transition:border-color .3s}
+  .card:hover{border-color:#101010}
+  .card.pick{border-color:#e03131;outline:2px solid rgba(224,49,49,.28);outline-offset:2px}
+  .meta{display:flex;align-items:center;gap:10px;padding:2px 2px 10px;font-size:12px;color:#6f6d67}
+  .meta .id{font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:1px;color:#101010;border:1px solid #101010;padding:2px 6px}
+  .meta b{font-size:13px;color:#101010;font-weight:700;letter-spacing:-.2px}
+  .meta .cat{font-size:10px;color:#8a8880;letter-spacing:.6px}
+  .meta .ori{margin-left:auto;font-family:'SF Mono',Menlo,monospace;font-size:9px;color:#8a8880;letter-spacing:.6px}
+  .scr{position:relative;overflow:hidden;display:block;border:1px solid rgba(16,16,16,.18)}
+  .scr,.scr *{box-sizing:border-box}
+  .spec{margin-top:11px;padding:10px 2px 2px;border-top:1px solid #d5d2ca;display:flex;flex-direction:column;gap:6px;font-size:11px;line-height:1.7;color:#5c5a54;max-width:480px}
+  .spec b{color:#101010;font-weight:600;margin-right:7px;letter-spacing:.4px}
+  .spec code{font-family:'SF Mono',Menlo,monospace;font-size:9.5px;color:#6f6d67}
+  .swatches{display:flex;align-items:center;gap:6px}
+  .swatches i{width:22px;height:12px;display:block;border:1px solid rgba(16,16,16,.18)}
+  .swatches code{margin-left:4px}
+  @keyframes g3blink{0%,100%{opacity:1}50%{opacity:.16}}
+  .g3blink{animation:g3blink 2.4s ease-in-out infinite}
+  @keyframes g3fade{from{opacity:.3}to{opacity:1}}
+  .g3fade{animation:g3fade 3.4s ease-in-out infinite alternate}
+  @keyframes g3nudge{from{transform:translateY(-1px)}to{transform:translateY(1px)}}
+  .g3nudge{animation:g3nudge 4s ease-in-out infinite alternate}
+  footer{max-width:1180px;margin:0 auto;padding:0 24px 54px;font-size:11px;line-height:1.8;color:#6f6d67;border-top:1px solid #c9c6be;padding-top:14px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="kicker"><i></i>GROUP 03 / SWISS MINIMAL<b>·</b>10 THEMES</div>
+  <h1>性能监视屏 · 瑞士极简 <span>Swiss International</span></h1>
+  <p class="lead">
+    第 3 组 10 个美工方案：米白纸底或纯黑底，墨黑/纸白文字，全屏只保留一个高饱和强调色（红 #e03131）。
+    1px 细线、严格基线网格、超大数字、极小等宽标签、大量留白；无阴影、无发光、无花哨渐变，图形只保留细弧线、细折线、细进度条与刻度。
+    5 横 480×320（LLM 3 / PC 2）+ 5 竖 320×480（LLM 2 / PC 3），全部视觉仅用 LVGL 可实现元素。
+  </p>
+  <div class="bar">
+    <span class="chip">横屏 480×320 ×5</span>
+    <span class="chip">竖屏 320×480 ×5</span>
+    <span class="chip">LLM ×5</span>
+    <span class="chip">PC ×5</span>
+    <span class="chip">按 R 或点右侧按钮随机抽一张</span>
+    <button onclick="window.__pick()">随机抽一张</button>
+  </div>
+</header>
+
+<div id="app"></div>
+
+<footer>
+  提示：微标签 8–9px、正文 10–12px、数值 14–30px、主值 48–72px；1px 线在 480×320 上建议用 lv_obj 高度 1px 或 lv_line 1px 描边。
+  交给开发时可按“LVGL 映射”一栏直接落地；配色可直接作为 lv_style 的 color 值。
+</footer>
+
+<script>
+/* ================= 基础绘图助手（全部对应 LVGL 能力） ================= */
+const FONT="'Helvetica Neue','Inter','PingFang SC','Microsoft YaHei',Arial,sans-serif";
+const MONO="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace";
+
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+function arcD(cx,cy,r,a0,a1){
+  const s=polar(cx,cy,r,a0),e=polar(cx,cy,r,a1),big=(a1-a0)>180?1:0;
+  return `M${s[0].toFixed(2)} ${s[1].toFixed(2)}A${r} ${r} 0 ${big} 1 ${e[0].toFixed(2)} ${e[1].toFixed(2)}`;
+}
+function gauge(o){
+  const s=o.s,w=o.w||10,cx=s/2,cy=s/2,r=o.r||(s/2-w/2-2);
+  const a0=o.a0==null?225:o.a0,a1=o.a1==null?495:o.a1,pct=Math.max(0,Math.min(100,o.pct));
+  const endA=a0+(a1-a0)*pct/100;
+  let out=`<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">`;
+  out+=`<path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="butt"/>`;
+  if(o.glow) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w+10}" stroke-linecap="round" opacity=".14"/>`;
+  if(pct>0) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="butt"/>`;
+  out+='</svg>';
+  return out;
+}
+function ticks(cx,cy,r1,r2,a0,a1,n,color,w,op){
+  let s='';const ww=w||1.5,oo=op==null?.4:op;
+  for(let i=0;i<=n;i++){
+    const a=a0+(a1-a0)*i/n,p1=polar(cx,cy,r1,a),p2=polar(cx,cy,r2,a);
+    s+=`<line x1="${p1[0].toFixed(1)}" y1="${p1[1].toFixed(1)}" x2="${p2[0].toFixed(1)}" y2="${p2[1].toFixed(1)}" stroke="${color}" stroke-width="${ww}" opacity="${i%5===0?Math.min(1,oo+.4):oo}"/>`;
+  }
+  return s;
+}
+function needleGauge(o){
+  const s=o.s,w=o.w||7,cx=s/2,cy=s/2,a0=225,a1=495,r=cx-w-8;
+  const pct=Math.max(0,Math.min(100,o.pct)),ang=a0+(a1-a0)*pct/100;
+  const np=polar(cx,cy,r-22,ang);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">
+    <path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>
+    <path d="${arcD(cx,cy,r,a0+(a1-a0)*0.88,a1)}" fill="none" stroke="${o.redline||'#ff3b30'}" stroke-width="${w}" stroke-linecap="round" opacity=".8"/>
+    <path d="${arcD(cx,cy,r,a0,ang)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>
+    ${ticks(cx,cy,r-9,r-3,a0,a1,27,o.tick||'#777',1.1,.28)}
+    <g style="transform-origin:${cx}px ${cy}px">
+      <line x1="${cx}" y1="${cy}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="${o.needle||'#fff'}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="${cx}" cy="${cy}" r="4.5" fill="${o.needle||'#fff'}"/>
+    </g>
+  </svg>`;
+}
+function ringSVG(size,r,w,pct,color,track){
+  const c=2*Math.PI*r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${track}" stroke-width="${w}"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="butt"
+      stroke-dasharray="${(c*Math.max(0,Math.min(100,pct))/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>
+  </svg>`;
+}
+function ringStack(size,list,track){
+  let s=`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`;
+  list.forEach(function(rg){
+    const c=2*Math.PI*rg.r;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${track}" stroke-width="${rg.w}"/>`;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${rg.c}" stroke-width="${rg.w}" stroke-linecap="butt" stroke-dasharray="${(c*rg.pct/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>`;
+  });
+  return s+'</svg>';
+}
+function spark(w,h,data,color,o){
+  o=o||{};const pad=o.pad==null?2:o.pad,min=o.min==null?Math.min.apply(null,data):o.min,max=o.max==null?Math.max.apply(null,data):o.max;
+  const n=data.length;
+  const pts=data.map(function(v,i){return [pad+i*(w-2*pad)/(n-1),h-pad-((v-min)/((max-min)||1))*(h-2*pad)];});
+  const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+  let s='';
+  if(o.fill) s+=`<path d="${d}L${pts[n-1][0].toFixed(1)} ${h}L${pts[0][0].toFixed(1)} ${h}Z" fill="${color}" opacity="${o.op==null?.14:o.op}"/>`;
+  s+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="${o.lw||2}" stroke-linejoin="miter" stroke-linecap="butt"/>`;
+  if(o.dot) s+=`<circle class="g3blink" cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="${o.dotR||3}" fill="${o.dotColor||color}"/>`;
+  const grid=o.grid?Array.from({length:o.grid},function(_,i){return `<line x1="0" x2="${w}" y1="${(h/(o.grid-1))*i}" y2="${(h/(o.grid-1))*i}" stroke="${o.gridColor||color}" opacity=".12"/>`;}).join(''):'';
+  return `<svg width="${w}" height="${h}" style="display:block">${grid}${s}</svg>`;
+}
+function multiSpark(w,h,list){
+  let all=[];list.forEach(function(s){all=all.concat(s.data);});
+  const min=Math.min.apply(null,all),max=Math.max.apply(null,all);
+  let out='';
+  for(let i=0;i<3;i++) out+=`<line x1="0" x2="${w}" y1="${(h/2)*i}" y2="${(h/2)*i}" stroke="#101010" opacity=".08"/>`;
+  list.forEach(function(s){
+    const n=s.data.length;
+    const pts=s.data.map(function(v,i){return [i*(w-2)/(n-1)+1,h-2-((v-min)/((max-min)||1))*(h-4)];});
+    const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+    out+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.2" stroke-linejoin="miter" stroke-linecap="butt"/>`;
+    const last=pts[n-1];
+    out+=`<circle class="g3blink" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${s.color}"/>`;
+  });
+  return `<svg width="${w}" height="${h}" style="display:block">${out}</svg>`;
+}
+function rnd(seed){let s=seed;return function(){s=(s*9301+49297)%233280;return s/233280;};}
+function series(n,base,amp,seed){
+  const r=rnd(seed),a=[];let v=base;
+  for(let i=0;i<n;i++){v=Math.max(base*.35,Math.min(base*1.45,v+(r()-.48)*amp));a.push(v);}
+  return a;
+}
+function bar(pct,color,track,h,w){
+  const hh=h||7;
+  return `<div style="width:${w||'100%'};height:${hh}px;background:${track};overflow:hidden"><div style="width:${Math.max(0,Math.min(100,pct))}%;height:100%;background:${color}"></div></div>`;
+}
+function seg(pct,color,dim,n,h){
+  const num=n||20,hh=h||10,on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;height:${hh}px;background:${i<on?color:dim}"></div>`;
+  return `<div style="display:flex;gap:2px">${s}</div>`;
+}
+function gridBG(w,h,color,step,op){
+  let s='';
+  for(let x=step;x<w;x+=step) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  for(let y=step;y<h;y+=step) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;inset:0;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function led(c,s){
+  const ss=s||7;
+  return `<span class="g3blink" style="display:inline-block;width:${ss}px;height:${ss}px;border-radius:50%;background:${c}"></span>`;
+}
+function st(l,v,u,c,p,size){
+  return `<div style="min-width:0"><div style="font-size:8px;letter-spacing:1.4px;color:${p.dim};white-space:nowrap">${l}</div><div style="font-size:${size||15}px;font-weight:600;color:${c||p.txt};line-height:1.2;white-space:nowrap">${v}<span style="font-size:8px;font-weight:400;color:${p.dim}"> ${u||''}</span></div></div>`;
+}
+/* 细线（1px 分隔） */
+function hl(x,y,w,c,o){return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:1px;background:${c};opacity:${o==null?1:o}"></div>`;}
+function vl(x,y,h,c,o){return `<div style="position:absolute;left:${x}px;top:${y}px;width:1px;height:${h}px;background:${c};opacity:${o==null?1:o}"></div>`;}
+
+/* ================= 示例数据 ================= */
+const L={
+  model:'Qwen3-32B',decode:'42.3',avg:'38.1',max:'58.9',prefill:'1860',ttft:'0.32s',
+  gpu:78,vram:'18.2',vramTot:'24',vramPct:76,kv:61,power:312,temp:68,queue:2,batch:4,
+  uptime:'3d 14h',total:'1.28B',cache:87,cpu:22,ram:'41.7',ramTot:'64',net:128,fan:1450,ctx:'12.4k'
+};
+const Pd={
+  cpu:34,avg:27,max:91,freq:'4.82',temp:62,power:78,ram:'12.4',ramTot:'32',ramPct:39,
+  gpu:71,gpuTemp:67,gpuPower:210,vram:'6.8',vramTot:'12',vramPct:57,
+  diskR:540,diskW:120,netD:54,netU:8,fanC:1200,fanG:1650,up:'5d 02h',proc:214,batt:82,fps:141
+};
+
+/* ================= S01 Grotesk Hero · LLM 横 ================= */
+function S01(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const met=[['AVG','38.1','tok/s'],['MAX','58.9','tok/s'],['GPU','78','%'],['VRAM','18.2','GB'],['TTFT','0.32','s']];
+  let cells='',divs='';
+  met.forEach(function(m,i){
+    const x=26+i*85.6;
+    cells+=`<div style="position:absolute;left:${x+(i?10:0)}px;top:242px;width:76px">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim}">${m[0]}</div>
+      <div style="font-size:17px;font-weight:600;letter-spacing:-.4px;margin-top:5px">${m[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:3px">${m[2]}</span></div>
+    </div>`;
+    if(i) divs+=vl(x,238,44,rl);
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:26px;top:17px;font-size:8px;letter-spacing:2.6px;color:${dim}">DECODE THROUGHPUT</div>
+    <div style="position:absolute;right:26px;top:14px;text-align:right">
+      <div style="font-family:${MONO};font-size:10px">${L.model}</div>
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim};margin-top:3px">LLM ENGINE</div>
+    </div>
+    ${hl(26,40,428,ink)}
+    <div style="position:absolute;left:20px;top:52px;font-size:72px;font-weight:700;line-height:.86;letter-spacing:-4px">42.3</div>
+    <div style="position:absolute;left:158px;top:96px;font-size:11px;color:${dim};letter-spacing:.4px">tok/s</div>
+    <div style="position:absolute;left:26px;top:128px;font-size:8px;letter-spacing:2.2px;color:${dim}">SINGLE STREAM · 30 S WINDOW</div>
+    <div style="position:absolute;left:26px;top:150px;width:428px">${spark(428,62,series(46,42,7,9),ink,{lw:1.2,dot:true,dotR:3.4,dotColor:red,pad:1})}</div>
+    ${hl(26,234,428,ink)}
+    ${divs}
+    ${cells}
+    <div style="position:absolute;left:26px;top:300px;font-family:${MONO};font-size:8px;color:${dim}">P50 38.1 · P99 61.4</div>
+    <div style="position:absolute;right:26px;top:299px;display:flex;align-items:center;gap:6px;font-size:8px;letter-spacing:2px;color:${dim}">
+      <span class="g3fade" style="width:5px;height:5px;background:${red};display:block"></span>LIVE
+    </div>
+  </div>`;
+}
+
+/* ================= S02 Index Grid · PC 横 ================= */
+function S02(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const cells=[['CPU','34','%','8 CORES'],['GPU','71','%','RTX 4070'],['MEM','39','%','12.4 / 32G'],['DISK','54','%','540 M / S'],
+               ['NET','54','Mb','UP 8 / DN 54'],['TEMP','62','°C','PACKAGE'],['FAN','1650','rpm','GPU + CPU'],['PEAK','91','%','5 D MAX']];
+  let out='';
+  cells.forEach(function(c,i){
+    const col=i%4,row=(i/4)|0,x=24+col*108,y=54+row*122,hot=c[0]==='PEAK';
+    out+=`<div style="position:absolute;left:${x+14}px;top:${y+16}px;width:80px">
+      <div style="display:flex;align-items:center;gap:5px;height:9px">
+        ${hot?`<span style="width:4px;height:4px;background:${red};display:block"></span>`:''}
+        <span style="font-size:8px;letter-spacing:1.8px;color:${hot?red:dim}">${c[0]}</span>
+      </div>
+      <div style="font-size:${c[0]==='FAN'?22:27}px;font-weight:${hot?700:600};line-height:1.05;letter-spacing:-.9px;color:${hot?red:ink};margin-top:8px">${c[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:2px">${c[2]}</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${dim};margin-top:8px;white-space:nowrap">${c[3]}</div>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:24px;top:18px;font-size:9px;letter-spacing:2.6px">SYSTEM INDEX</div>
+    <div style="position:absolute;right:24px;top:19px;font-family:${MONO};font-size:9px;color:${dim};letter-spacing:.4px">UPTIME ${Pd.up} / ${Pd.proc} PROC</div>
+    ${hl(24,42,432,ink)}
+    ${vl(132,54,244,rl)}${vl(240,54,244,rl)}${vl(348,54,244,rl)}
+    ${hl(24,176,432,rl)}
+    ${hl(24,298,432,ink)}
+    ${out}
+    <div style="position:absolute;left:24px;top:304px;font-family:${MONO};font-size:8px;color:${dim}">PC-01 / WIN11 / 20:14</div>
+    <div style="position:absolute;right:24px;top:304px;font-family:${MONO};font-size:8px;color:${dim}">SAMPLE 1 S</div>
+  </div>`;
+}
+
+/* ================= S03 Split Ledger · LLM 横 ================= */
+function S03(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const white='#f6f5f2',wht='rgba(246,245,242,.52)';
+  const rows=[['AVERAGE','38.1','tok/s'],['PEAK','58.9','tok/s'],['PREFILL','1860','tok/s'],['TTFT','0.32','s'],['QUEUE','2','/ 4'],['VRAM','18.2','/ 24 GB']];
+  let out='';
+  rows.forEach(function(r){
+    out+=`<div style="height:43px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid ${rl};padding-left:2px">
+      <span style="font-size:8px;letter-spacing:1.8px;color:${dim}">${r[0]}</span>
+      <span style="font-size:17px;font-weight:600;letter-spacing:-.4px">${r[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:4px">${r[2]}</span></span>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:0;top:0;width:192px;height:320px;background:${ink}"></div>
+    <div style="position:absolute;left:24px;top:23px;font-size:8px;letter-spacing:2.4px;color:${wht}">LLM / INFERENCE</div>
+    <div style="position:absolute;left:24px;top:40px;font-size:15px;font-weight:600;color:${white};letter-spacing:-.2px">${L.model}</div>
+    <div style="position:absolute;left:22px;top:96px;font-size:68px;font-weight:700;line-height:.86;letter-spacing:-3.6px;color:${white}">42.3</div>
+    <div style="position:absolute;left:24px;top:162px;font-size:9px;letter-spacing:2px;color:${wht}">TOK / S · DECODE</div>
+    <div style="position:absolute;left:24px;top:196px;font-size:8px;letter-spacing:1.8px;color:${wht}">GPU 78% · 68°C</div>
+    <div style="position:absolute;left:24px;top:210px;font-size:8px;letter-spacing:1.8px;color:${wht}">CTX 12.4K · BATCH 4</div>
+    ${hl(24,240,144,'#f6f5f2',.22)}
+    <div style="position:absolute;left:24px;top:254px;display:flex;align-items:center;gap:7px">
+      <span class="g3fade" style="width:5px;height:5px;background:${red};display:block"></span>
+      <span style="font-size:8px;letter-spacing:2.2px;color:${white}">ONLINE</span>
+    </div>
+    <div style="position:absolute;left:24px;top:276px;font-family:${MONO};font-size:8px;color:${wht}">UP ${L.uptime}</div>
+    <div style="position:absolute;left:218px;top:24px;width:236px">${out}</div>
+    <div style="position:absolute;left:218px;top:298px;font-family:${MONO};font-size:8px;color:${dim}">LEDGER 03 / 30 S WINDOW</div>
+  </div>`;
+}
+
+/* ================= S04 Red Line · PC 横 ================= */
+function S04(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const comp=[['FREQUENCY','4.82','GHz'],['TEMPERATURE','62','°C'],['PACKAGE POWER','78','W']];
+  let out='';
+  comp.forEach(function(c,i){
+    const x=24+i*146;
+    out+=`<div style="position:absolute;left:${x}px;top:232px;width:140px">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim}">${c[0]}</div>
+      <div style="font-size:30px;font-weight:600;letter-spacing:-1.2px;line-height:1;margin-top:8px">${c[1]}<span style="font-family:${MONO};font-size:9px;font-weight:400;color:${dim};margin-left:4px">${c[2]}</span></div>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:24px;top:17px;font-size:8px;letter-spacing:2.6px;color:${dim}">CPU / LOAD</div>
+    <div style="position:absolute;right:24px;top:17px;font-family:${MONO};font-size:9px;color:${dim}">PC-01 · ${Pd.up}</div>
+    ${hl(24,40,432,ink)}
+    <div style="position:absolute;left:18px;top:62px;font-size:72px;font-weight:700;line-height:.86;letter-spacing:-4px">34</div>
+    <div style="position:absolute;left:104px;top:96px;font-size:26px;font-weight:400;color:${dim}">%</div>
+    <div style="position:absolute;left:24px;top:142px;font-size:8px;letter-spacing:1.8px;color:${dim}">8 CORES · 4.82 GHZ</div>
+    <div style="position:absolute;left:24px;top:160px;width:210px">${bar(34,ink,rl,2,'210px')}</div>
+    <div style="position:absolute;left:24px;top:172px;font-family:${MONO};font-size:8px;color:${dim}">0 — 34% — 100</div>
+    ${vl(250,54,144,rl)}
+    <div style="position:absolute;left:268px;top:52px;font-size:8px;letter-spacing:2px;color:${dim}">LOAD / 60 S</div>
+    <div style="position:absolute;left:268px;top:64px;width:186px">${spark(186,86,series(30,34,9,41),red,{lw:1.2,dot:true,dotR:3,pad:1})}</div>
+    <div style="position:absolute;left:268px;top:164px;width:60px">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim}">AVG</div>
+      <div style="font-size:21px;font-weight:600;letter-spacing:-.8px;line-height:1;margin-top:6px">27<span style="font-size:8px;color:${dim};font-weight:400"> %</span></div>
+    </div>
+    <div style="position:absolute;left:364px;top:164px;width:60px">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim}">PEAK</div>
+      <div style="font-size:21px;font-weight:600;letter-spacing:-.8px;line-height:1;margin-top:6px">91<span style="font-size:8px;color:${dim};font-weight:400"> %</span></div>
+    </div>
+    ${hl(24,210,432,ink)}
+    ${out}
+    <div style="position:absolute;left:24px;top:298px;font-family:${MONO};font-size:8px;color:${dim}">SAMPLE 1 S · 30 SAMPLES</div>
+    <div style="position:absolute;right:24px;top:298px;font-family:${MONO};font-size:8px;color:${dim}">THERMAL HEADROOM 38°</div>
+  </div>`;
+}
+
+/* ================= S05 Type Specimen · LLM 横 ================= */
+function S05(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#cfccc4';
+  const r1=[['PREFILL','1860','t/s'],['LATENCY','0.32','s'],['QUEUE','2','/ 4'],['VRAM','18.2','GB']];
+  const r2=[['AVERAGE','38.1','t/s'],['PEAK','58.9','t/s'],['GPU','78','%'],['TEMP','68','°C']];
+  const row=function(list,y){
+    let s='';
+    list.forEach(function(c,i){
+      s+=`<div style="position:absolute;left:${22+i*110}px;top:${y}px;width:104px">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${dim}">${c[0]}</div>
+        <div style="font-size:14px;font-weight:600;letter-spacing:-.3px;margin-top:6px">${c[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:3px">${c[2]}</span></div>
+      </div>`;
+    });
+    return s;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:${bg};font-family:${FONT};color:${ink}">
+    ${gridBG(480,320,'#101010',24,.035)}
+    <div style="position:absolute;left:22px;top:16px;font-size:8px;letter-spacing:2.4px;color:${dim}">TYPE SPECIMEN / 03</div>
+    <div style="position:absolute;right:22px;top:16px;font-family:${MONO};font-size:8px;color:${dim};letter-spacing:.4px">${L.model} · UP ${L.uptime}</div>
+    <div style="position:absolute;left:18px;top:34px;font-size:72px;font-weight:700;line-height:.86;letter-spacing:-4px">42.3</div>
+    <div style="position:absolute;left:286px;top:28px;width:2px;height:150px;background:${red}"></div>
+    <div style="position:absolute;left:304px;top:30px;font-size:30px;font-weight:700;letter-spacing:-1px">TOK</div>
+    <div style="position:absolute;left:334px;top:74px;font-size:30px;font-weight:300;letter-spacing:-1px">/ S</div>
+    <div style="position:absolute;left:22px;top:104px;font-size:8px;letter-spacing:2px;color:${dim}">DECODE · SINGLE STREAM</div>
+    <div style="position:absolute;left:22px;top:150px;font-family:${MONO};font-size:8px;color:${dim};letter-spacing:.4px">AVERAGE 38.1 — MEASURED OVER 30 S</div>
+    ${hl(22,186,436,ink)}
+    ${row(r1,200)}
+    ${hl(22,238,436,rl)}
+    ${row(r2,252)}
+    <div style="position:absolute;left:22px;top:300px;font-family:${MONO};font-size:8px;color:${dim}">VLLM 0.8 / 1.28B TOKENS SERVED</div>
+    <div style="position:absolute;right:22px;top:300px;display:flex;align-items:center;gap:6px;font-size:8px;letter-spacing:2px;color:${dim}">
+      <span class="g3fade" style="width:5px;height:5px;background:${red};display:block"></span>LIVE
+    </div>
+  </div>`;
+}
+
+/* ================= S06 Vertical Poster · PC 竖 ================= */
+function S06(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const rows=[['GPU LOAD','71','%'],['MEMORY','39','%'],['TEMPERATURE','62','°C'],['FAN SPEED','1650','RPM']];
+  let out='';
+  rows.forEach(function(r,i){
+    const y=176+i*60;
+    out+=`<div style="position:absolute;left:20px;top:${y}px;width:280px;height:60px;display:flex;align-items:center;justify-content:space-between;${i?'border-top:1px solid '+rl:''}">
+      <span style="font-size:8px;letter-spacing:1.8px;color:${dim}">${r[0]}</span>
+      <span style="font-size:26px;font-weight:600;letter-spacing:-1px;line-height:1">${r[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:4px">${r[2]}</span></span>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:20px;top:20px;font-size:8px;letter-spacing:2.2px;color:${dim}">SYSTEM / CPU</div>
+    <div style="position:absolute;right:20px;top:20px;font-family:${MONO};font-size:8px;color:${dim}">PC-01</div>
+    ${hl(20,36,280,ink)}
+    <div style="position:absolute;left:18px;top:48px;font-size:72px;font-weight:700;line-height:.86;letter-spacing:-4px">34</div>
+    <div style="position:absolute;left:100px;top:84px;font-size:26px;font-weight:400;color:${dim}">%</div>
+    <div style="position:absolute;left:20px;top:120px;font-size:8px;letter-spacing:1.8px;color:${dim}">CPU UTILISATION</div>
+    <div style="position:absolute;left:20px;top:133px;font-family:${MONO};font-size:8px;color:${dim}">8 CORES · 4.82 GHZ</div>
+    <div style="position:absolute;left:156px;top:20px;width:160px;height:160px">${gauge({s:160,w:2,r:52,a0:225,a1:495,pct:34,color:red,track:'#ddd9d1'})}</div>
+    <div style="position:absolute;left:196px;top:94px;width:80px;text-align:center;font-family:${MONO};font-size:8px;color:${dim}">34 / 100</div>
+    ${hl(20,164,280,ink)}
+    ${out}
+    ${hl(20,428,280,ink)}
+    <div style="position:absolute;left:20px;top:438px;font-family:${MONO};font-size:8px;color:${dim}">UPTIME ${Pd.up}</div>
+    <div style="position:absolute;right:20px;top:438px;font-family:${MONO};font-size:8px;color:${dim}">${Pd.fps} FPS · ${Pd.proc} PROC</div>
+  </div>`;
+}
+
+/* ================= S07 Index Card · LLM 竖 ================= */
+function S07(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const rows=[['GPU LOAD','78%'],['VRAM','18.2 GB'],['KV CACHE','61%'],['TTFT','0.32 s'],['PREFILL','1860 t/s'],['QUEUE','2 / 4']];
+  let out='';
+  rows.forEach(function(r,i){
+    const y=136+i*48;
+    out+=`<div style="position:absolute;left:20px;top:${y}px;width:280px;height:48px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${i===rows.length-1?ink:rl}">
+      <span style="font-size:8px;letter-spacing:1.8px;color:${dim}">${r[0]}</span>
+      <span style="font-family:${MONO};font-size:15px;font-weight:600;letter-spacing:-.2px">${r[1]}</span>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${bg};font-family:${FONT};color:${ink}">
+    <span class="g3fade" style="position:absolute;left:20px;top:21px;width:8px;height:8px;background:${red};display:block"></span>
+    <div style="position:absolute;left:36px;top:20px;font-size:8px;letter-spacing:2.4px;color:${dim}">INDEX / DECODE</div>
+    <div style="position:absolute;right:20px;top:20px;font-family:${MONO};font-size:8px;color:${dim}">${L.model}</div>
+    <div style="position:absolute;left:16px;top:38px;font-size:64px;font-weight:700;line-height:.86;letter-spacing:-3.6px">42.3</div>
+    <div style="position:absolute;left:20px;top:100px;font-size:9px;letter-spacing:1.6px;color:${dim}">TOKENS / SECOND</div>
+    <div style="position:absolute;right:20px;top:60px;text-align:right">
+      <div style="font-size:8px;letter-spacing:1.6px;color:${dim}">AVG 38.1</div>
+      <div style="font-size:8px;letter-spacing:1.6px;color:${dim};margin-top:5px">MAX 58.9</div>
+    </div>
+    ${hl(20,124,280,ink)}
+    ${out}
+    <div style="position:absolute;left:20px;top:446px;font-family:${MONO};font-size:8px;color:${dim}">UP ${L.uptime} · BATCH 4</div>
+    <div style="position:absolute;right:20px;top:446px;font-family:${MONO};font-size:8px;color:${dim}">CACHE 87%</div>
+  </div>`;
+}
+
+/* ================= S08 Thin Dial · PC 竖（黑底反色） ================= */
+function S08(){
+  const bg='#101010',ink='#f6f5f2',red='#e03131',dim='rgba(246,245,242,.48)',rl='#2c2c29';
+  const cells=[['GPU','71','%'],['MEM','39','%'],['TEMP','62','°C'],['NET','54','Mb']];
+  let out='';
+  cells.forEach(function(c,i){
+    const col=i%2,row=(i/2)|0,x=20+col*150,y=312+row*60;
+    out+=`<div style="position:absolute;left:${x}px;top:${y}px;width:140px">
+      <div style="font-size:8px;letter-spacing:2px;color:${dim}">${c[0]}</div>
+      <div style="font-size:20px;font-weight:600;letter-spacing:-.6px;margin-top:7px;line-height:1">${c[1]}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:3px">${c[2]}</span></div>
+    </div>`;
+  });
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:20px;top:22px;font-size:8px;letter-spacing:2.4px;color:${dim}">CPU / DIAL</div>
+    <div style="position:absolute;right:20px;top:22px;font-family:${MONO};font-size:8px;color:${dim}">PC-01</div>
+    <div style="position:absolute;left:42px;top:48px;width:236px;height:236px">
+      ${gauge({s:236,w:2.5,r:112,a0:0,a1:359.99,pct:34,color:red,track:rl})}
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:56px;font-weight:600;line-height:.9;letter-spacing:-3px">34<span style="font-size:18px;font-weight:400;color:${dim};letter-spacing:0;margin-left:7px">%</span></div>
+        <div style="font-size:8px;letter-spacing:2.4px;color:${dim};margin-top:10px">CPU LOAD</div>
+      </div>
+    </div>
+    ${hl(20,300,280,rl)}
+    ${vl(160,312,120,rl)}${hl(20,372,280,rl)}
+    ${out}
+    ${hl(20,444,280,rl)}
+    <div style="position:absolute;left:20px;top:452px;font-family:${MONO};font-size:8px;color:${dim}">UP ${Pd.up}</div>
+    <div style="position:absolute;right:20px;top:452px;font-family:${MONO};font-size:8px;color:${dim}">${Pd.proc} PROC</div>
+  </div>`;
+}
+
+/* ================= S09 Mono Grid · LLM 竖 ================= */
+function S09(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const cell=function(x,y,w,l,v,u){
+    return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim}">${l}</div>
+      <div style="font-size:20px;font-weight:600;letter-spacing:-.6px;margin-top:7px;line-height:1">${v}<span style="font-family:${MONO};font-size:8px;font-weight:400;color:${dim};margin-left:3px">${u}</span></div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:20px;top:20px;font-size:8px;letter-spacing:2.4px;color:${dim}">MONO GRID</div>
+    <div style="position:absolute;right:20px;top:20px;font-family:${MONO};font-size:8px;color:${dim}">${L.model}</div>
+    ${hl(20,36,280,ink)}
+    ${vl(160,46,120,rl)}${hl(20,106,280,rl)}
+    ${cell(20,56,130,'GPU','78','%')}
+    ${cell(172,56,128,'VRAM','18.2','GB')}
+    ${cell(20,116,130,'KV CACHE','61','%')}
+    ${cell(172,116,128,'TTFT','0.32','S')}
+    <div style="position:absolute;left:20px;top:178px;width:280px;height:104px;background:${ink}">
+      <div style="position:absolute;left:12px;top:10px;font-size:8px;letter-spacing:2.2px;color:rgba(246,245,242,.55)">DECODE</div>
+      <div style="position:absolute;left:10px;top:22px;font-size:48px;font-weight:600;line-height:1;letter-spacing:-2.4px;color:${bg}">42.3</div>
+      <div style="position:absolute;left:12px;top:78px;font-family:${MONO};font-size:8px;color:rgba(246,245,242,.55)">TOK / S</div>
+      <svg style="position:absolute;right:14px;top:60px" width="22" height="22" viewBox="0 0 22 22">
+        <path d="M4 18 L18 4 M8 4 L18 4 L18 14" fill="none" stroke="${red}" stroke-width="1.6"/>
+      </svg>
+    </div>
+    ${vl(160,294,120,rl)}${hl(20,354,280,rl)}
+    ${cell(20,304,130,'QUEUE','2','/4')}
+    ${cell(172,304,128,'POWER','312','W')}
+    ${cell(20,364,130,'TEMP','68','°C')}
+    ${cell(172,364,128,'CACHE HIT','87','%')}
+    ${hl(20,430,280,ink)}
+    <div style="position:absolute;left:20px;top:440px;font-family:${MONO};font-size:8px;color:${dim}">UP ${L.uptime}</div>
+    <div style="position:absolute;right:20px;top:440px;font-family:${MONO};font-size:8px;color:${dim}">1.28B TOK</div>
+  </div>`;
+}
+
+/* ================= S10 Swiss Watch · PC 竖 ================= */
+function S10(){
+  const bg='#f6f5f2',ink='#101010',red='#e03131',dim='#8a8880',rl='#d5d2ca';
+  const corner=function(x,align,label,val){
+    const side=align==='r'?`right:${x}px;text-align:right`:`left:${x}px;text-align:left`;
+    const rl_pos=align==='r'?`right:${x}px`:`left:${x}px`;
+    return `<div style="position:absolute;${side};top:36px;width:70px">
+      <div style="position:absolute;${rl_pos};top:0;width:34px;height:1px;background:${ink}"></div>
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim};margin-top:9px">${label}</div>
+      <div style="font-size:17px;font-weight:600;letter-spacing:-.4px;margin-top:5px">${val}</div>
+    </div>`;
+  };
+  const cornerB=function(x,align,label,val){
+    const side=align==='r'?`right:${x}px;text-align:right`:`left:${x}px;text-align:left`;
+    const rl_pos=align==='r'?`right:${x}px`:`left:${x}px`;
+    return `<div style="position:absolute;${side};top:390px;width:70px">
+      <div style="position:absolute;${rl_pos};top:0;width:34px;height:1px;background:${ink}"></div>
+      <div style="font-size:8px;letter-spacing:1.8px;color:${dim};margin-top:9px">${label}</div>
+      <div style="font-size:17px;font-weight:600;letter-spacing:-.4px;margin-top:5px">${val}</div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${bg};font-family:${FONT};color:${ink}">
+    <div style="position:absolute;left:0;right:0;top:14px;text-align:center;font-size:8px;letter-spacing:2.6px;color:${dim}">PC-01 / PERFORMANCE</div>
+    ${corner(20,'l','GPU','71 %')}
+    ${corner(20,'r','MEMORY','39 %')}
+    <div style="position:absolute;left:42px;top:120px;width:236px;height:236px">
+      ${gauge({s:236,w:2.5,r:100,a0:0,a1:359.99,pct:34,color:red,track:'#d8d5cd'})}
+      <svg width="236" height="236" viewBox="0 0 236 236" style="position:absolute;left:0;top:0">
+        ${ticks(118,118,108,114,0,360,60,ink,1,.32)}
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:48px;font-weight:600;line-height:.9;letter-spacing:-2.4px">34<span style="font-size:15px;font-weight:400;color:${dim};letter-spacing:0;margin-left:7px">%</span></div>
+        <div style="font-size:8px;letter-spacing:2.6px;color:${dim};margin-top:9px">CPU</div>
+      </div>
+    </div>
+    ${cornerB(20,'l','TEMPERATURE','62 °C')}
+    ${cornerB(20,'r','NETWORK','54 Mb')}
+    <div style="position:absolute;left:0;right:0;top:450px;text-align:center;font-family:${MONO};font-size:8px;color:${dim}">UP ${Pd.up} · ${Pd.fps} FPS · ${Pd.proc} PROC</div>
+  </div>`;
+}
+
+/* ================= 主题清单 ================= */
+const THEMES=[
+  {id:'S01',name:'Grotesk Hero',ori:'L',cat:'LLM 服务器',style:'瑞士国际主义 · 大字主视觉',render:S01,
+   pal:['#f6f5f2','#101010','#e03131','#8a8880'],
+   hier:'42.3 tok/s 为唯一 72px 主值（左上）→ 一条全宽细折线横贯中段 → 底部 5 格微型指标（AVG/MAX/GPU/VRAM/TTFT）以 1px 竖线分隔 → 页脚 P50/P99 最末层。',
+   art:'纸白底、墨黑 1px 通栏横线（顶/底各一）、72px Grotesk 数字（字距 -4px）、1.2px 折线 + 红色末端圆点、8px 等宽微标签、无任何卡片与圆角块。',
+   motion:'折线末端红点 2.4s 呼吸；LIVE 红方块 3.4s 淡入淡出；数值变化 300ms 透明度过渡。其余保持静止。',
+   tags:'lv_label（72px 大字）/ lv_chart（1 series, no fill）/ lv_obj（1px line）/ lv_label ×5（micro）'},
+  {id:'S02',name:'Index Grid',ori:'L',cat:'电脑性能',style:'索引网格 · 无卡片排版',render:S02,
+   pal:['#f6f5f2','#101010','#e03131','#d5d2ca'],
+   hier:'4×2 八格指标（CPU/GPU/MEM/DISK/NET/TEMP/FAN/PEAK），每格 27px 数字 + 8px 标签 + 8px 等宽注脚；仅 PEAK 一格改强调红，顶部收口标题与运行时长。',
+   art:'完全无卡片：仅 3 条 1px 竖线 + 1 条 1px 横线切出 4×2 网格，顶端 1px 重线、底端 1px 重线；红色只出现在 PEAK 的 4px 方点、标签与数值。',
+   motion:'PEAK 红方点 2.4s 呼吸；其余静态。刷新时整格数值 200ms 淡入（避免位移）。',
+   tags:'lv_obj（1px 线 ×6）/ lv_label ×24 / lv_obj（4px 方块）/ lv_table（可选替代）'},
+  {id:'S03',name:'Split Ledger',ori:'L',cat:'LLM 服务器',style:'黑白分栏 · 账簿对开',render:S03,
+   pal:['#101010','#f6f5f2','#e03131','#8a8880'],
+   hier:'左侧 40%（192px）纯黑面板：模型名 + 68px 白色 decode 42.3 + 在线状态；右侧纸白 6 行账簿（AVG/PEAK/PREFILL/TTFT/QUEUE/VRAM），每行 43px、1px 上分隔线。',
+   art:'40/60 硬分割黑白对开；白面板 6 条 1px 墨线；左栏 1px 半透明白线 + 5px 红点；数值右对齐、单位 8px 悬挂；无圆角。',
+   motion:'红点 3.4s 淡入淡出；右栏数值刷新 250ms 淡入；不出现位移动画。',
+   tags:'lv_obj（black panel）/ lv_label / lv_obj（1px rows）/ lv_obj（led 5px）/ lv_label（mono unit）'},
+  {id:'S04',name:'Red Line',ori:'L',cat:'电脑性能',style:'红色细线 · 左字右图',render:S04,
+   pal:['#f6f5f2','#101010','#e03131','#8a8880'],
+   hier:'左半 72px CPU 34 与 % 为绝对主值，下方 2px 细进度条与 8 核/主频注脚；右半 1.2px 红色折线（186×96）+ AVG 27 / PEAK 91；底部 1px 通栏线以下频率/温度/功耗三数。',
+   art:'巨字左压、右侧红色细折线；1 条 1px 竖线（x=250）分隔图文；底部 30px 三列数字；全部直角、无底色块。',
+   motion:'红折线末端圆点 2.4s 呼吸；折线整体每 1s 左移一采样点（数据位移）；进度条宽度 300ms 线性。',
+   tags:'lv_label（72px）/ lv_chart（red 1.2px）/ lv_bar（2px）/ lv_obj（1px line）/ lv_label ×9'},
+  {id:'S05',name:'Type Specimen',ori:'L',cat:'LLM 服务器',style:'字体样本海报 · 错位排版',render:S05,
+   pal:['#f6f5f2','#101010','#e03131','#8a8880'],
+   hier:'“42.3” 72px 与 “TOK / S” 30px 错位排成海报主标题，红色 2px 竖线做节奏分割；其下 4 列细数据行（预填/延迟/队列/显存）+ 1px 横线 + 第二组 4 列（均值/峰值/GPU/温度）。',
+   art:'24px 极浅基线网格（5% 墨色，gridBG）、72px 收紧字距大字、30px 错位字、2px 红色竖线、两条 1px 横线、8px 等宽标签；无任何块面与圆角。',
+   motion:'红色竖线保持静止，仅底部 LIVE 红方点 3.4s 淡入淡出；数据行刷新 200ms 淡入。',
+   tags:'lv_obj（2px red rule）/ lv_label（72/30/14/8px）/ lv_obj（1px lines）/ lv_obj（grid 24px, 5%）'},
+  {id:'S06',name:'Vertical Poster',ori:'P',cat:'电脑性能',style:'竖版海报 · 巨字与细弧',render:S06,
+   pal:['#f6f5f2','#101010','#e03131','#d5d2ca'],
+   hier:'上半部 72px CPU 34% + 右上 2px 细弧（240° 扫掠，34% 红弧）；下半部 GPU/内存/温度/风扇 4 行数据，每行 60px、1px 上分隔线，底部运行时长与 FPS。',
+   art:'超大字左压、右侧小半径细弧（r=52, 2px）作为唯一图形；两条 1px 通栏线（上/下）；四行左标签右 26px 数值；全直角。',
+   motion:'红弧 300ms 缓动增长；数值 200ms 淡入；弧末端刻度不闪烁（保持瑞士式克制）。',
+   tags:'lv_arc（2px, 240°）/ lv_label（72px）/ lv_obj（1px lines ×3）/ lv_label ×8'},
+  {id:'S07',name:'Index Card',ori:'P',cat:'LLM 服务器',style:'索引卡 · 左标签右数值',render:S07,
+   pal:['#f6f5f2','#101010','#e03131','#d5d2ca'],
+   hier:'顶部 8px 红方块 + INDEX/DECODE 标题、64px 42.3 与 tok/s；其下 6 行索引（GPU/VRAM/KV/TTFT/PREFILL/QUEUE），行高 48px、1px 细线，末行加重；页脚运行时长。',
+   art:'红方块是唯一填充色块（8px）；64px 数字；6 条 1px 横线（末条为墨黑实线）；等宽 15px 右对齐数值；无卡片边框、无圆角。',
+   motion:'红方块 3.4s 淡入淡出；行数值刷新 200ms 淡入；字体不位移。',
+   tags:'lv_obj（8px red square）/ lv_label（64px）/ lv_label ×12 / lv_obj（1px rows）'},
+  {id:'S08',name:'Thin Dial',ori:'P',cat:'电脑性能',style:'黑底极细圆环 · 反色版',render:S08,
+   pal:['#101010','#f6f5f2','#e03131','#2c2c29'],
+   hier:'中央 r=112 的 2.5px 圆环（34% 红弧）内放 56px 34% 与 CPU LOAD；下方 2×2 极简读数（GPU/MEM/TEMP/NET），用 1px 十字线切分；页脚运行时长/进程数。',
+   art:'纯黑底 #101010、纸白字、2.5px 细环（无端点圆头）、1px 十字细线、20px 数值；无刻度、无阴影、无渐变。',
+   motion:'圆环 400ms 缓动；中心数值 200ms 淡入；其余静止。',
+   tags:'lv_arc（2.5px, no cap）/ lv_label（56px）/ lv_obj（1px lines）/ lv_label ×10'},
+  {id:'S09',name:'Mono Grid',ori:'P',cat:'LLM 服务器',style:'微网格 + 黑底反白块',render:S09,
+   pal:['#f6f5f2','#101010','#e03131','#8a8880'],
+   hier:'上 2×2 微网格（GPU/VRAM/KV/TTFT）→ 中央 280×104 黑底反白 DECODE 42.3（44px）→ 下 2×2 微网格（QUEUE/POWER/TEMP/CACHE）→ 页脚运行时长与累计 token。',
+   art:'只有 1px 细线（2 竖 2 横 + 上下重线）与一块纯黑矩形；红色仅用于黑块内的 22px 折线箭头（SVG 两根 1.6px 线）；8px 等宽注脚。',
+   motion:'红色箭头 4s 上下 1px 轻移（g3nudge）；黑块内数值刷新 250ms 淡入；网格静止。',
+   tags:'lv_obj（black block）/ lv_label（44px white）/ lv_obj（1px grid）/ lv_line（red arrow）'},
+  {id:'S10',name:'Swiss Watch',ori:'P',cat:'电脑性能',style:'表盘 · 细环与刻度',render:S10,
+   pal:['#f6f5f2','#101010','#e03131','#d5d2ca'],
+   hier:'中央 r=100 细环 + 60 格刻度，内圈 46px CPU 34%；四角仅用 34px 细线 + 8px 标签 + 17px 数值标出 GPU/内存/温度/网络；页脚一行运行信息。',
+   art:'1px 刻度环（60 格，每 5 格加重）、2.5px 红色进度弧、1px 底色圆环；四角 1px 短横线代替卡片；无任何填充块、无阴影。',
+   motion:'红弧 400ms 缓动；四角数值 250ms 淡入；刻度环静止，不做扫光。',
+   tags:'lv_arc（2.5px）/ lv_scale（60 ticks）/ lv_label（46px）/ lv_obj（1px rules）'}
+];
+
+/* ================= 渲染画廊 ================= */
+const app=document.getElementById('app');
+const cards=THEMES.map(function(t){
+  return `<article class="card" id="card-${t.id}">
+    <div class="meta">
+      <span class="id">${t.id}</span>
+      <b>${t.name}</b>
+      <span class="cat">${t.cat}</span>
+      <span class="ori">${t.ori==='L'?'横屏 480×320':'竖屏 320×480'}</span>
+    </div>
+    ${t.render()}
+    <div class="spec">
+      <div class="swatches"><i style="background:${t.pal[0]}"></i><i style="background:${t.pal[1]}"></i><i style="background:${t.pal[2]}"></i><i style="background:${t.pal[3]}"></i><code>${t.pal.join('  ')}</code></div>
+      <div><b>信息层级</b>${t.hier}</div>
+      <div><b>图形元素</b>${t.art}</div>
+      <div><b>动效</b>${t.motion}</div>
+      <div><b>LVGL 映射</b><code>${t.tags}</code></div>
+    </div>
+  </article>`;
+}).join('');
+app.innerHTML=`<div class="gallery">${cards}</div>`;
+
+window.__pick=function(){
+  const list=[].slice.call(document.querySelectorAll('.card'));
+  list.forEach(function(c){c.classList.remove('pick');});
+  const c=list[Math.floor(Math.random()*list.length)];
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('pick');
+  setTimeout(function(){c.classList.remove('pick');},2800);
+};
+document.addEventListener('keydown',function(e){
+  if(e.key==='r'||e.key==='R') window.__pick();
+});
+</script>
+</body>
+</html>

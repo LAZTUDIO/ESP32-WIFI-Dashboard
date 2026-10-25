@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LVGL 性能监视屏 · 第 4 组 复古机器（10 选）</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#0b0a08;color:#e4dccb;font-family:'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif}
+  .top{max-width:1180px;margin:0 auto;padding:32px 24px 6px}
+  h1{font-size:21px;margin:0 0 8px;letter-spacing:.3px}
+  .lead{font-size:12.5px;line-height:1.85;color:#9a917e;max-width:920px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+  .chip{font-size:11px;border:1px solid #3a3327;background:#17140f;border-radius:99px;padding:4px 11px;color:#bdb29b}
+  button{margin-left:auto;background:#ffb000;color:#1a1206;border:0;border-radius:99px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+  button:active{transform:translateY(1px)}
+  .gallery{max-width:1180px;margin:0 auto;padding:20px 24px 70px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+  .card{background:#12100c;border:1px solid #2b261d;border-radius:18px;padding:12px;width:504px;max-width:100%;transition:border-color .35s,box-shadow .35s}
+  .card:hover{border-color:#4a4232}
+  .card.pick{border-color:#ffb000;box-shadow:0 0 0 3px rgba(255,176,0,.18)}
+  .meta{display:flex;align-items:center;gap:10px;padding:2px 6px 10px;font-size:12px;color:#9a917e}
+  .meta .id{font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#8a7c63;border:1px solid #332d22;background:#0d0b08;border-radius:6px;padding:2px 6px}
+  .meta b{font-size:13px;color:#f6efdf;font-weight:650}
+  .meta .ori{margin-left:auto;font-size:10px;color:#7d725d;letter-spacing:.5px}
+  .scr{position:relative;overflow:hidden;border-radius:12px;display:block;border:1px solid #241f17}
+  .scr,.scr *{box-sizing:border-box}
+  .spec{margin-top:12px;padding:4px 6px 2px;display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.65;color:#a29882;max-width:480px}
+  .spec b{color:#ded3bd;font-weight:600;margin-right:7px}
+  .spec code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#8c8069}
+  .swatches{display:flex;align-items:center;gap:6px}
+  .swatches i{width:24px;height:14px;border-radius:4px;display:block;border:1px solid rgba(255,255,255,.08)}
+  .swatches code{margin-left:4px}
+  .g4led{animation:g4blink 2.2s ease-in-out infinite}
+  .g4blink{animation:g4blink 1.6s ease-in-out infinite}
+  .g4sway{animation:g4sway 3.6s ease-in-out infinite alternate}
+  .g4spin{transform-box:view-box;animation:g4spin 14s linear infinite}
+  .g4caret{animation:g4caret 1.1s steps(1) infinite}
+  @keyframes g4blink{0%,100%{opacity:1}50%{opacity:.22}}
+  @keyframes g4sway{from{transform:rotate(-1.2deg)}to{transform:rotate(1.2deg)}}
+  @keyframes g4spin{to{transform:rotate(360deg)}}
+  @keyframes g4caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+  footer{max-width:1180px;margin:0 auto;padding:0 24px 50px;font-size:11px;color:#6b6252;line-height:1.7}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>LVGL 性能监视屏 · 第 4 组「复古机器」</h1>
+  <p class="lead">
+    CRT 终端、VFD 荧光面板、80s 合成波、90s PC BIOS 与掌机 LCD：10 个做旧但不脏的复古方案。
+    5 个 LLM 推理服务器监视 + 5 个电脑性能监视，横屏 480×320 与竖屏 320×480 各 5 个。
+    扫描线全部为 1px 显式细线阵列，不使用滤镜、毛玻璃、clip-path、mask 或重复渐变；每个主题附信息层级、图形语言、动效与 LVGL 控件映射。
+  </p>
+  <div class="bar">
+    <span class="chip">横屏 480×320 ×5</span>
+    <span class="chip">竖屏 320×480 ×5</span>
+    <span class="chip">LLM ×5</span>
+    <span class="chip">PC ×5</span>
+    <span class="chip">按 R 或点右侧按钮随机抽一张</span>
+    <button onclick="window.__pick()">随机抽一张</button>
+  </div>
+</header>
+
+<div id="app"></div>
+
+<footer>
+  文字最小 8px 仅用于微标签，正文 10–12px，数值 12–24px，主值 30–60px；浅色主题（米色 BIOS、GameBoy）均使用深色文字保证对比度。
+  所有图形对应 LVGL 基础能力：纯色/两段线性渐变、圆角、描边、阴影、圆弧、分段条、折线、LED、刻度与简单透明度动画。
+</footer>
+
+<script>
+/* ================= 基础绘图助手（全部对应 LVGL 能力） ================= */
+const FONT="'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif";
+const MONO="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace";
+
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+function arcD(cx,cy,r,a0,a1){
+  const s=polar(cx,cy,r,a0),e=polar(cx,cy,r,a1),big=(a1-a0)>180?1:0;
+  return `M${s[0].toFixed(2)} ${s[1].toFixed(2)}A${r} ${r} 0 ${big} 1 ${e[0].toFixed(2)} ${e[1].toFixed(2)}`;
+}
+function gauge(o){
+  const s=o.s,w=o.w||10,cx=s/2,cy=s/2,r=o.r||(s/2-w/2-2);
+  const a0=o.a0==null?225:o.a0,a1=o.a1==null?495:o.a1,pct=Math.max(0,Math.min(100,o.pct));
+  const endA=a0+(a1-a0)*pct/100;
+  let out=`<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">`;
+  out+=`<path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>`;
+  if(o.glow) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w+10}" stroke-linecap="round" opacity=".14"/>`;
+  if(pct>0) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>`;
+  out+='</svg>';
+  return out;
+}
+function ticks(cx,cy,r1,r2,a0,a1,n,color,w,op){
+  let s='';const ww=w||1.5,oo=op==null?.4:op;
+  for(let i=0;i<=n;i++){
+    const a=a0+(a1-a0)*i/n,p1=polar(cx,cy,r1,a),p2=polar(cx,cy,r2,a);
+    s+=`<line x1="${p1[0].toFixed(1)}" y1="${p1[1].toFixed(1)}" x2="${p2[0].toFixed(1)}" y2="${p2[1].toFixed(1)}" stroke="${color}" stroke-width="${ww}" opacity="${i%5===0?Math.min(1,oo+.4):oo}"/>`;
+  }
+  return s;
+}
+function needleGauge(o){
+  const s=o.s,w=o.w||7,cx=s/2,cy=s/2,a0=225,a1=495,r=cx-w-8;
+  const pct=Math.max(0,Math.min(100,o.pct)),ang=a0+(a1-a0)*pct/100;
+  const np=polar(cx,cy,r-22,ang);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">
+    <path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>
+    <path d="${arcD(cx,cy,r,a0+(a1-a0)*0.88,a1)}" fill="none" stroke="${o.redline||'#ff3b30'}" stroke-width="${w}" stroke-linecap="round" opacity=".8"/>
+    <path d="${arcD(cx,cy,r,a0,ang)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>
+    ${ticks(cx,cy,r-9,r-3,a0,a1,27,o.tick||'#777',1.1,.28)}
+    <g class="g4sway" style="transform-origin:${cx}px ${cy}px">
+      <line x1="${cx}" y1="${cy}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="${o.needle||'#fff'}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="${cx}" cy="${cy}" r="4.5" fill="${o.needle||'#fff'}"/>
+    </g>
+  </svg>`;
+}
+function ringSVG(size,r,w,pct,color,track){
+  const c=2*Math.PI*r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${track}" stroke-width="${w}"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"
+      stroke-dasharray="${(c*Math.max(0,Math.min(100,pct))/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>
+  </svg>`;
+}
+function ringStack(size,list,track){
+  let s=`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`;
+  list.forEach(function(rg){
+    const c=2*Math.PI*rg.r;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${track}" stroke-width="${rg.w}"/>`;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${rg.c}" stroke-width="${rg.w}" stroke-linecap="round" stroke-dasharray="${(c*rg.pct/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>`;
+  });
+  return s+'</svg>';
+}
+function spark(w,h,data,color,o){
+  o=o||{};const pad=o.pad||2,min=o.min==null?Math.min.apply(null,data):o.min,max=o.max==null?Math.max.apply(null,data):o.max;
+  const n=data.length;
+  const pts=data.map(function(v,i){return [pad+i*(w-2*pad)/(n-1),h-pad-((v-min)/((max-min)||1))*(h-2*pad)];});
+  const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+  let s='';
+  if(o.fill) s+=`<path d="${d}L${pts[n-1][0].toFixed(1)} ${h}L${pts[0][0].toFixed(1)} ${h}Z" fill="${color}" opacity="${o.op==null?.14:o.op}"/>`;
+  s+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="${o.lw||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if(o.dot) s+=`<circle class="g4blink" cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="${o.dotR||3}" fill="${color}"/>`;
+  const grid=o.grid?Array.from({length:o.grid},function(_,i){return `<line x1="0" x2="${w}" y1="${(h/(o.grid-1))*i}" y2="${(h/(o.grid-1))*i}" stroke="${o.gridColor||color}" opacity=".10"/>`;}).join(''):'';
+  return `<svg width="${w}" height="${h}" style="display:block">${grid}${s}</svg>`;
+}
+function multiSpark(w,h,list){
+  let all=[];list.forEach(function(s){all=all.concat(s.data);});
+  const min=Math.min.apply(null,all),max=Math.max.apply(null,all);
+  let out='';
+  for(let i=0;i<3;i++) out+=`<line x1="0" x2="${w}" y1="${(h/2)*i}" y2="${(h/2)*i}" stroke="#ffffff" opacity=".06"/>`;
+  list.forEach(function(s){
+    const n=s.data.length;
+    const pts=s.data.map(function(v,i){return [i*(w-2)/(n-1)+1,h-2-((v-min)/((max-min)||1))*(h-4)];});
+    const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+    out+=`<path d="${d}L${w-1} ${h}L1 ${h}Z" fill="${s.color}" opacity=".11"/>`;
+    out+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const last=pts[n-1];
+    out+=`<circle class="g4blink" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+  });
+  return `<svg width="${w}" height="${h}" style="display:block">${out}</svg>`;
+}
+function rnd(seed){let s=seed;return function(){s=(s*9301+49297)%233280;return s/233280;};}
+function series(n,base,amp,seed){
+  const r=rnd(seed),a=[];let v=base;
+  for(let i=0;i<n;i++){v=Math.max(base*.35,Math.min(base*1.45,v+(r()-.48)*amp));a.push(v);}
+  return a;
+}
+function bar(pct,color,track,h,w){
+  const hh=h||7;
+  return `<div style="width:${w||'100%'};height:${hh}px;background:${track};border-radius:99px;overflow:hidden"><div style="width:${Math.max(0,Math.min(100,pct))}%;height:100%;background:${color};border-radius:99px"></div></div>`;
+}
+function seg(pct,color,dim,n,h){
+  const num=n||20,hh=h||10,on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;height:${hh}px;border-radius:2px;background:${i<on?color:dim}"></div>`;
+  return `<div style="display:flex;gap:2px">${s}</div>`;
+}
+function gridBG(w,h,color,step,op){
+  let s='';
+  for(let x=step;x<w;x+=step) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  for(let y=step;y<h;y+=step) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;inset:0;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function led(c,s){
+  const ss=s||7;
+  return `<span class="g4led" style="display:inline-block;width:${ss}px;height:${ss}px;border-radius:50%;background:${c};box-shadow:0 0 6px ${c}"></span>`;
+}
+function st(l,v,u,c,p,size){
+  return `<div style="min-width:0"><div style="font-size:9px;letter-spacing:1.2px;color:${p.dim};white-space:nowrap">${l}</div><div style="font-size:${size||15}px;font-weight:700;color:${c||p.txt};line-height:1.2;white-space:nowrap">${v}<span style="font-size:9px;font-weight:500;color:${p.dim}"> ${u||''}</span></div></div>`;
+}
+
+/* ================= 复古专用助手 ================= */
+function scanlines(w,h,step,color,op){
+  let s='';
+  for(let y=0;y<h;y+=step) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;pointer-events:none;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function grille(w,h,step,color,op){
+  let s='';
+  for(let x=0;x<w;x+=step) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;pointer-events:none;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function asciiBar(pct,color,dim,n,size){
+  const num=n||20,fs=size||11;
+  const on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<span style="color:${i<on?color:dim}">█</span>`;
+  return `<div style="font-family:${MONO};font-size:${fs}px;line-height:1;letter-spacing:.6px;white-space:nowrap">${s}</div>`;
+}
+function pixBar(pct,on,off,n,h){
+  const num=n||10,hh=h||12;
+  const onN=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;height:${hh}px;background:${i<onN?on:off};border:1px solid ${on};border-radius:1px"></div>`;
+  return `<div style="display:flex;gap:2px">${s}</div>`;
+}
+function dotsRow(pct,on,off,n,size,gap){
+  const num=n||24,ss=size||8,gg=gap==null?4:gap;
+  const onN=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<span style="display:inline-block;width:${ss}px;height:${ss}px;border-radius:50%;background:${i<onN?on:off};margin-right:${gg}px"></span>`;
+  return `<div style="white-space:nowrap">${s}</div>`;
+}
+const DIG={
+  '0':['01110','10001','10011','10101','11001','10001','01110'],
+  '1':['00100','01100','00100','00100','00100','00100','01110'],
+  '2':['01110','10001','00001','00110','01100','10000','11111'],
+  '3':['11110','00001','00001','01110','00001','00001','11110'],
+  '4':['10001','10001','10001','11111','00001','00001','00001'],
+  '5':['11111','10000','11110','00001','00001','10001','01110'],
+  '6':['01110','10000','10000','11110','10001','10001','01110'],
+  '7':['11111','00001','00010','00100','01000','01000','01000'],
+  '8':['01110','10001','10001','01110','10001','10001','01110'],
+  '9':['01110','10001','10001','01111','00001','00001','01110']
+};
+function dotNum(str,on,off,step,r){
+  const d=step||12,rr=r||4.2,gap=14;
+  const chars=String(str).split('');
+  const gw=4*d+2*rr;
+  const total=chars.length*gw+(chars.length-1)*gap;
+  const hh=6*d+2*rr;
+  let out=`<svg width="${total}" height="${hh}" viewBox="0 0 ${total} ${hh}" style="display:block">`;
+  chars.forEach(function(ch,gi){
+    const gx=gi*(gw+gap),pat=DIG[ch]||DIG['0'];
+    for(let row=0;row<7;row++){
+      for(let col=0;col<5;col++){
+        const lit=pat[row].charAt(col)==='1';
+        out+=`<circle cx="${(gx+rr+col*d).toFixed(1)}" cy="${(rr+row*d).toFixed(1)}" r="${rr}" fill="${lit?on:off}"/>`;
+      }
+    }
+  });
+  return out+'</svg>';
+}
+function vuMeter(w,h,val,opt){
+  opt=opt||{};
+  const cx=w/2,cy=h-16,r=Math.min(w/2-14,h-38);
+  const pct=Math.max(0,Math.min(100,val));
+  const a0=270,a1=450,ang=a0+(a1-a0)*pct/100;
+  const np=polar(cx,cy,r-12,ang);
+  let out=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0">`;
+  out+=`<path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="#b7ab91" stroke-width="1.5"/>`;
+  out+=ticks(cx,cy,r-6,r,a0,a1,20,'#6b5a3a',1,.6);
+  out+=`<path d="${arcD(cx,cy,r,a0+(a1-a0)*.82,a1)}" fill="none" stroke="#c0392b" stroke-width="3"/>`;
+  out+=`<line x1="${cx}" y1="${cy}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="#241d12" stroke-width="2" stroke-linecap="round"/>`;
+  out+=`<circle cx="${cx}" cy="${cy}" r="4.5" fill="#241d12"/>`;
+  return out+'</svg>';
+}
+function synthGrid(w,h,color,op){
+  const cx=w/2;
+  let s='';
+  for(let i=-14;i<=14;i++){
+    const bx=cx+i*40;
+    s+=`<line x1="${cx}" y1="0" x2="${bx}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  }
+  let y=5,step=6;
+  while(y<h){
+    s+=`<line x1="0" y1="${y.toFixed(1)}" x2="${w}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="1"/>`;
+    step*=1.34;y+=step;
+  }
+  return `<svg width="${w}" height="${h}" style="position:absolute;left:0;top:0;opacity:${op}">${s}</svg>`;
+}
+function starField(w,h,n,seed,color){
+  const r=rnd(seed);let s='';
+  for(let i=0;i<n;i++){
+    s+=`<div style="position:absolute;left:${Math.round(r()*w)}px;top:${Math.round(r()*h)}px;width:2px;height:2px;border-radius:50%;background:${color};opacity:${(.25+r()*.5).toFixed(2)}"></div>`;
+  }
+  return s;
+}
+function lerpColor(a,b,t){
+  function p(x){return [parseInt(x.slice(1,3),16),parseInt(x.slice(3,5),16),parseInt(x.slice(5,7),16)];}
+  const A=p(a),B=p(b);
+  const c=A.map(function(v,i){return Math.round(v+(B[i]-v)*t);});
+  return '#'+c.map(function(v){return ('0'+Math.max(0,Math.min(255,v)).toString(16)).slice(-2);}).join('');
+}
+
+/* ================= 示例数据 ================= */
+const L={
+  model:'Qwen3-32B',decode:'42.3',avg:'38.1',max:'58.9',prefill:'1860',ttft:'0.32s',
+  gpu:78,vram:'18.2',vramTot:'24',vramPct:76,kv:61,power:312,temp:68,queue:2,batch:4,
+  uptime:'3d 14h',total:'1.28B',cache:87,cpu:22,ram:'41.7',ramTot:'64',net:128,fan:1450,ctx:'12.4k'
+};
+const Pd={
+  cpu:34,avg:27,max:91,freq:'4.82',temp:62,power:78,ram:'12.4',ramTot:'32',ramPct:39,
+  gpu:71,gpuTemp:67,gpuPower:210,vram:'6.8',vramTot:'12',vramPct:57,
+  diskR:540,diskW:120,netD:54,netU:8,fanC:1200,fanG:1650,up:'5d 02h',proc:214,batt:82,fps:141
+};
+
+/* ================= R01 Amber Terminal（LLM 横） ================= */
+function R01(){
+  const p={bg:'#1a1206',bg2:'#0c0803',acc:'#ffb000',acc2:'#ffd166',dim:'#8a6a22',track:'#33240c',line:'#3a2a10'};
+  const row=(label,pct,val)=>
+    `<div style="margin-bottom:5px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:8px;letter-spacing:1.4px;color:${p.dim}">
+        <span>${label}</span><span style="color:${p.acc2};font-size:10px">${val}</span>
+      </div>
+      <div style="margin-top:2px">${asciiBar(pct,p.acc,p.track,20,10)}</div>
+    </div>`;
+  const stat=(v,l)=>
+    `<div><div style="font-size:8px;letter-spacing:1px;color:${p.dim}">${l}</div><div style="font-size:14px;font-weight:700;color:${p.acc2};line-height:1.3">${v}</div></div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${MONO};color:${p.acc}">
+    ${scanlines(480,320,3,'#000000',.20)}
+    <div style="position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid ${p.line}">
+      <span style="font-size:9px;letter-spacing:2.6px;color:${p.acc2}">AMBER TERMINAL // INFERENCE</span>
+      <span style="font-size:8px;letter-spacing:1px;color:${p.dim};display:flex;align-items:center;gap:6px">TTY0 · 80×24 ${led(p.acc,6)} ONLINE</span>
+    </div>
+
+    <div style="position:absolute;left:18px;top:38px;width:264px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:8px;letter-spacing:2.4px;color:${p.dim}">DECODE SPEED</span>
+        <span style="font-size:8px;color:${p.dim}">tok / s</span>
+      </div>
+      <div style="margin-top:1px;font-size:56px;font-weight:700;line-height:.95;letter-spacing:-2px;color:${p.acc};text-shadow:0 0 16px rgba(255,176,0,.45)">${L.decode}</div>
+      <div style="height:1px;background:${p.line};margin:5px 0 6px"></div>
+      <div style="display:flex;justify-content:space-between">
+        ${stat(L.avg,'AVG')}${stat(L.max,'PEAK')}${stat(L.ttft,'TTFT')}
+      </div>
+      <div style="margin-top:10px">
+        ${row('GPU LOAD',L.gpu,'78%')}
+        ${row('VRAM USED',L.vramPct,'18.2 / 24G')}
+        ${row('KV CACHE',L.kv,'61%')}
+        ${row('PREFILL',74,'1860 t/s')}
+      </div>
+      <div style="height:1px;background:${p.line};margin:6px 0 7px"></div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:9px;color:${p.dim}">
+        <span style="color:${p.acc2}">$</span><span>watch --decode --live</span>
+        <span class="g4caret" style="display:inline-block;width:6px;height:10px;background:${p.acc}"></span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:291px;top:40px;height:244px;width:1px;background:${p.line}"></div>
+
+    <div style="position:absolute;left:306px;top:40px;width:158px">
+      <div style="font-size:8px;letter-spacing:2px;color:${p.dim};margin-bottom:4px">SYSTEM</div>
+      <div style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:${p.acc2}">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="display:flex;align-items:center;gap:6px">${led(p.acc,5)} ENGINE</span><span>OK</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="display:flex;align-items:center;gap:6px">${led(p.acc,5)} GPU LINK</span><span>OK</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="display:flex;align-items:center;gap:6px">${led(p.acc,5)} KV CACHE</span><span>OK</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="display:flex;align-items:center;gap:6px">${led(p.acc2,5)} NET</span><span>128M</span></div>
+      </div>
+      <div style="height:1px;background:${p.line};margin:6px 0"></div>
+      <div style="font-size:8px;letter-spacing:1.8px;color:${p.dim}">UPTIME</div>
+      <div style="font-size:20px;font-weight:700;line-height:1.2">${L.uptime}</div>
+      <div style="font-size:8px;letter-spacing:1.8px;color:${p.dim};margin-top:4px">TOTAL TOKENS</div>
+      <div style="font-size:18px;font-weight:700;line-height:1.2;color:${p.acc2}">${L.total}</div>
+      <div style="height:1px;background:${p.line};margin:6px 0"></div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim}"><span>QUEUE</span><span style="color:${p.acc2}">2 / 4</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim};margin-top:3px"><span>BATCH</span><span style="color:${p.acc2}">4</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim};margin-top:3px"><span>CACHE HIT</span><span style="color:${p.acc2}">87%</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim};margin-top:3px"><span>ERR · REQ/M</span><span style="color:${p.acc2}">0 · 36</span></div>
+      <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim};margin-top:5px">DECODE TREND</div>
+      <div style="margin-top:3px">${spark(158,24,series(20,42,7,13),p.acc,{fill:true,dot:true,grid:2})}</div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:26px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:8px;color:${p.dim}">
+      <span>${L.model} · TEMP <b style="color:${p.acc2}">68°C</b> · PWR <b style="color:${p.acc2}">312W</b> · FAN <b style="color:${p.acc2}">1450</b></span>
+      <span>CACHE <b style="color:${p.acc2}">87%</b> · ${L.total} TOK</span>
+    </div>
+    <div style="position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 46px rgba(0,0,0,.55)"></div>
+  </div>`;
+}
+
+/* ================= R02 VFD Deck（PC 横） ================= */
+function R02(){
+  const p={bg:'#061014',acc:'#4ff2e0',acc2:'#9ffff5',dim:'#2f6f72',track:'#0f3036',line:'#123a3f',ghost:'#0a2428'};
+  const read=(label,val,sub)=>
+    `<div style="position:relative;height:62px">
+      <div style="position:absolute;left:0;top:0;font-family:${MONO};font-size:54px;font-weight:700;line-height:1;letter-spacing:-1px;color:${p.acc};text-shadow:0 0 16px rgba(79,242,224,.42)">${val}<span style="font-size:20px">%</span></div>
+      <div style="position:absolute;left:2px;top:58px;font-size:8px;letter-spacing:1.4px;color:${p.dim}">${sub}</div>
+    </div>`;
+  const cell=(label,val,unit)=>
+    `<div style="flex:1;text-align:center;padding:0 6px;border-right:1px solid ${p.line}">
+      <div style="font-size:8px;letter-spacing:1.8px;color:${p.dim}">${label}</div>
+      <div style="font-family:${MONO};font-size:21px;font-weight:700;color:${p.acc2};line-height:1.35;text-shadow:0 0 8px rgba(79,242,224,.3)">${val}<span style="font-size:9px;color:${p.dim};margin-left:2px">${unit}</span></div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,#08161a,${p.bg});font-family:${FONT};color:${p.acc2}">
+    ${scanlines(480,320,3,'#000000',.32)}
+    ${grille(480,320,6,'#000000',.12)}
+    <div style="position:absolute;left:0;right:0;top:0;height:36px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-size:10px;font-weight:700;letter-spacing:3.4px;color:${p.acc}">VFD DECK</span>
+        <span style="font-size:8px;letter-spacing:1.4px;color:${p.dim}">PERSONAL COMPUTER · PC-88</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font-size:8px;letter-spacing:1.4px;color:${p.dim}">TUE</span>
+        <span style="font-family:${MONO};font-size:20px;font-weight:700;color:${p.acc2};text-shadow:0 0 10px rgba(79,242,224,.5)">22:41</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:18px;top:46px;width:204px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:8px;letter-spacing:2.4px;color:${p.dim}">CPU LOAD</span>
+        <span style="font-size:8px;letter-spacing:1px;color:${p.dim}">CORE 0-7</span>
+      </div>
+      ${read('cpu',String(Pd.cpu),'4.82 GHz · 62 °C')}
+    </div>
+    <div style="position:absolute;left:234px;top:48px;height:78px;width:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:252px;top:46px;width:204px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:8px;letter-spacing:2.4px;color:${p.dim}">GPU LOAD</span>
+        <span style="font-size:8px;letter-spacing:1px;color:${p.dim}">ADAPTER 0</span>
+      </div>
+      ${read('gpu',String(Pd.gpu),'6.8 / 12 GB · 67 °C')}
+    </div>
+
+    <div style="position:absolute;left:18px;top:128px;width:444px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:34px;font-size:8px;letter-spacing:1.4px;color:${p.dim}">CH-A</span>
+        <div style="flex:1">${seg(Pd.cpu,p.acc,'#0d2a30',28,12)}</div>
+        <span style="width:44px;text-align:right;font-family:${MONO};font-size:10px;color:${p.acc2}">CPU 34</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:9px">
+        <span style="width:34px;font-size:8px;letter-spacing:1.4px;color:${p.dim}">CH-B</span>
+        <div style="flex:1">${seg(Pd.gpu,p.acc,'#0d2a30',28,12)}</div>
+        <span style="width:44px;text-align:right;font-family:${MONO};font-size:10px;color:${p.acc2}">GPU 71</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin:4px 54px 0 44px;font-size:8px;font-family:${MONO};color:${p.dim}">
+        <span>-20</span><span>-10</span><span>-6</span><span>-2</span><span>0</span><span>+3</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:202px;height:80px;background:#08171b;border:1px solid ${p.line};border-radius:6px;display:flex;align-items:center">
+      ${cell('TEMP',String(Pd.temp),'°C')}
+      ${cell('FAN',String(Pd.fanC),'rpm')}
+      ${cell('VRAM',Pd.vram,'/12G')}
+      <div style="flex:1;text-align:center;padding:0 6px">
+        <div style="font-size:8px;letter-spacing:1.8px;color:${p.dim}">NET</div>
+        <div style="font-family:${MONO};font-size:21px;font-weight:700;color:${p.acc2};line-height:1.35">↓${Pd.netD}<span style="font-size:9px;color:${p.dim};margin-left:2px">Mb/s</span></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:8px;color:${p.dim};border-top:1px solid ${p.line}">
+      <span>POWER <b style="color:${p.acc2}">210 W</b> · DISK <b style="color:${p.acc2}">540 / 120</b> · UPTIME <b style="color:${p.acc2}">${Pd.up}</b></span>
+      <span style="display:flex;align-items:center;gap:6px">${led(p.acc,6)} SYS READY</span>
+    </div>
+  </div>`;
+}
+
+/* ================= R03 Synthwave 84（LLM 横） ================= */
+function R03(){
+  const p={bg:'#140a24',sky:'#2a0b45',pink:'#ff2d95',cyan:'#00e5ff',amber:'#ffd166',violet:'#7a3cff',dim:'#8f7bb0',line:'#4a1f6b',panel:'#1a0b2e'};
+  const cx=120,cy=186,r=54,w=2*r,hh=r;
+  let slits='';
+  [0.42,0.58,0.72,0.84,0.93].forEach(function(t){
+    const y=hh*t,dy=hh-y,hw=Math.sqrt(Math.max(0,r*r-dy*dy));
+    slits+=`<rect x="${(r-hw).toFixed(1)}" y="${y.toFixed(1)}" width="${(2*hw).toFixed(1)}" height="2" fill="${p.sky}" opacity=".9"/>`;
+  });
+  const sun=`<svg width="${w}" height="${hh}" viewBox="0 0 ${w} ${hh}" style="position:absolute;left:${cx-r}px;top:${cy-r}px">
+    <defs><linearGradient id="g4sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${p.pink}"/><stop offset="1" stop-color="${p.amber}"/>
+    </linearGradient></defs>
+    <path d="M0 ${hh} A${r} ${r} 0 0 1 ${w} ${hh} Z" fill="url(#g4sun)"/>
+    ${slits}
+  </svg>`;
+  const cell=(i,label,val,pct,color)=>
+    `<div style="flex:1;padding:0 10px;border-left:${i?'1px solid '+p.line:'0'}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:8px;color:#b39ad4"><span>${label}</span><span style="color:#f2e9ff;font-weight:700">${val}</span></div>
+      <div style="margin-top:6px">${bar(pct,color,'#2c1240',4)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},#1d0b36);font-family:${FONT};color:#f4ecff">
+    <div style="position:absolute;left:0;top:0;right:0;height:186px;background:linear-gradient(180deg,${p.bg},${p.sky})"></div>
+    ${starField(480,110,26,7,'#c9b8ff')}
+    <div style="position:absolute;left:${cx-r-14}px;top:${cy-r-14}px;width:${2*r+28}px;height:${r+28}px;border-radius:50%;background:rgba(255,45,149,.12)"></div>
+    ${sun}
+    <div style="position:absolute;left:0;top:186px;right:0;height:134px;background:linear-gradient(180deg,#2a0b45,#110720)">
+      ${synthGrid(480,134,p.pink,.55)}
+    </div>
+    <div style="position:absolute;left:0;top:186px;width:480px;height:1px;background:${p.cyan};opacity:.85;box-shadow:0 0 8px ${p.cyan}"></div>
+
+    <div style="position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 18px">
+      <span style="font-size:9px;letter-spacing:3.4px;color:${p.pink}">SYNTHWAVE // 84</span>
+      <span style="display:flex;align-items:center;gap:7px;font-size:8px;color:${p.cyan};letter-spacing:1.4px">${led(p.cyan,5)} ${L.model}</span>
+    </div>
+
+    <div style="position:absolute;left:200px;top:44px;width:164px">
+      <div style="font-size:8px;letter-spacing:2.2px;color:${p.cyan}">DECODE SPEED</div>
+      <div style="display:flex;align-items:flex-end;gap:5px;margin-top:2px">
+        <div style="font-family:${MONO};font-size:50px;font-weight:700;line-height:.95;letter-spacing:-2px;color:#fff;text-shadow:0 0 18px rgba(255,45,149,.75)">${L.decode}</div>
+        <div style="font-size:9px;color:${p.dim};padding-bottom:5px">tok/s</div>
+      </div>
+      <div style="font-size:8px;color:#b39ad4;margin-top:5px;white-space:nowrap">AVG 38.1 · PEAK 58.9 · TTFT 0.32s</div>
+      <div style="margin-top:7px">${spark(158,36,series(22,42,8,21),p.pink,{fill:true,dot:true,grid:2})}</div>
+      <div style="font-size:8px;color:#b39ad4;margin-top:6px;white-space:nowrap">PREFILL 1860 t/s · CACHE 87%</div>
+    </div>
+
+    <div style="position:absolute;left:382px;top:44px;width:82px;text-align:center">
+      <div style="position:relative;width:78px;height:78px;margin:0 auto">
+        ${ringSVG(78,32,7,L.vramPct,p.cyan,'#2c1240')}
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div style="font-family:${MONO};font-size:15px;font-weight:700;color:#fff">${L.vram}</div>
+          <div style="font-size:8px;color:${p.dim}">/ ${L.vramTot}G</div>
+        </div>
+      </div>
+      <div style="font-size:8px;letter-spacing:2px;color:${p.cyan};margin-top:3px">VRAM</div>
+      <div style="font-size:8px;color:${p.dim};margin-top:2px">76%</div>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:244px;height:58px;background:rgba(20,10,36,.88);border:1px solid ${p.line};border-radius:8px;display:flex;align-items:center">
+      ${cell(0,'KV CACHE','61%',61,p.pink)}
+      ${cell(1,'QUEUE','2 / 4',20,p.cyan)}
+      ${cell(2,'CACHE HIT','87%',87,p.amber)}
+      ${cell(3,'POWER','312W',69,p.pink)}
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;bottom:0;height:18px;display:flex;align-items:center;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>UP ${L.uptime}</span><span style="color:${p.cyan}">${L.model}</span><span>TOTAL ${L.total} TOK</span>
+    </div>
+  </div>`;
+}
+
+/* ================= R04 Beige BIOS（PC 横） ================= */
+function R04(){
+  const p={bg:'#d8d2c4',bg2:'#cfc8b8',panel:'#e6e1d5',blue:'#1f3a93',rust:'#b45309',txt:'#2a2620',dim:'#6b6357',line:'#c3bcab'};
+  const tabs=['MAIN','ADVANCED','POWER','BOOT','EXIT'];
+  let tabHtml='';
+  tabs.forEach(function(t,i){
+    const act=i===0;
+    tabHtml+=`<div style="position:absolute;left:${14+i*89}px;top:32px;width:86px;height:22px;display:flex;align-items:center;justify-content:center;font-size:8px;letter-spacing:1.2px;font-weight:700;background:${act?p.blue:'#d2cbbb'};color:${act?'#f6f0e2':p.dim};border:1px solid ${act?p.blue:'#a89f8d'};border-bottom:0;border-radius:3px 3px 0 0">${t}</div>`;
+  });
+  const table=(x,title,rows)=>
+    `<div style="position:absolute;left:${x}px;top:126px;width:226px">
+      <div style="height:16px;background:${p.blue};color:#f2ecdc;font-size:8px;letter-spacing:2px;display:flex;align-items:center;padding:0 8px">${title}</div>
+      ${rows.map(function(r){
+        return `<div style="height:18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${p.line};padding:0 8px">
+          <span style="font-size:9px;color:${p.dim}">${r[0]}</span>
+          <span style="font-size:10px;font-weight:700;color:${r[2]||p.txt}">${r[1]}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,#ded8ca,${p.bg2});font-family:${MONO};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #a89f8d">
+      <span style="font-size:10px;font-weight:700;letter-spacing:2px;color:${p.blue}">BIOS SETUP UTILITY</span>
+      <span style="display:flex;align-items:center;gap:8px;font-size:8px;color:${p.dim}">PC-486DX2 ${led('#ff3b30',6)} <span style="color:${p.rust}">POWER</span></span>
+    </div>
+    ${tabHtml}
+    <div style="position:absolute;left:14px;right:14px;top:54px;height:1px;background:#a89f8d"></div>
+
+    <div style="position:absolute;left:14px;right:14px;top:62px;height:58px;background:${p.panel};border:1px solid #a89f8d;border-radius:2px;display:flex;align-items:center">
+      <div style="flex:1;padding:5px 12px;border-right:1px solid ${p.line}">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">CPU LOAD</div>
+        <div style="font-size:30px;font-weight:700;line-height:1.05;color:${p.blue}">${Pd.cpu}<span style="font-size:13px"> %</span></div>
+      </div>
+      <div style="flex:1;padding:5px 12px;border-right:1px solid ${p.line}">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">GPU LOAD</div>
+        <div style="font-size:30px;font-weight:700;line-height:1.05;color:${p.blue}">${Pd.gpu}<span style="font-size:13px"> %</span></div>
+      </div>
+      <div style="flex:1;padding:5px 12px">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">PACKAGE TEMP</div>
+        <div style="font-size:30px;font-weight:700;line-height:1.05;color:${p.rust}">${Pd.temp}<span style="font-size:13px"> °C</span></div>
+      </div>
+    </div>
+
+    ${table(14,'SYSTEM INFORMATION',[
+      ['CPU TYPE','486DX2-66'],
+      ['CPU FREQ',Pd.freq+' GHz'],
+      ['MEMORY',Pd.ram+' / '+Pd.ramTot+' MB'],
+      ['L2 CACHE','512 KB'],
+      ['PROCESSES','214']
+    ])}
+    ${table(240,'GRAPHICS &amp; I-O',[
+      ['GPU LOAD',Pd.gpu+' %',p.blue],
+      ['VRAM',Pd.vram+' / '+Pd.vramTot+' GB'],
+      ['COOLING',Pd.fanC+' RPM'],
+      ['DISK R/W','540 / 120'],
+      ['NETWORK','↓54 ↑8']
+    ])}
+
+    <div style="position:absolute;left:14px;right:14px;top:240px">
+      <div style="display:flex;justify-content:space-between;font-size:8px;letter-spacing:1px;color:${p.dim}"><span>MEMORY MAP</span><span>12.4 / 32 MB · 39%</span></div>
+      <div style="margin-top:4px">${seg(39,p.blue,p.line,40,9)}</div>
+    </div>
+    <div style="position:absolute;left:14px;right:14px;top:268px;font-size:8px;color:#7c7361;letter-spacing:.6px">Press DEL to enter SETUP · 640K OK · BIOS v4.51</div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:30px;background:${p.blue};display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:8px;letter-spacing:1px;color:#eee7d6">
+      <span>F1 HELP&nbsp;&nbsp; F10 SAVE&nbsp;&nbsp; ESC EXIT</span>
+      <span style="display:flex;align-items:center;gap:7px">HDD ${led('#ff3b30',6)} UPTIME ${Pd.up}</span>
+    </div>
+  </div>`;
+}
+
+/* ================= R05 Green Radar（LLM 横） ================= */
+function R05(){
+  const p={bg:'#04120a',acc:'#22c55e',acc2:'#6ef7a0',dim:'#2d6b46',line:'#143624',track:'#0f2c1b'};
+  const s=polar(100,100,92,0),e=polar(100,100,92,42);
+  const stat=(label,val)=>
+    `<div><div style="font-size:8px;letter-spacing:1.2px;color:${p.dim}">${label}</div><div style="font-family:${MONO};font-size:13px;font-weight:700;color:${p.acc2};line-height:1.4">${val}</div></div>`;
+  const srow=(label,pct,val)=>
+    `<div style="margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim}"><span>${label}</span><span style="color:${p.acc2}">${val}</span></div>
+      <div style="margin-top:3px">${bar(pct,p.acc,p.track,5)}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(160deg,#071c11,${p.bg});font-family:${MONO};color:${p.acc2}">
+    <div style="position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid ${p.line}">
+      <span style="font-size:9px;letter-spacing:3px;color:${p.acc2}">GREEN RADAR // INFERENCE</span>
+      <span style="display:flex;align-items:center;gap:7px;font-size:8px;color:${p.dim}">${led(p.acc,5)} ${L.model} · LIVE</span>
+    </div>
+
+    <div style="position:absolute;left:18px;top:42px;width:200px;height:200px">
+      <svg width="200" height="200" viewBox="0 0 200 200" style="display:block">
+        <circle cx="100" cy="100" r="92" fill="none" stroke="#29674a" stroke-width="1"/>
+        <circle cx="100" cy="100" r="70" fill="none" stroke="${p.line}" stroke-width="1"/>
+        <circle cx="100" cy="100" r="47" fill="none" stroke="${p.line}" stroke-width="1"/>
+        <circle cx="100" cy="100" r="24" fill="none" stroke="${p.line}" stroke-width="1"/>
+        <line x1="8" y1="100" x2="192" y2="100" stroke="#22573d" stroke-width="1"/>
+        <line x1="100" y1="8" x2="100" y2="192" stroke="#22573d" stroke-width="1"/>
+        ${ticks(100,100,84,92,0,360,36,p.acc,1,.45)}
+        <g class="g4spin" style="transform-origin:100px 100px;animation-duration:7s">
+          <path d="M100 100 L${s[0].toFixed(1)} ${s[1].toFixed(1)} A92 92 0 0 1 ${e[0].toFixed(1)} ${e[1].toFixed(1)} Z" fill="${p.acc}" opacity=".18"/>
+          <line x1="100" y1="100" x2="${s[0].toFixed(1)}" y2="${s[1].toFixed(1)}" stroke="${p.acc2}" stroke-width="1.2" opacity=".85"/>
+        </g>
+        <circle class="g4blink" cx="146" cy="68" r="3.2" fill="${p.acc2}"/>
+        <circle class="g4blink" cx="70" cy="128" r="2.6" fill="${p.acc}" style="animation-delay:.6s"/>
+        <circle class="g4blink" cx="128" cy="148" r="2.4" fill="${p.acc2}" style="animation-delay:1.2s"/>
+        <circle cx="100" cy="100" r="2" fill="${p.acc2}"/>
+      </svg>
+    </div>
+    <div style="position:absolute;left:18px;top:238px;width:196px;display:flex;justify-content:space-between;font-size:8px;color:${p.dim}">
+      <span>GPU 78% · 68°C</span><span>312W</span>
+    </div>
+
+    <div style="position:absolute;left:244px;top:42px;width:218px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:8px;letter-spacing:2px;color:${p.dim}">DECODE</span>
+        <span style="font-size:8px;color:${p.acc}">▲ 3.2%</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:5px">
+        <div style="font-size:44px;font-weight:700;line-height:1;color:${p.acc2};text-shadow:0 0 14px rgba(110,247,160,.4)">${L.decode}</div>
+        <div style="font-size:9px;color:${p.dim};padding-bottom:4px">tok/s</div>
+      </div>
+      <div style="height:1px;background:${p.line};margin:8px 0 7px"></div>
+      <div style="display:flex;justify-content:space-between">
+        ${stat('PREFILL','1860 t/s')}${stat('QUEUE','2 / 4')}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:7px">
+        ${stat('TTFT','0.32s')}${stat('KV CACHE','61%')}
+      </div>
+      <div style="height:1px;background:${p.line};margin:9px 0 8px"></div>
+      ${srow('VRAM','76','18.2 / 24G')}
+      ${srow('CACHE HIT','87','87%')}
+      ${srow('POWER','69','312W')}
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:260px">
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:${p.dim};margin-bottom:3px">
+        <span>DECODE / PREFILL · 32 SAMPLES</span><span style="color:${p.acc2}">AVG 38.1</span>
+      </div>
+      ${multiSpark(448,28,[{data:series(32,42,9,31),color:p.acc2},{data:series(32,30,6,44),color:p.acc}] )}
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:18px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:8px;color:${p.dim}">
+      <span>UP ${L.uptime}</span><span>TOTAL ${L.total} TOK · BATCH 4</span>
+    </div>
+  </div>`;
+}
+
+/* ================= R06 GameBoy Meter（PC 竖） ================= */
+function R06(){
+  const p={light:'#9bbc0f',mid:'#8bac0f',green:'#306230',dark:'#0f380f'};
+  const cell=(x,y,label,val,pct,sub,extra)=>
+    `<div style="position:absolute;left:${x}px;top:${y}px;width:138px;height:118px;border:2px solid ${p.green};border-radius:3px;background:${p.light};padding:7px 8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:8px;letter-spacing:1.4px;font-weight:700;color:${p.dark}">${label}</span>
+        <span style="font-size:8px;color:${p.green}">${sub}</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:2px;margin-top:1px">
+        <span style="font-size:32px;font-weight:700;line-height:1.05;color:${p.dark}">${val}</span>
+        <span style="font-size:11px;font-weight:700;color:${p.dark}">%</span>
+      </div>
+      <div style="margin-top:6px">${pixBar(pct,p.dark,'#7d9a0d',10,11)}</div>
+      ${extra||''}
+    </div>`;
+  const brow=(label,pct,val)=>
+    `<div style="display:flex;align-items:center;gap:8px;height:20px">
+      <span style="width:34px;font-size:8px;color:${p.dark}">${label}</span>
+      <div style="flex:1">${pixBar(pct,p.green,'#7d9a0d',12,8)}</div>
+      <span style="width:32px;text-align:right;font-size:8px;color:${p.dark}">${val}</span>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${p.light};font-family:${MONO};color:${p.dark}">
+    <div style="position:absolute;left:8px;top:8px;right:8px;bottom:8px;border:2px solid ${p.green};border-radius:6px"></div>
+    <div style="position:absolute;left:20px;right:20px;top:20px;height:26px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px;font-weight:700;letter-spacing:2px">GAME BOY</span>
+      <span style="font-size:8px;letter-spacing:1px;color:${p.green}">DOT MATRIX</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:50px;height:2px;background:${p.green}"></div>
+
+    ${cell(20,60,'CPU','34',34,'LOAD','<div style="font-size:8px;color:'+p.green+';margin-top:7px">4.82 GHz · 62°C</div>')}
+    ${cell(162,60,'GPU','71',71,'LOAD','<div style="font-size:8px;color:'+p.green+';margin-top:7px">1650 rpm · 67°C</div>')}
+    ${cell(20,186,'MEM','39',39,'12.4/32','<div style="font-size:8px;color:'+p.green+';margin-top:7px">VRAM 6.8 / 12</div>')}
+    ${cell(162,186,'BATT','82',82,'PACK','<div style="display:flex;align-items:center;gap:5px;margin-top:7px"><div style="width:24px;height:11px;border:2px solid '+p.green+';border-radius:2px;padding:1px"><div style="width:82%;height:100%;background:'+p.dark+'"></div></div><span style="font-size:8px;color:'+p.green+'">6h left</span></div>')}
+
+    <div style="position:absolute;left:20px;right:20px;top:312px;padding-top:6px;border-top:2px solid ${p.green};display:flex;justify-content:space-between;font-size:8px;color:${p.green}">
+      <span>LINK ● READY</span><span>214 PROC</span><span>141 FPS</span>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:334px">
+      ${brow('DISK',54,'540M')}
+      ${brow('NET',40,'54M')}
+    </div>
+
+    <div style="position:absolute;left:20px;right:20px;top:382px;display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <div style="font-size:8px;letter-spacing:1.4px;color:${p.green}">UPTIME</div>
+        <div style="font-size:23px;font-weight:700;line-height:1.2">${Pd.up}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:8px;letter-spacing:1.4px;color:${p.green}">POWER</div>
+        <div style="font-size:16px;font-weight:700">DC 5V</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;top:424px;display:flex;justify-content:center;gap:26px">
+      <div style="width:96px;height:24px;border:2px solid ${p.green};border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:8px;letter-spacing:2px;color:${p.dark};background:${p.mid}">SELECT</div>
+      <div style="width:96px;height:24px;border:2px solid ${p.green};border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:8px;letter-spacing:2px;color:${p.dark};background:${p.mid}">START</div>
+    </div>
+    <div style="position:absolute;left:20px;right:20px;top:452px;text-align:center;font-size:8px;color:${p.green};letter-spacing:.4px">DMG-04 · DOT MATRIX WITH STEREO SOUND</div>
+  </div>`;
+}
+
+/* ================= R07 Cassette Deck（LLM 竖） ================= */
+function R07(){
+  const p={bg:'#16130f',panel:'#221e18',cream:'#e8dfc9',ink:'#241d12',dim:'#8a7c63',line:'#3a332a',amber:'#ffb000',red:'#ff4d3d'};
+  const reel=(cx,cy,seed)=>
+    `<g>
+      <circle cx="${cx}" cy="${cy}" r="22" fill="none" stroke="#6b5f4a" stroke-width="1.4"/>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="none" stroke="${p.cream}" stroke-width="6" opacity=".26"/>
+      <circle cx="${cx}" cy="${cy}" r="8" fill="none" stroke="${p.cream}" stroke-width="1.8" opacity=".9"/>
+      <g class="g4spin" style="transform-origin:${cx}px ${cy}px;animation-duration:${8+seed}s">
+        <line x1="${cx-7}" y1="${cy}" x2="${cx+7}" y2="${cy}" stroke="${p.cream}" stroke-width="1.2" opacity=".75"/>
+        <line x1="${cx-3.5}" y1="${cy-6}" x2="${cx+3.5}" y2="${cy+6}" stroke="${p.cream}" stroke-width="1.2" opacity=".75"/>
+        <line x1="${cx+3.5}" y1="${cy-6}" x2="${cx-3.5}" y2="${cy+6}" stroke="${p.cream}" stroke-width="1.2" opacity=".75"/>
+      </g>
+    </g>`;
+  const key=(x,label,icon)=>
+    `<div style="position:absolute;left:${x}px;top:296px;width:46px;height:36px;background:#2a241d;border:1px solid #4a4033;border-radius:3px;display:flex;align-items:center;justify-content:center">${icon}</div>
+     <div style="position:absolute;left:${x}px;top:336px;width:46px;text-align:center;font-size:8px;color:${p.dim};letter-spacing:.6px">${label}</div>`;
+  const tri=(dir,color)=>
+    `<div style="width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;${dir==='l'?'border-right:9px solid '+color:'border-left:9px solid '+color}"></div>`;
+  const cell=(label,val)=>
+    `<div style="flex:1;text-align:center;border-right:1px solid ${p.line}">
+      <div style="font-size:8px;color:${p.dim};letter-spacing:1px">${label}</div>
+      <div style="font-size:12px;font-weight:700;color:${p.cream};margin-top:2px">${val}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,#1b1712,${p.bg});font-family:${FONT};color:${p.cream}">
+    <div style="position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid ${p.line}">
+      <span style="font-size:9px;letter-spacing:2.6px;color:${p.cream}">CASSETTE DECK</span>
+      <span style="font-size:8px;color:${p.dim};letter-spacing:1px">RX-84</span>
+    </div>
+
+    <div style="position:absolute;left:16px;top:40px;width:288px;height:88px;border:2px solid #6b5f4a;border-radius:5px;background:linear-gradient(180deg,#241f18,#171310)">
+      <div style="position:absolute;left:0;right:0;top:5px;text-align:center;font-size:8px;letter-spacing:1.4px;color:${p.dim}">TYPE II · HIGH BIAS · 90 MIN</div>
+      <svg width="288" height="88" viewBox="0 0 288 88" style="position:absolute;left:0;top:0">
+        <line x1="88" y1="52" x2="200" y2="52" stroke="${p.cream}" stroke-width="1" opacity=".25"/>
+        ${reel(52,52,2)}
+        ${reel(236,52,5)}
+      </svg>
+      <div style="position:absolute;left:100px;top:36px;width:88px;text-align:center">
+        <div style="font-family:${MONO};font-size:22px;font-weight:700;color:${p.amber};line-height:1;text-shadow:0 0 10px rgba(255,176,0,.35)">${L.decode}</div>
+        <div style="font-size:8px;color:${p.dim};margin-top:2px">tok / s</div>
+        <div style="font-size:8px;color:${p.cream};margin-top:3px;letter-spacing:1.2px">SIDE A</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:14px;top:134px;width:138px;height:90px;background:${p.cream};border:2px solid #0f0d0a;border-radius:4px;box-shadow:inset 0 0 10px rgba(0,0,0,.35)">
+      ${vuMeter(134,86,70)}
+      <div style="position:absolute;left:8px;top:6px;font-size:8px;letter-spacing:1.2px;color:#5a4c33;font-weight:700">DECODE</div>
+      <div style="position:absolute;right:8px;top:6px;font-family:${MONO};font-size:10px;font-weight:700;color:#241d12">42.3</div>
+    </div>
+    <div style="position:absolute;left:168px;top:134px;width:138px;height:90px;background:${p.cream};border:2px solid #0f0d0a;border-radius:4px;box-shadow:inset 0 0 10px rgba(0,0,0,.35)">
+      ${vuMeter(134,86,78)}
+      <div style="position:absolute;left:8px;top:6px;font-size:8px;letter-spacing:1.2px;color:#5a4c33;font-weight:700">PREFILL</div>
+      <div style="position:absolute;right:8px;top:6px;font-family:${MONO};font-size:10px;font-weight:700;color:#241d12">1860</div>
+    </div>
+
+    <div style="position:absolute;left:16px;top:232px;width:288px;height:56px;background:#0d0b09;border:1px solid ${p.line};border-radius:4px;display:flex;align-items:center;padding:0 12px">
+      <div style="width:112px">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">TAPE COUNTER</div>
+        <div style="font-size:8px;color:${p.cream};margin-top:2px">TOTAL TOKENS</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:3px">
+        <div style="width:24px;height:34px;background:${p.cream};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${MONO};font-size:21px;font-weight:700;color:${p.ink}">1</div>
+        <div style="width:12px;height:34px;background:${p.cream};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${MONO};font-size:19px;font-weight:700;color:${p.ink}">.</div>
+        <div style="width:24px;height:34px;background:${p.cream};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${MONO};font-size:21px;font-weight:700;color:${p.ink}">2</div>
+        <div style="width:24px;height:34px;background:${p.cream};border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:${MONO};font-size:21px;font-weight:700;color:${p.ink}">8</div>
+      </div>
+      <div style="font-family:${MONO};font-size:16px;font-weight:700;color:${p.amber};margin-left:4px">B</div>
+    </div>
+
+    ${key(31,'REW',tri('l',p.cream)+tri('l',p.cream))}
+    ${key(83,'PLAY',tri('r',p.amber))}
+    ${key(135,'REC','<div style="width:11px;height:11px;border-radius:50%;background:'+p.red+';box-shadow:0 0 6px '+p.red+'"></div>')}
+    ${key(187,'F.FWD',tri('r',p.cream)+tri('r',p.cream))}
+    ${key(239,'STOP','<div style="width:10px;height:10px;background:'+p.cream+'"></div>')}
+
+    <div style="position:absolute;left:16px;top:356px;width:288px;height:40px;background:${p.panel};border:1px solid ${p.line};border-radius:4px;display:flex;align-items:center">
+      ${cell('KV','61%')}${cell('VRAM','18.2G')}${cell('TEMP','68°C')}
+      <div style="flex:1;text-align:center">
+        <div style="font-size:8px;color:${p.dim}">PWR</div>
+        <div style="font-size:12px;font-weight:700;color:${p.cream};margin-top:2px">312W</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:404px;display:flex;justify-content:space-between;font-size:8px;color:${p.dim};font-family:${MONO}">
+      <span>PREFILL <b style="color:${p.cream}">1860</b> t/s</span>
+      <span>TTFT <b style="color:${p.cream}">0.32s</b></span>
+      <span>CACHE <b style="color:${p.amber}">87%</b></span>
+    </div>
+    <div style="position:absolute;left:16px;right:16px;top:420px;display:flex;justify-content:space-between;font-size:8px;color:${p.dim};font-family:${MONO}">
+      <span>AVG <b style="color:${p.cream}">38.1</b></span><span>PEAK <b style="color:${p.cream}">58.9</b></span><span>QUEUE <b style="color:${p.cream}">2/4</b></span>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:44px;border-top:1px solid ${p.line};display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">AUTO REVERSE · DOLBY NR · TYPE II</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:8px;color:${p.cream}">${led(p.amber,5)} ${L.model}</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:8px;color:${p.dim};font-family:${MONO}">
+        <span>UPTIME ${L.uptime}</span><span>QUEUE 2/4 · BATCH 4</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ================= R08 LED Matrix（PC 竖） ================= */
+function R08(){
+  const p={bg:'#08090a',red:'#ff3b30',amber:'#ffb000',off:'#2a1414',dim:'#7a3a26',line:'#2a1512'};
+  const barRow=(label,pct,val)=>
+    `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:8px;letter-spacing:1.2px;color:${p.dim};margin-bottom:4px"><span>${label}</span><span style="color:${p.amber}">${val}</span></div>
+      ${dotsRow(pct,p.red,p.off,24,8,4)}
+    </div>`;
+  const cell=(label,val)=>
+    `<div style="width:142px;height:30px;display:flex;flex-direction:column;justify-content:center">
+      <div style="font-size:8px;letter-spacing:1px;color:${p.dim}">${label}</div>
+      <div style="font-size:13px;font-weight:700;color:#f2e6df;line-height:1.3">${val}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${p.bg};font-family:${MONO};color:#f2e6df">
+    ${gridBG(320,480,p.red,24,.05)}
+    <div style="position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid ${p.line}">
+      <span style="font-size:9px;letter-spacing:3.4px;color:${p.red}">LED MATRIX</span>
+      <span style="font-size:8px;letter-spacing:1.4px;color:${p.dim}">SYSTEM / PC-04</span>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:42px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:8px;letter-spacing:2.2px;color:${p.amber}">CPU UTILIZATION</span>
+      <span style="display:flex;align-items:center;gap:6px;font-size:8px;color:${p.dim}">${led(p.red,5)} LIVE</span>
+    </div>
+
+    <div style="position:absolute;left:96px;top:58px">${dotNum('34',p.red,p.off,12,4.2)}</div>
+    <div style="position:absolute;left:230px;top:64px;font-size:22px;font-weight:700;color:${p.amber}">%</div>
+    <div style="position:absolute;left:230px;top:92px;font-size:8px;letter-spacing:1.4px;color:${p.dim}">LOAD</div>
+    <div style="position:absolute;left:18px;top:148px;font-size:8px;letter-spacing:1px;color:${p.dim}">4.82 GHz · 62 °C · 1.28 V</div>
+
+    <div style="position:absolute;left:18px;right:18px;top:172px">
+      ${barRow('GPU LOAD',71,'71%')}
+      ${barRow('MEMORY',39,'12.4 / 32G')}
+      ${barRow('DISK I/O',54,'540 / 120')}
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:280px;height:1px;background:${p.line}"></div>
+    <div style="position:absolute;left:16px;top:288px;display:flex;flex-wrap:wrap;row-gap:4px">
+      ${cell('PACKAGE TEMP','62 °C')}${cell('COOLING','1650 rpm')}
+      ${cell('POWER DRAW','210 W')}${cell('VRAM','6.8 / 12G')}
+      ${cell('NETWORK','↓54 ↑8')}${cell('PROCESSES','214')}
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:394px;display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">UPTIME</div>
+        <div style="font-size:26px;font-weight:700;line-height:1.15;color:${p.amber}">${Pd.up}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:8px;letter-spacing:1.2px;color:${p.dim}">FRAME</div>
+        <div style="font-size:18px;font-weight:700;line-height:1.2">141 <span style="font-size:8px;color:${p.dim}">FPS</span></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:18px;right:18px;top:440px;display:flex;align-items:center;justify-content:space-between;font-size:8px;color:${p.dim}">
+      <span>FAN 1200 · BATT 82%</span>
+      <span style="display:flex;align-items:center;gap:5px">${led(p.red,5)} MATRIX OK</span>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:18px;display:flex;align-items:center;justify-content:center;font-size:8px;letter-spacing:2px;color:#5a2a20">5×7 DOT MATRIX DISPLAY</div>
+  </div>`;
+}
+
+/* ================= R09 Synthwave Portrait（LLM 竖） ================= */
+function R09(){
+  const p={bg:'#140a24',pink:'#ff2d95',cyan:'#00e5ff',amber:'#ffd166',violet:'#7a3cff',dim:'#8f7bb0',line:'#4a1f6b'};
+  const bottom=226,top=108,r=118,rows=19,bandH=(bottom-top)/rows;
+  let sun='';
+  for(let row=0;row<rows;row++){
+    const y=bottom-(row+1)*bandH;
+    const dy=bottom-(y+bandH/2);
+    const hw=Math.sqrt(Math.max(0,r*r-dy*dy));
+    const shade=.5+.5*((row+1)/rows);
+    for(let x=-120;x<hw-2;x+=8){
+      const cx=x+4;
+      if(Math.abs(cx)>hw-2) continue;
+      const t=Math.min(1,Math.abs(cx)/r);
+      const col=t<.5?lerpColor(p.amber,p.pink,t/.5):lerpColor(p.pink,p.violet,(t-.5)/.5);
+      sun+=`<div style="position:absolute;left:${160+x}px;top:${y.toFixed(1)}px;width:8px;height:${(bandH-.8).toFixed(1)}px;background:${lerpColor('#1a0a2e',col,shade)}"></div>`;
+    }
+  }
+  const cell=(label,val,sub)=>
+    `<div style="width:138px;height:42px;border:1px solid ${p.line};border-radius:4px;background:#1c0d30;padding:5px 8px">
+      <div style="font-size:8px;letter-spacing:1.2px;color:#b98ce0">${label}</div>
+      <div style="display:flex;align-items:baseline;gap:3px">
+        <span style="font-family:${MONO};font-size:15px;font-weight:700;color:#f6ecff;line-height:1.4">${val}</span>
+        <span style="font-size:8px;color:${p.dim}">${sub}</span>
+      </div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:${p.bg};font-family:${FONT};color:#f6ecff">
+    <div style="position:absolute;left:0;top:0;right:0;height:226px;background:linear-gradient(180deg,#140a24,#2a0b45)"></div>
+    ${starField(320,96,18,19,'#d8c6ff')}
+    ${sun}
+    <div style="position:absolute;left:0;top:225px;width:320px;height:2px;background:${p.cyan};opacity:.6;box-shadow:0 0 8px ${p.cyan}"></div>
+
+    <div style="position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px">
+      <span style="font-size:9px;letter-spacing:3.4px;color:${p.pink}">SYNTHWAVE</span>
+      <span style="font-family:${MONO};font-size:10px;color:${p.cyan}">84</span>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:236px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:8px;letter-spacing:2px;color:#ff9ecf">
+        <span>DECODE SPEED</span><span style="color:${p.dim};letter-spacing:1px">${L.model}</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:5px;margin-top:1px">
+        <div style="font-family:${MONO};font-size:54px;font-weight:700;line-height:.95;letter-spacing:-2px;color:#fff;text-shadow:0 0 20px rgba(255,45,149,.8)">${L.decode}</div>
+        <div style="font-size:9px;color:${p.dim};padding-bottom:6px">tok/s</div>
+      </div>
+      <div style="font-size:8px;color:#b9a6d6;margin-top:5px;white-space:nowrap">AVG 38.1 · PEAK 58.9 · PREFILL 1860 · TTFT 0.32s</div>
+    </div>
+
+    <div style="position:absolute;left:16px;top:322px;display:flex;flex-wrap:wrap;gap:6px">
+      ${cell('VRAM','18.2','/ 24G')}${cell('KV CACHE','61','%')}
+      ${cell('POWER','312','W')}${cell('QUEUE','2','/ 4')}
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:424px;display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">UPTIME</div>
+        <div style="font-family:${MONO};font-size:18px;font-weight:700;color:#f4e9ff;line-height:1.3">${L.uptime}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">TOTAL TOKENS</div>
+        <div style="font-family:${MONO};font-size:18px;font-weight:700;color:${p.amber};line-height:1.3">${L.total}</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:26px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:8px;color:${p.dim};letter-spacing:1px">
+      <span>INFERENCE · SIDE A</span><span style="display:flex;align-items:center;gap:5px">${led(p.pink,5)} LIVE</span>
+    </div>
+  </div>`;
+}
+
+/* ================= R10 Amber Column（PC 竖） ================= */
+function R10(){
+  const p={bg:'#171006',acc:'#ffb000',acc2:'#ffd166',dim:'#a1761f',track:'#33240c',line:'#3a2a10',red:'#ff5a3c'};
+  const col=(x,label,pct,val,sub)=>
+    `<div style="position:absolute;left:${x}px;top:124px;width:68px">
+      <div style="text-align:center;font-size:8px;letter-spacing:1.6px;color:${p.dim}">${label}</div>
+      <div style="position:relative;margin-top:8px;height:166px;display:flex;flex-direction:column-reverse;gap:2px">
+        ${(function(){
+          const on=Math.round(pct/100*12);let s='';
+          for(let i=0;i<12;i++) s+=`<div style="height:12px;border-radius:1px;background:${i<on?p.acc:p.track}"></div>`;
+          return s;
+        })()}
+        <div style="position:absolute;left:-4px;right:-4px;bottom:${(0.8*166).toFixed(0)}px;height:1px;background:${p.red};opacity:.65"></div>
+      </div>
+      <div style="text-align:center;margin-top:7px;font-size:15px;font-weight:700;color:${p.acc2}">${val}</div>
+      <div style="text-align:center;font-size:8px;color:${p.dim};margin-top:1px">${sub}</div>
+    </div>`;
+  const cell=(label,val)=>
+    `<div style="width:142px;height:31px">
+      <div style="font-size:8px;letter-spacing:1px;color:${p.dim}">${label}</div>
+      <div style="font-size:13px;font-weight:700;color:${p.acc2};line-height:1.3">${val}</div>
+    </div>`;
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,#1c1307,${p.bg});font-family:${MONO};color:${p.acc}">
+    ${scanlines(320,480,4,'#000000',.14)}
+    <div style="position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid ${p.line}">
+      <span style="font-size:9px;letter-spacing:2.8px;color:${p.acc2}">AMBER COLUMN</span>
+      <span style="display:flex;align-items:center;gap:6px;font-size:8px;color:${p.dim}">PC-04 ${led(p.acc,5)}</span>
+    </div>
+
+    <div style="position:absolute;left:16px;top:40px;width:180px">
+      <div style="font-size:8px;letter-spacing:2px;color:${p.dim}">PACKAGE TEMP</div>
+      <div style="position:relative;height:58px;margin-top:2px">
+        <div style="position:absolute;left:0;top:0;font-size:54px;font-weight:700;line-height:1;letter-spacing:-2px;color:#2b1f0b">88</div>
+        <div style="position:absolute;left:0;top:0;font-size:54px;font-weight:700;line-height:1;letter-spacing:-2px;color:${p.acc};text-shadow:0 0 18px rgba(255,176,0,.4)">62<span style="font-size:18px;letter-spacing:0">°C</span></div>
+      </div>
+    </div>
+    <div style="position:absolute;right:16px;top:44px;text-align:right">
+      <div style="font-size:8px;letter-spacing:1.2px;color:${p.dim}">THRESHOLD</div>
+      <div style="font-size:15px;font-weight:700;color:${p.acc2};line-height:1.4">90 °C</div>
+      <div style="font-size:8px;letter-spacing:1px;color:${p.acc};margin-top:3px">NORMAL</div>
+      <div style="display:flex;justify-content:flex-end;gap:4px;margin-top:5px">${led(p.acc,4)}${led(p.acc,4)}${led('#3a2a10',4)}${led('#3a2a10',4)}</div>
+    </div>
+    <div style="position:absolute;left:16px;right:16px;top:114px;height:1px;background:${p.line}"></div>
+
+    ${col(44,'TEMP',62,'62°C','DIE')}
+    ${col(126,'POWER',70,'210W','PKG')}
+    ${col(208,'LOAD',34,'34%','CPU')}
+
+    <div style="position:absolute;left:16px;top:352px;display:flex;flex-wrap:wrap;row-gap:4px">
+      ${cell('FREQUENCY','4.82 GHz')}${cell('COOLING','1200 rpm')}
+      ${cell('VRAM','6.8 / 12G')}${cell('NETWORK','↓54 ↑8')}
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:424px;display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <div style="font-size:8px;letter-spacing:1.6px;color:${p.dim}">UPTIME</div>
+        <div style="font-size:24px;font-weight:700;color:${p.acc2};line-height:1.2">${Pd.up}</div>
+      </div>
+      <div style="text-align:right;font-size:8px;color:${p.dim};line-height:1.9">
+        <div>214 PROCESSES</div><div>141 FPS · 82% BATT</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:24px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:8px;color:${p.dim};letter-spacing:1px">
+      <span>AMBER OS 4.2</span><span style="display:flex;align-items:center;gap:5px">${led(p.acc,5)} SYS OK</span>
+    </div>
+  </div>`;
+}
+
+/* ================= 主题清单 ================= */
+const THEMES=[
+  {id:'R01',name:'Amber Terminal',ori:'L',cat:'LLM 服务器',style:'琥珀单色 CRT 终端',render:R01,
+   pal:['#1a1206','#ffb000','#ffd166','#8a6a22'],
+   hier:'DECODE 42.3 为唯一超大主值 → 四条 ASCII 方块条（GPU/显存/KV/预填）→ 右栏状态灯、uptime 与累计量 → 底部机型与温度功耗。',
+   art:'琥珀单色、等宽字体、█ 方块字符条、1px 扫描线与暗角、终端提示行闪烁光标、细竖分割线。',
+   motion:'提示行光标 1.1s 硬闪；状态 LED 2.2s 呼吸；无大面积动画。',
+   tags:'lv_label(mono) / lv_bar(custom draw) / lv_led / lv_obj'},
+  {id:'R02',name:'VFD Deck',ori:'L',cat:'电脑性能',style:'VFD 荧光分段读数面板',render:R02,
+   pal:['#061014','#4ff2e0','#9ffff5','#0b3a3f'],
+   hier:'CPU 34% 与 GPU 71% 双大号荧光读数 → VU 双条与 dB 刻度 → 温度/风扇/显存/网络四舱 → 底部功耗与运行时长。',
+   art:'黑色面板、青色荧光数字（含未点亮的 88 残影）、28 段 VU 条、1px 竖栅格、右上时间。',
+   motion:'VU 峰值段 1.6s 呼吸；LED 呼吸；数字保持静止，避免荧光抖动。',
+   tags:'lv_label / lv_bar(segmented) / lv_led / lv_obj'},
+  {id:'R03',name:'Synthwave 84',ori:'L',cat:'LLM 服务器',style:'合成波日落 · 透视地平线',render:R03,
+   pal:['#140a24','#ff2d95','#00e5ff','#ffd166'],
+   hier:'右上解码 42.3 → VRAM 圆环 → 左下半圆太阳与透视网格为背景 → 底部四条细条承载 KV/队列/缓存/功耗。',
+   art:'洋红与青双色、半圆太阳（2px 横向缝隙）、放射细线网格、星点、细折线与霓虹描边。',
+   motion:'折线端点闪烁；太阳与网格静止；底部条 250ms 缓动。',
+   tags:'lv_arc / lv_chart / lv_bar / lv_canvas(可选)'},
+  {id:'R04',name:'Beige BIOS',ori:'L',cat:'电脑性能',style:'90s BIOS 米色设置页',render:R04,
+   pal:['#d8d2c4','#1f3a93','#b45309','#2a2620'],
+   hier:'顶部选项卡 → CPU/GPU/温度三格大字摘要 → 左右两张 BIOS 表（系统信息 / 图形与 I-O）→ 内存分段条 → 蓝色快捷键栏。',
+   art:'米色面板、深蓝粗表头与页脚、1px 米灰分隔线、红色 LED、等宽字、直角分区。',
+   motion:'HDD 红灯 1.6s 闪烁；数值静态；选项卡仅高亮切换（开发可选）。',
+   tags:'lv_obj(tabs) / lv_table / lv_bar / lv_led'},
+  {id:'R05',name:'Green Radar',ori:'L',cat:'LLM 服务器',style:'绿色荧光雷达',render:R05,
+   pal:['#04120a','#22c55e','#6ef7a0','#2d6b46'],
+   hier:'左侧雷达为主体 → 右侧解码 42.3 大数 → 2×2 预填/队列/TTFT/KV → 三条细条（显存/缓存/功耗）→ 底部双序列历史。',
+   art:'单色绿荧光、四重同心圆与十字准线、42° 扇形扫描、错峰光点、等宽字与 1px 网格。',
+   motion:'扇形 7s 旋转；三枚光点错峰闪烁；数值 300ms 缓动。',
+   tags:'lv_canvas / lv_arc / lv_chart / lv_label'},
+  {id:'R06',name:'GameBoy Meter',ori:'P',cat:'电脑性能',style:'四阶绿掌机状态页',render:R06,
+   pal:['#9bbc0f','#8bac0f','#306230','#0f380f'],
+   hier:'2×2 四块（CPU/GPU/内存/电池）各含大数与像素块条 → 状态行 → 磁盘/网络细条 → uptime 与 SELECT/START 键。',
+   art:'四阶 GameBoy 绿、方块像素条、2px 深绿描边、点阵电池图标、圆角胶囊按键。',
+   motion:'电源 LED 呼吸；像素条逐格点亮 200ms；其余静止。',
+   tags:'lv_bar(custom blocks) / lv_label / lv_led / lv_btn'},
+  {id:'R07',name:'Cassette Deck',ori:'P',cat:'LLM 服务器',style:'双 VU 磁带机面板',render:R07,
+   pal:['#16130f','#e8dfc9','#ffb000','#ff4d3d'],
+   hier:'磁带窗内嵌 42.3 小屏与双卷轴 → 双 VU 表（解码/预填）→ 机械计数器总量 1.28B → 传输键与四格读数 → 品牌底栏。',
+   art:'深棕面板、米色表盘配黑针与红色过载区、旋转卷轴、方块+三角按键、米色数字牌计数器。',
+   motion:'卷轴 10–13s 慢转；指针 ±1.2° 微摆；LED 呼吸。',
+   tags:'lv_meter ×2 / lv_label / lv_obj / lv_led'},
+  {id:'R08',name:'LED Matrix',ori:'P',cat:'电脑性能',style:'5×7 点阵显示',render:R08,
+   pal:['#08090a','#ff3b30','#ffb000','#2a1414'],
+   hier:'点阵 CPU 34% 为唯一主视觉 → 三条 24 点阵条（GPU/内存/磁盘）→ 2×3 传感器格 → uptime 与底部状态。',
+   art:'黑底 5×7 点阵数字（保留未亮点）、24 点条、红主色配琥珀辅色、细点网格底纹。',
+   motion:'点阵数字整体 2s 轻微呼吸；LED 闪烁；点条逐格点亮 200ms。',
+   tags:'lv_canvas(dot matrix) / lv_label / lv_bar / lv_led'},
+  {id:'R09',name:'Synthwave Portrait',ori:'P',cat:'LLM 服务器',style:'竖向条纹日落海报',render:R09,
+   pal:['#140a24','#ff2d95','#ffd166','#00e5ff'],
+   hier:'竖向条纹日落占据上半屏 → 42.3 解码大字 → 2×2 读数（显存/KV/功耗/队列）→ 底部 uptime 与累计令牌。',
+   art:'23 根竖条由细矩形堆叠成半圆日落、琥珀到洋红到紫的横向渐变、青色地平线与三条细横线、星点。',
+   motion:'星点呼吸；日落静止；数值淡入。',
+   tags:'lv_obj(rect stack) / lv_label / lv_bar / lv_led'},
+  {id:'R10',name:'Amber Column',ori:'P',cat:'电脑性能',style:'琥珀竖排分段柱',render:R10,
+   pal:['#171006','#ffb000','#ffd166','#ff5a3c'],
+   hier:'顶部 62°C 大温度 → 三根 12 段竖柱（温度/功耗/负载）→ 2×2 频率/风扇/显存/网络 → uptime 与底部状态。',
+   art:'琥珀单色、12 段竖柱、80% 红色警戒细线、未点亮数字残影、1px 扫描线、等宽字。',
+   motion:'柱段逐格点亮 180ms；LED 呼吸；温度超阈值时数字闪烁（开发可选）。',
+   tags:'lv_bar(vertical segmented) / lv_label / lv_led / lv_obj'}
+];
+
+/* ================= 渲染画廊 ================= */
+const app=document.getElementById('app');
+const cards=THEMES.map(function(t){
+  return `<article class="card" id="card-${t.id}">
+    <div class="meta">
+      <span class="id">${t.id}</span>
+      <b>${t.name}</b>
+      <span style="font-size:10px;color:#8a7c63">${t.cat}</span>
+      <span class="ori">${t.ori==='L'?'横屏 480×320':'竖屏 320×480'}</span>
+    </div>
+    ${t.render()}
+    <div class="spec">
+      <div class="swatches"><i style="background:${t.pal[0]}"></i><i style="background:${t.pal[1]}"></i><i style="background:${t.pal[2]}"></i><i style="background:${t.pal[3]}"></i><code>${t.pal.join('  ')}</code></div>
+      <div><b>信息层级</b>${t.hier}</div>
+      <div><b>图形元素</b>${t.art}</div>
+      <div><b>动效</b>${t.motion}</div>
+      <div><b>LVGL 映射</b><code>${t.tags}</code></div>
+    </div>
+  </article>`;
+}).join('');
+app.innerHTML=`<div class="gallery">${cards}</div>`;
+
+window.__pick=function(){
+  const list=[].slice.call(document.querySelectorAll('.card'));
+  list.forEach(function(c){c.classList.remove('pick');});
+  const c=list[Math.floor(Math.random()*list.length)];
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('pick');
+  setTimeout(function(){c.classList.remove('pick');},2800);
+};
+document.addEventListener('keydown',function(e){
+  if(e.key==='r'||e.key==='R') window.__pick();
+});
+</script>
+</body>
+</html>

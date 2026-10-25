@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LVGL 性能监视屏 · 主题抽卡（10 选）</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#080a0e;color:#dbe4ef;font-family:'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif}
+  .top{max-width:1180px;margin:0 auto;padding:32px 24px 6px}
+  h1{font-size:21px;margin:0 0 8px;letter-spacing:.3px}
+  .lead{font-size:12.5px;line-height:1.85;color:#8b98ab;max-width:900px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+  .chip{font-size:11px;border:1px solid #232c3a;background:#0f141d;border-radius:99px;padding:4px 11px;color:#9fb0c6}
+  button{margin-left:auto;background:#ffd54a;color:#141414;border:0;border-radius:99px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+  button:active{transform:translateY(1px)}
+  .gallery{max-width:1180px;margin:0 auto;padding:20px 24px 70px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+  .card{background:#0d1118;border:1px solid #1d2635;border-radius:18px;padding:12px;width:max-content;max-width:100%;transition:border-color .35s,box-shadow .35s}
+  .card:hover{border-color:#2c3a4f}
+  .card.pick{border-color:#ffd54a;box-shadow:0 0 0 3px rgba(255,213,74,.18)}
+  .meta{display:flex;align-items:center;gap:10px;padding:2px 6px 10px;font-size:12px;color:#8b98ab}
+  .meta .id{font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#6f8099;border:1px solid #1f2939;background:#0a0e15;border-radius:6px;padding:2px 6px}
+  .meta b{font-size:13px;color:#f2f6fb;font-weight:650}
+  .meta .ori{margin-left:auto;font-size:10px;color:#63748c;letter-spacing:.5px}
+  .scr{position:relative;overflow:hidden;border-radius:12px;display:block;border:1px solid #1a2230}
+  .scr,.scr *{box-sizing:border-box}
+  .spec{margin-top:12px;padding:4px 6px 2px;display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.65;color:#93a1b5;max-width:480px}
+  .spec b{color:#cfd9e6;font-weight:600;margin-right:7px}
+  .spec code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#7f93ad}
+  .swatches{display:flex;align-items:center;gap:6px}
+  .swatches i{width:24px;height:14px;border-radius:4px;display:block;border:1px solid rgba(255,255,255,.08)}
+  .swatches code{margin-left:4px}
+  .led{animation:blink 2.2s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .orbit,.sweep{transform-box:view-box;animation:spin 12s linear infinite}
+  .orbit{animation-duration:18s}
+  .sweep{animation-duration:5s}
+  @keyframes sway{from{transform:rotate(-1.4deg)}to{transform:rotate(1.4deg)}}
+  .sway{animation:sway 3.6s ease-in-out infinite alternate}
+  .blink{animation:blink 1.6s ease-in-out infinite}
+  footer{max-width:1180px;margin:0 auto;padding:0 24px 50px;font-size:11px;color:#5c6b80;line-height:1.7}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>LVGL 性能监视屏 · 第 2 组：Instrument Lab</h1>
+  <p class="lead">
+    10 个精密仪器风格的监视屏：示波器、频谱仪、实验台万用表、XY 矢量示波、通道记录架与校准台。
+    冷峻、克制、测量感强——共享刻度与显式测量网格、虚线光标与 CH1/CH2 通道、括号读数、细轴与 1px 分隔线；
+    磷光绿 / 实验室浅色 / 琥珀仪器 / 冷灰四套配色。横屏 480×320 与竖屏 320×480 各 5 个，
+    全部只使用 LVGL 可实现元素（纯色、两段线性渐变、圆角、描边、阴影、圆弧、进度与分段条、折线/面积/柱状、LED、刻度、简单位移与透明度动画），
+    不含滤镜、毛玻璃、mask、conic-gradient 或 3D。每个主题下方附信息层级、图形语言、动效与 LVGL 控件映射。
+  </p>
+  <div class="bar">
+    <span class="chip">横屏 480×320 ×5</span>
+    <span class="chip">竖屏 320×480 ×5</span>
+    <span class="chip">LLM ×5</span>
+    <span class="chip">PC ×5</span>
+    <span class="chip">按 R 或点右侧按钮随机抽一张</span>
+    <button onclick="window.__pick()">随机抽一张</button>
+  </div>
+</header>
+
+<div id="app"></div>
+
+<footer>
+  提示：文字最小 8–9px 仅用于标签，正文 10–12px，关键数值 18–46px，保证在 480×320 的 IPS 小屏上清晰可读。
+  交给开发时可按“LVGL 映射”一栏直接落地；配色可直接作为 lv_style 的 color 值。
+</footer>
+
+<script>
+/* ================= 基础绘图助手（全部对应 LVGL 能力） ================= */
+const FONT="'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif";
+const MONO="'SF Mono','JetBrains Mono',Menlo,Consolas,monospace";
+
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+function arcD(cx,cy,r,a0,a1){
+  const s=polar(cx,cy,r,a0),e=polar(cx,cy,r,a1),big=(a1-a0)>180?1:0;
+  return `M${s[0].toFixed(2)} ${s[1].toFixed(2)}A${r} ${r} 0 ${big} 1 ${e[0].toFixed(2)} ${e[1].toFixed(2)}`;
+}
+function gauge(o){
+  const s=o.s,w=o.w||10,cx=s/2,cy=s/2,r=o.r||(s/2-w/2-2);
+  const a0=o.a0==null?225:o.a0,a1=o.a1==null?495:o.a1,pct=Math.max(0,Math.min(100,o.pct));
+  const endA=a0+(a1-a0)*pct/100;
+  let out=`<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">`;
+  out+=`<path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>`;
+  if(o.glow) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w+10}" stroke-linecap="round" opacity=".14"/>`;
+  if(pct>0) out+=`<path d="${arcD(cx,cy,r,a0,endA)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>`;
+  out+='</svg>';
+  return out;
+}
+function ticks(cx,cy,r1,r2,a0,a1,n,color,w,op){
+  let s='';const ww=w||1.5,oo=op==null?.4:op;
+  for(let i=0;i<=n;i++){
+    const a=a0+(a1-a0)*i/n,p1=polar(cx,cy,r1,a),p2=polar(cx,cy,r2,a);
+    s+=`<line x1="${p1[0].toFixed(1)}" y1="${p1[1].toFixed(1)}" x2="${p2[0].toFixed(1)}" y2="${p2[1].toFixed(1)}" stroke="${color}" stroke-width="${ww}" opacity="${i%5===0?Math.min(1,oo+.4):oo}"/>`;
+  }
+  return s;
+}
+function needleGauge(o){
+  const s=o.s,w=o.w||7,cx=s/2,cy=s/2,a0=225,a1=495,r=cx-w-8;
+  const pct=Math.max(0,Math.min(100,o.pct)),ang=a0+(a1-a0)*pct/100;
+  const np=polar(cx,cy,r-22,ang);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" style="display:block">
+    <path d="${arcD(cx,cy,r,a0,a1)}" fill="none" stroke="${o.track}" stroke-width="${w}" stroke-linecap="round"/>
+    <path d="${arcD(cx,cy,r,a0+(a1-a0)*0.88,a1)}" fill="none" stroke="${o.redline||'#ff3b30'}" stroke-width="${w}" stroke-linecap="round" opacity=".8"/>
+    <path d="${arcD(cx,cy,r,a0,ang)}" fill="none" stroke="${o.color}" stroke-width="${w}" stroke-linecap="round"/>
+    ${ticks(cx,cy,r-9,r-3,a0,a1,27,o.tick||'#777',1.1,.28)}
+    <g class="sway" style="transform-origin:${cx}px ${cy}px">
+      <line x1="${cx}" y1="${cy}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="${o.needle||'#fff'}" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="${cx}" cy="${cy}" r="4.5" fill="${o.needle||'#fff'}"/>
+    </g>
+  </svg>`;
+}
+function ringSVG(size,r,w,pct,color,track){
+  const c=2*Math.PI*r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${track}" stroke-width="${w}"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"
+      stroke-dasharray="${(c*Math.max(0,Math.min(100,pct))/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>
+  </svg>`;
+}
+function ringStack(size,list,track){
+  let s=`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`;
+  list.forEach(function(rg){
+    const c=2*Math.PI*rg.r;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${track}" stroke-width="${rg.w}"/>`;
+    s+=`<circle cx="${size/2}" cy="${size/2}" r="${rg.r}" fill="none" stroke="${rg.c}" stroke-width="${rg.w}" stroke-linecap="round" stroke-dasharray="${(c*rg.pct/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>`;
+  });
+  return s+'</svg>';
+}
+function spark(w,h,data,color,o){
+  o=o||{};const pad=o.pad||2,min=o.min==null?Math.min.apply(null,data):o.min,max=o.max==null?Math.max.apply(null,data):o.max;
+  const n=data.length;
+  const pts=data.map(function(v,i){return [pad+i*(w-2*pad)/(n-1),h-pad-((v-min)/((max-min)||1))*(h-2*pad)];});
+  const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+  let s='';
+  if(o.fill) s+=`<path d="${d}L${pts[n-1][0].toFixed(1)} ${h}L${pts[0][0].toFixed(1)} ${h}Z" fill="${color}" opacity="${o.op==null?.14:o.op}"/>`;
+  s+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="${o.lw||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if(o.dot) s+=`<circle class="blink" cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="${o.dotR||3}" fill="${color}"/>`;
+  const grid=o.grid?Array.from({length:o.grid},function(_,i){return `<line x1="0" x2="${w}" y1="${(h/(o.grid-1))*i}" y2="${(h/(o.grid-1))*i}" stroke="${o.gridColor||color}" opacity=".10"/>`;}).join(''):'';
+  return `<svg width="${w}" height="${h}" style="display:block">${grid}${s}</svg>`;
+}
+function multiSpark(w,h,list){
+  let all=[];list.forEach(function(s){all=all.concat(s.data);});
+  const min=Math.min.apply(null,all),max=Math.max.apply(null,all);
+  let out='';
+  for(let i=0;i<3;i++) out+=`<line x1="0" x2="${w}" y1="${(h/2)*i}" y2="${(h/2)*i}" stroke="#ffffff" opacity=".06"/>`;
+  list.forEach(function(s){
+    const n=s.data.length;
+    const pts=s.data.map(function(v,i){return [i*(w-2)/(n-1)+1,h-2-((v-min)/((max-min)||1))*(h-4)];});
+    const d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join('');
+    out+=`<path d="${d}L${w-1} ${h}L1 ${h}Z" fill="${s.color}" opacity=".11"/>`;
+    out+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const last=pts[n-1];
+    out+=`<circle class="blink" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${s.color}"/>`;
+  });
+  return `<svg width="${w}" height="${h}" style="display:block">${out}</svg>`;
+}
+function rnd(seed){let s=seed;return function(){s=(s*9301+49297)%233280;return s/233280;};}
+function series(n,base,amp,seed){
+  const r=rnd(seed),a=[];let v=base;
+  for(let i=0;i<n;i++){v=Math.max(base*.35,Math.min(base*1.45,v+(r()-.48)*amp));a.push(v);}
+  return a;
+}
+function bar(pct,color,track,h,w){
+  const hh=h||7;
+  return `<div style="width:${w||'100%'};height:${hh}px;background:${track};border-radius:99px;overflow:hidden"><div style="width:${Math.max(0,Math.min(100,pct))}%;height:100%;background:${color};border-radius:99px"></div></div>`;
+}
+function seg(pct,color,dim,n,h){
+  const num=n||20,hh=h||10,on=Math.round(Math.max(0,Math.min(100,pct))/100*num);
+  let s='';
+  for(let i=0;i<num;i++) s+=`<div style="flex:1;height:${hh}px;border-radius:2px;background:${i<on?color:dim}"></div>`;
+  return `<div style="display:flex;gap:2px">${s}</div>`;
+}
+function gridBG(w,h,color,step,op){
+  let s='';
+  for(let x=step;x<w;x+=step) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
+  for(let y=step;y<h;y+=step) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${color}" stroke-width="1"/>`;
+  return `<div style="position:absolute;inset:0;opacity:${op}"><svg width="${w}" height="${h}">${s}</svg></div>`;
+}
+function led(c,s){
+  const ss=s||7;
+  return `<span class="led" style="display:inline-block;width:${ss}px;height:${ss}px;border-radius:50%;background:${c};box-shadow:0 0 7px ${c}"></span>`;
+}
+function st(l,v,u,c,p,size){
+  return `<div style="min-width:0"><div style="font-size:9px;letter-spacing:1.2px;color:${p.dim};white-space:nowrap">${l}</div><div style="font-size:${size||15}px;font-weight:700;color:${c||p.txt};line-height:1.2;white-space:nowrap">${v}<span style="font-size:9px;font-weight:500;color:${p.dim}"> ${u||''}</span></div></div>`;
+}
+
+/* ================= 示例数据 ================= */
+const L={
+  model:'Qwen3-32B',decode:'42.3',avg:'38.1',max:'58.9',prefill:'1860',ttft:'0.32s',
+  gpu:78,vram:'18.2',vramTot:'24',vramPct:76,kv:61,power:312,temp:68,queue:2,batch:4,
+  uptime:'3d 14h',total:'1.28B',cache:87,cpu:22,ram:'41.7',ramTot:'64',net:128,fan:1450,ctx:'12.4k'
+};
+const Pd={
+  cpu:34,avg:27,max:91,freq:'4.82',temp:62,power:78,ram:'12.4',ramTot:'32',ramPct:39,
+  gpu:71,gpuTemp:67,gpuPower:210,vram:'6.8',vramTot:'12',vramPct:57,
+  diskR:540,diskW:120,netD:54,netU:8,fanC:1200,fanG:1650,up:'5d 02h',proc:214,batt:82,fps:141
+};
+
+
+/* ================= 第 2 组共享测量助手（纯 LVGL 可绘制元素） ================= */
+function g2trace(vals,x0,x1,top,hh){
+  const mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  return vals.map(function(v,i){return [+(x0+i*(x1-x0)/(vals.length-1)).toFixed(1),+(top+hh-((v-mn)/((mx-mn)||1))*hh).toFixed(1)];});
+}
+function g2d(q){return q.map(function(p,i){return (i?'L':'M')+p[0]+' '+p[1];}).join('');}
+function g2grid(w,h,sx,sy,c,op){
+  let s='';
+  for(let x=sx;x<w;x+=sx) s+=`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${c}" stroke-width="1" opacity="${op}"/>`;
+  for(let y=sy;y<h;y+=sy) s+=`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${c}" stroke-width="1" opacity="${op}"/>`;
+  return s;
+}
+function g2tick(x0,y0,w,h,color){
+  let s='';
+  for(let x=0;x<=w;x+=w/8) s+=`<line x1="${x0+x}" y1="${y0+h}" x2="${x0+x}" y2="${y0+h-3}" stroke="${color}" stroke-width="1"/>`;
+  return s;
+}
+
+/* ================= I01 Phosphor Scope（横 · LLM） ================= */
+function I01(){
+  const p={bg:'#07110b',bg2:'#0a1911',acc:'#38f28a',acc2:'#a9ffce',acc3:'#ffd166',txt:'#d9f8e6',dim:'#4d8b6a',line:'#163626',track:'#1c3a28'};
+  const W=296,H=158;
+  const q1=g2trace(series(46,47,9,5),24,276,16,88);
+  const q2=g2trace(series(46,27,7,19),24,276,74,60);
+  const cx=q1[31][0];
+  const sub=function(a,b){
+    return `<div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:4px;display:flex;justify-content:space-between"><span>${a}</span><span>${b}</span></div>`;
+  };
+  const mini=function(l,v,u){
+    return `<div style="flex:1;border:1px solid ${p.line};border-radius:5px;padding:5px 7px;background:#08150e">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">${l}</div>
+      <div style="font-family:${MONO};font-size:14px;font-weight:700;color:${p.txt};margin-top:1px;white-space:nowrap">${v}<span style="font-size:8px;color:${p.dim}">${u}</span></div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${led(p.acc,7)}
+        <span style="font-size:12px;font-weight:700;letter-spacing:1.2px">PHOSPHOR SCOPE</span>
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:.8px;color:${p.dim}">DS-204 · 200MHz</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;font-family:${MONO};font-size:8.5px">
+        <span style="color:${p.acc}">CH1 200mV</span>
+        <span style="color:${p.acc3}">CH2 500mV</span>
+        <span style="color:${p.dim}">TRIG AUTO</span>
+        <span style="color:${p.acc};border:1px solid ${p.line};border-radius:3px;padding:1px 5px">RUN</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:12px;top:34px;width:298px;height:160px;border:1px solid ${p.line};border-radius:6px;background:#061009;overflow:hidden">
+      <svg width="296" height="158" style="display:block">
+        ${g2grid(W,H,24,22,p.acc,.075)}
+        <path d="${g2d(q1)}" fill="none" stroke="${p.acc}" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="${g2d(q2)}" fill="none" stroke="${p.acc3}" stroke-width="1.4" stroke-linejoin="round" opacity=".9"/>
+        <line x1="${cx}" y1="0" x2="${cx}" y2="${H}" stroke="${p.acc2}" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>
+        <polygon points="${cx-4},0 ${cx+4},0 ${cx},6" fill="${p.acc3}"/>
+        <circle cx="${q1[31][0]}" cy="${q1[31][1]}" r="3" fill="${p.acc2}"/>
+        <circle cx="${q2[31][0]}" cy="${q2[31][1]}" r="3" fill="${p.acc3}"/>
+        <text x="3" y="12" font-family="${MONO}" font-size="8" fill="${p.dim}">100</text>
+        <text x="3" y="83" font-family="${MONO}" font-size="8" fill="${p.dim}">50</text>
+        <text x="3" y="154" font-family="${MONO}" font-size="8" fill="${p.dim}">0</text>
+        <text x="252" y="154" font-family="${MONO}" font-size="8" fill="${p.dim}">10ms</text>
+      </svg>
+      <div style="position:absolute;left:203px;top:8px;width:86px;background:#061009;border:1px solid ${p.line};border-radius:4px;padding:4px 6px">
+        <div style="font-family:${MONO};font-size:8px;color:${p.acc};display:flex;justify-content:space-between"><span>CH1</span><span>42.3</span></div>
+        <div style="font-family:${MONO};font-size:8px;color:${p.acc3};display:flex;justify-content:space-between;margin-top:2px"><span>CH2</span><span>78.0</span></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:12px;top:202px;width:180px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${p.acc}">CH1 · DECODE</div>
+      <div style="display:flex;align-items:flex-end;gap:5px;margin-top:1px">
+        <div style="font-size:38px;font-weight:800;line-height:.95;letter-spacing:-1px;color:${p.acc2}">42.3</div>
+        <div style="font-family:${MONO};font-size:9px;color:${p.dim};padding-bottom:4px">tok/s</div>
+      </div>
+      <div style="font-family:${MONO};font-size:8.5px;color:${p.dim};margin-top:6px">AVG <span style="color:${p.txt}">38.1</span> · MAX <span style="color:${p.txt}">58.9</span> · <span style="color:${p.acc}">+3.2%</span></div>
+    </div>
+
+    <div style="position:absolute;left:200px;top:204px;width:106px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:7px"><span>TTFT</span><span style="color:${p.txt}">0.32s</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:7px"><span>PREFILL</span><span style="color:${p.txt}">1860</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:7px"><span>HIT</span><span style="color:${p.acc}">87%</span></div>
+      <div style="display:flex;justify-content:space-between"><span>BATCH</span><span style="color:${p.txt}">4</span></div>
+    </div>
+
+    <div style="position:absolute;left:320px;top:34px;width:148px">
+      <div style="margin-bottom:10px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">GPU UTIL</span>
+          <span style="font-family:${MONO};font-size:24px;font-weight:700;color:${p.txt};line-height:1">78<span style="font-size:9px;color:${p.dim}">%</span></span>
+        </div>
+        <div style="margin-top:6px">${bar(78,p.acc,p.track,6)}</div>
+        ${sub('SM 78 · CLK 2100','73°C')}
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">VRAM</span>
+          <span style="font-family:${MONO};font-size:24px;font-weight:700;color:${p.acc2};line-height:1">18.2<span style="font-size:9px;font-weight:500;color:${p.dim}"> /24G</span></span>
+        </div>
+        <div style="margin-top:6px">${bar(76,p.acc2,p.track,6)}</div>
+        ${sub('USED 18.2G','FREE 5.8G')}
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}"><span>KV CACHE</span><span style="color:${p.txt}">61%</span></div>
+        <div style="margin-top:4px">${bar(61,p.acc3,p.track,4)}</div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}"><span>QUEUE</span><span style="color:${p.txt}">2 / 4</span></div>
+        <div style="margin-top:4px">${bar(50,p.acc2,p.track,4)}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        ${mini('POWER','312','W')}
+        ${mini('TEMP','68','°C')}
+      </div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:24px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>PWR <b style="color:${p.txt}">312W</b> · TEMP <b style="color:${p.txt}">68°C</b> · FAN <b style="color:${p.txt}">1450</b></span>
+      <span>TOTAL <b style="color:${p.acc}">1.28B</b> tok · UP 3d 14h</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I02 Spectrum Analyzer（横 · LLM） ================= */
+function I02(){
+  const p={bg:'#12161b',bg2:'#0c1014',acc:'#5ad1ff',acc2:'#bfe9ff',acc3:'#ffd166',txt:'#e6f0f7',dim:'#64798d',line:'#212b36',track:'#243240'};
+  const hs=series(24,60,20,33).map(function(v){return Math.max(16,Math.min(144,v*1.6));});
+  const pk=hs.map(function(h,i){return Math.min(150,h+3+((i*7)%8));});
+  const bx=function(i){return +(16+i*12.6).toFixed(1);};
+  let bars='',hold='',pp=[];
+  for(let i=0;i<24;i++){
+    const y=+(148-hs[i]).toFixed(1);
+    bars+=`<rect x="${bx(i)}" y="${y}" width="8" height="${hs[i].toFixed(1)}" rx="1" fill="${p.acc}" opacity=".82"/>`;
+    bars+=`<rect x="${bx(i)}" y="${y}" width="8" height="2.5" fill="${p.acc2}"/>`;
+    const py=+(148-pk[i]).toFixed(1);
+    hold+=`<line x1="${bx(i)+1}" y1="${py}" x2="${bx(i)+7}" y2="${py}" stroke="${p.acc3}" stroke-width="1.4"/>`;
+    pp.push((bx(i)+4)+','+py);
+  }
+  const marker=+(bx(17)+4).toFixed(1);
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${led(p.acc,7)}
+        <span style="font-size:12px;font-weight:700;letter-spacing:1.1px">SPECTRUM ANALYZER</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim}">RSA-24</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+        <span>RBW <b style="color:${p.txt}">10 kHz</b></span>
+        <span>SPAN <b style="color:${p.txt}">24 kHz</b></span>
+        <span style="color:${p.acc3}">PK HOLD</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:12px;top:34px;width:322px;height:170px;border:1px solid ${p.line};border-radius:6px;background:#0b1014;overflow:hidden">
+      <svg width="320" height="168" style="display:block">
+        ${g2grid(320,168,40,30,p.acc,.06)}
+        <line x1="0" y1="148" x2="320" y2="148" stroke="${p.acc}" stroke-width="1" opacity=".3"/>
+        ${bars}
+        <polyline points="${pp.join(' ')}" fill="none" stroke="${p.acc3}" stroke-width="1.3" opacity=".85"/>
+        ${hold}
+        <line x1="${marker}" y1="8" x2="${marker}" y2="148" stroke="${p.acc3}" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>
+        <text x="${marker+4}" y="16" font-family="${MONO}" font-size="8" fill="${p.acc3}">MKR</text>
+        <text x="16" y="163" font-family="${MONO}" font-size="8" fill="${p.dim}">0</text>
+        <text x="88" y="163" font-family="${MONO}" font-size="8" fill="${p.dim}">6k</text>
+        <text x="160" y="163" font-family="${MONO}" font-size="8" fill="${p.dim}">12k</text>
+        <text x="230" y="163" font-family="${MONO}" font-size="8" fill="${p.dim}">18k</text>
+        <text x="300" y="163" font-family="${MONO}" font-size="8" fill="${p.dim}">24k</text>
+      </svg>
+    </div>
+
+    <div style="position:absolute;left:12px;top:212px;width:172px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${p.acc}">PEAK DECODE</div>
+      <div style="display:flex;align-items:flex-end;gap:5px;margin-top:1px">
+        <div style="font-size:34px;font-weight:800;line-height:.95;letter-spacing:-1px">42.3</div>
+        <div style="font-family:${MONO};font-size:9px;color:${p.dim};padding-bottom:4px">tok/s</div>
+      </div>
+      <div style="font-family:${MONO};font-size:8.5px;color:${p.dim};margin-top:6px">AVG <span style="color:${p.txt}">38.1</span> · MAX <span style="color:${p.txt}">58.9</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:5px">MKR <span style="color:${p.acc3}">17.2 kHz</span> · <span style="color:${p.acc3}">-31 dB</span></div>
+    </div>
+
+    <div style="position:absolute;left:192px;top:214px;width:140px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>TTFT</span><span style="color:${p.txt}">0.32s</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>PREFILL</span><span style="color:${p.txt}">1860</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>SWEEP</span><span style="color:${p.txt}">12ms</span></div>
+      <div style="display:flex;justify-content:space-between"><span>HIT</span><span style="color:${p.acc}">87%</span></div>
+    </div>
+
+    <div style="position:absolute;left:344px;top:34px;width:124px;height:72px;background:#0d1319;border:1px solid ${p.line};border-radius:6px;padding:7px 9px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">KV CACHE</div>
+      <div style="font-family:${MONO};font-size:19px;font-weight:700;line-height:1.15;margin-top:1px">61<span style="font-size:9px;color:${p.dim}">%</span></div>
+      <div style="margin-top:6px">${bar(61,p.acc,p.track,5)}</div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:4px">14.6 / 24 GB</div>
+    </div>
+
+    <div style="position:absolute;left:344px;top:112px;width:124px;height:72px;background:#0d1319;border:1px solid ${p.line};border-radius:6px;padding:7px 9px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">QUEUE</div>
+      <div style="font-family:${MONO};font-size:19px;font-weight:700;line-height:1.15;margin-top:1px">2<span style="font-size:9px;color:${p.dim}"> / 4</span></div>
+      <div style="margin-top:7px">${seg(50,p.acc2,p.track,8,7)}</div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:5px">WAIT 24 ms</div>
+    </div>
+
+    <div style="position:absolute;left:344px;top:190px;width:124px;height:86px;background:#0d1319;border:1px solid ${p.line};border-radius:6px;padding:7px 9px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">POWER</div>
+      <div style="font-family:${MONO};font-size:19px;font-weight:700;line-height:1.15;margin-top:1px">312<span style="font-size:9px;color:${p.dim}"> W</span></div>
+      <div style="margin-top:6px">${bar(65,p.acc3,p.track,4)}</div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:6px;display:flex;justify-content:space-between"><span>TEMP</span><span style="color:${p.txt}">68°C</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:3px;display:flex;justify-content:space-between"><span>FAN</span><span style="color:${p.txt}">1450</span></div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:26px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>ATT <b style="color:${p.txt}">0 dB</b> · RBW <b style="color:${p.txt}">10 kHz</b></span>
+      <span>REF <b style="color:${p.txt}">-20 dBm</b> · UP 3d 14h</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I03 Bench Meter（横 · PC · 浅色实验台） ================= */
+function I03(){
+  const p={bg:'#f2f4f6',bg2:'#e6ebef',acc:'#1f6feb',acc2:'#d92d20',acc3:'#17a673'};
+  const card=function(x,ch,lab,val,color,avg,pk,sig){
+    return `<div style="position:absolute;left:${x}px;top:46px;width:220px;height:142px;background:#ffffff;border:1px solid #d7dee6;border-radius:10px;box-shadow:0 3px 10px rgba(23,36,50,.07);padding:10px 13px;display:flex;flex-direction:column;justify-content:space-between">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:#6b7a8c">${ch} · ${lab}</span>
+        <span style="font-family:${MONO};font-size:8px;color:#9aa8b6">DC</span>
+      </div>
+      <div style="position:relative;display:flex;align-items:flex-start;gap:2px;padding-left:2px">
+        <span style="font-size:50px;font-weight:800;line-height:1;letter-spacing:-2px;color:#16202b">${val}</span>
+        <span style="font-family:${MONO};font-size:15px;font-weight:700;color:${color};padding-top:5px">%</span>
+      </div>
+      <div>
+        ${seg(val,color,'#dfe6ed',26,8)}
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-family:${MONO};font-size:8px;color:#9aa8b6"><span>0</span><span>50</span><span>100</span></div>
+      </div>
+      <div style="display:flex;gap:12px;font-family:${MONO};font-size:8.5px;color:#6b7a8c">AVG <b style="color:#16202b">${avg}</b> PEAK <b style="color:#16202b">${pk}</b> σ <b style="color:#16202b">${sig}</b></div>
+    </div>`;
+  };
+  const row=function(i,lab,v,u,pct,c){
+    return `<div style="display:flex;align-items:center;height:20px;padding:0 12px;border-top:1px solid #eef2f6">
+      <span style="font-family:${MONO};font-size:8px;color:#b6c1cc;width:22px">${i}</span>
+      <span style="font-size:8.5px;letter-spacing:1.1px;color:#6b7a8c;width:70px;white-space:nowrap">${lab}</span>
+      <div style="flex:1;margin-right:12px">${bar(pct,c,'#e3e9ef',5)}</div>
+      <span style="font-family:${MONO};font-size:11px;font-weight:700;color:#16202b;width:74px;text-align:right;white-space:nowrap"><span style="color:#c3ccd6;font-weight:400">[</span> ${v} <span style="color:#c3ccd6;font-weight:400">]</span><span style="font-size:8px;font-weight:500;color:#8b98a6"> ${u}</span></span>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:#16202b">
+    <div style="position:absolute;left:0;right:0;top:0;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #d9e0e7">
+      <div style="display:flex;align-items:baseline;gap:9px">
+        <span style="font-size:12px;font-weight:800;letter-spacing:3px">BENCH METER</span>
+        <span style="font-family:${MONO};font-size:8px;color:#6b7a8c">BM-2 · CALIBRATED</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;font-family:${MONO};font-size:8.5px;color:#6b7a8c">
+        <span>2026-04-11 09:41</span>
+        ${led(p.acc3,6)}
+        <span style="color:#16202b">CH A / CH B</span>
+      </div>
+    </div>
+
+    ${card(14,'CH A','CPU LOAD','34',p.acc,'27','91','1.2')}
+    ${card(246,'CH B','GPU LOAD','71',p.acc3,'54','88','2.6')}
+
+    <div style="position:absolute;left:14px;top:194px;width:452px;height:100px;background:#ffffff;border:1px solid #d7dee6;border-radius:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;height:20px;padding:0 12px;background:#f7f9fb;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:#8b98a6">
+        <span>MEASUREMENT</span><span>MIN · MAX · UNIT</span>
+      </div>
+      ${row('01','TEMP','62.0','°C',62,p.acc2)}
+      ${row('02','POWER','78.0','W',65,p.acc)}
+      ${row('03','MEMORY','12.4','/32G',39,p.acc)}
+      ${row('04','DISK I/O','540','MB/s',54,p.acc3)}
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;bottom:0;height:24px;display:flex;align-items:center;justify-content:space-between;font-family:${MONO};font-size:8px;color:#8b98a6">
+      <span>CAL DUE <b style="color:#16202b">2026-09-01</b> · UNCERTAINTY ±0.4%</span>
+      <span>S/N <b style="color:#16202b">BM2-8841</b> · 214 PROC</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I04 Vector Trace（横 · PC · XY 示波） ================= */
+function I04(){
+  const p={bg:'#0b0f14',bg2:'#111823',acc:'#5ad1ff',acc2:'#ffd166',txt:'#e6f2fa',dim:'#61758a',line:'#1b2632',track:'#243244'};
+  const W=288,H=244;
+  const xs=series(24,14,5,5).map(function(v,i){return Math.min(88,v+i*3.0);});
+  const ys=series(24,16,7,17).map(function(v,i){return Math.min(86,v+i*3.1);});
+  const px=function(v){return +(16+v/100*250).toFixed(1);};
+  const py=function(v){return +(226-v/100*194).toFixed(1);};
+  const q=xs.map(function(v,i){return [px(v),py(ys[i])];});
+  const head=q[q.length-1];
+  const bx=Math.min(head[0]+12,W-86), by=Math.max(head[1]-44,6);
+  let dots='';
+  q.forEach(function(pt,i){dots+=`<circle cx="${pt[0]}" cy="${pt[1]}" r="${(1.4+i*0.045).toFixed(1)}" fill="${p.acc}" opacity="${(0.3+i*0.023).toFixed(2)}"/>`;});
+  const cell=function(lab,v,u,sub,color){
+    return `<div style="padding-bottom:9px;border-bottom:1px solid ${p.line};margin-bottom:9px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.dim}">${lab}</div>
+      <div style="display:flex;align-items:baseline;gap:4px;margin-top:2px">
+        <span style="font-family:${MONO};font-size:24px;font-weight:700;line-height:1;color:${color||p.txt}">${v}</span>
+        <span style="font-family:${MONO};font-size:9px;color:${p.dim}">${u}</span>
+      </div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:3px">${sub}</div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(160deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:700;letter-spacing:1.6px">VECTOR TRACE</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim}">XY · 256 pts</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+        ${led(p.acc,6)}
+        <span>PERSIST 0.8s</span>
+        <span style="color:${p.acc}">X CPU</span>
+        <span style="color:${p.acc2}">Y GPU</span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:12px;top:36px;width:290px;height:246px;border:1px solid ${p.line};border-radius:6px;background:#0a1016;overflow:hidden">
+      <svg width="288" height="244" style="display:block">
+        ${g2grid(W,H,36,31,p.acc,.07)}
+        <line x1="16" y1="226" x2="266" y2="226" stroke="${p.acc}" stroke-width="1" opacity=".3"/>
+        <line x1="16" y1="30" x2="16" y2="226" stroke="${p.acc}" stroke-width="1" opacity=".3"/>
+        <polyline points="${q.map(function(pt){return pt[0]+','+pt[1];}).join(' ')}" fill="none" stroke="${p.acc}" stroke-width="1.2" opacity=".45"/>
+        ${dots}
+        <line x1="${head[0]}" y1="${head[1]}" x2="16" y2="${head[1]}" stroke="${p.acc2}" stroke-width="1" stroke-dasharray="2 3" opacity=".45"/>
+        <line x1="${head[0]}" y1="${head[1]}" x2="${head[0]}" y2="226" stroke="${p.acc2}" stroke-width="1" stroke-dasharray="2 3" opacity=".45"/>
+        <circle cx="${head[0]}" cy="${head[1]}" r="7" fill="none" stroke="${p.acc2}" stroke-width="1" opacity=".4"/>
+        <circle cx="${head[0]}" cy="${head[1]}" r="3.6" fill="${p.acc2}"/>
+        <text x="2" y="34" font-family="${MONO}" font-size="8" fill="${p.dim}">100</text>
+        <text x="2" y="132" font-family="${MONO}" font-size="8" fill="${p.dim}">50</text>
+        <text x="2" y="223" font-family="${MONO}" font-size="8" fill="${p.dim}">0</text>
+        <text x="14" y="240" font-family="${MONO}" font-size="8" fill="${p.dim}">0</text>
+        <text x="137" y="240" font-family="${MONO}" font-size="8" fill="${p.dim}">50</text>
+        <text x="252" y="240" font-family="${MONO}" font-size="8" fill="${p.dim}">100</text>
+      </svg>
+      <div style="position:absolute;left:16px;top:14px;width:78px;background:#0a1016;border:1px solid ${p.line};border-radius:4px;padding:4px 6px">
+        <div style="font-family:${MONO};font-size:8px;color:${p.acc2};display:flex;justify-content:space-between"><span>X</span><span>34.0</span></div>
+        <div style="font-family:${MONO};font-size:8px;color:${p.acc2};display:flex;justify-content:space-between;margin-top:2px"><span>Y</span><span>71.0</span></div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:312px;top:34px;width:156px">
+      ${cell('FREQUENCY','4.82','GHz','BASE 3.4 · BOOST 5.0',p.acc)}
+      ${cell('TEMPERATURE','62.0','°C','LIMIT 95 · ΔT 5.0',p.acc2)}
+      ${cell('POWER','78','W','PKG 104 · FAN 1650',p.txt)}
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+        <span>CORR <b style="color:${p.acc}">0.82</b></span><span>FPS <b style="color:${p.txt}">141</b></span>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:22px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>TRACE 256 · WINDOW 60s · SAMPLES 1.2k</span>
+      <span style="color:${p.acc2}">CURSOR 34.0 / 71.0</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I05 Channel Rack（横 · LLM · 双通道轨迹） ================= */
+function I05(){
+  const p={bg:'#14171b',bg2:'#101316',panel:'#191d22',acc:'#38f28a',acc2:'#ffb000',txt:'#e8edf2',dim:'#6f7a86',line:'#262b31',track:'#2c333a'};
+  const W=306,HH=84;
+  const lane=function(y,tag,name,val,unit,pk,color,vals){
+    const q=g2trace(vals,4,W-4,12,58);
+    return `<div style="position:absolute;left:12px;top:${y}px;width:328px;height:122px;background:${p.panel};border:1px solid ${p.line};border-radius:8px;padding:8px 10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;height:15px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${color}"></span>
+          <span style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${color}">${tag} · ${name}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:6px;font-family:${MONO}">
+          <span style="font-size:8px;color:${p.dim}">PK ${pk}</span>
+          <span style="font-size:12px;font-weight:700;color:${p.txt}">${val}</span>
+          <span style="font-size:8px;color:${p.dim}">${unit}</span>
+        </div>
+      </div>
+      <svg width="${W}" height="${HH}" style="display:block;margin-top:5px">
+        ${g2grid(W,HH,51,29,color,.07)}
+        <line x1="4" y1="70" x2="${W-4}" y2="70" stroke="${color}" stroke-width="1" opacity=".22"/>
+        <path d="${g2d(q)}L${W-4} 70L4 70Z" fill="${color}" opacity=".10"/>
+        <path d="${g2d(q)}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round"/>
+        <circle cx="${q[q.length-1][0]}" cy="${q[q.length-1][1]}" r="2.8" fill="${color}"/>
+      </svg>
+    </div>`;
+  };
+  const cell=function(y,lab,val,unit,pct,color){
+    return `<div style="position:absolute;left:348px;top:${y}px;width:120px;height:58px;background:${p.panel};border:1px solid ${p.line};border-radius:7px;padding:6px 9px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">${lab}</div>
+      <div style="font-family:${MONO};font-size:16px;font-weight:700;line-height:1.2;color:${p.txt};margin-top:1px;white-space:nowrap">${val}<span style="font-size:8px;font-weight:500;color:${p.dim}">${unit}</span></div>
+      <div style="margin-top:5px">${bar(pct,color,p.track,4)}</div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:480px;height:320px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:0;right:0;top:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${led(p.acc,6)}
+        <span style="font-size:12px;font-weight:700;letter-spacing:1.8px">CHANNEL RACK</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim}">2CH · 60s</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;font-family:${MONO};font-size:8px;color:${p.dim}">
+        <span><span style="color:${p.acc}">■</span> DECODE</span>
+        <span><span style="color:${p.acc2}">■</span> PREFILL</span>
+        <span style="letter-spacing:1px">REC</span>
+      </div>
+    </div>
+
+    ${lane(34,'CH1','DECODE','42.3','tok/s','58.9',p.acc,series(52,44,10,9))}
+    ${lane(162,'CH2','PREFILL','1860','tok/s','2140',p.acc2,series(52,60,18,23))}
+
+    ${cell(34,'TTFT','0.32','s',32,p.acc)}
+    ${cell(98,'QUEUE','2',' / 4',50,p.acc2)}
+    ${cell(162,'KV CACHE','61','%',61,p.acc)}
+    ${cell(226,'CACHE HIT','87','%',87,p.acc)}
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:26px;border-top:1px solid ${p.line};display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-family:${MONO};font-size:8.5px;color:${p.dim}">
+      <span>BATCH <b style="color:${p.txt}">4</b> · CTX <b style="color:${p.txt}">12.4k</b> · E2E <b style="color:${p.txt}">0.94s</b></span>
+      <span>UP <b style="color:${p.txt}">3d 14h</b> · <b style="color:${p.acc}">1.28B</b> tok</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I06 Scope Portrait（竖 · LLM） ================= */
+function I06(){
+  const p={bg:'#07110b',bg2:'#0a1911',acc:'#38f28a',acc2:'#a9ffce',txt:'#d9f8e6',dim:'#4d8b6a',line:'#163626',track:'#1c3a28'};
+  const W=296,H=206;
+  const q=g2trace(series(60,44,9,7),18,278,18,158);
+  const cx=q[40][0];
+  const row=function(lab,val,pct,c){
+    return `<div style="display:flex;align-items:center;gap:9px;height:24px;margin-bottom:6px">
+      <span style="font-family:${MONO};font-size:8px;letter-spacing:1.1px;color:${p.dim};width:44px">${lab}</span>
+      <div style="flex:1">${bar(pct,c,p.track,5)}</div>
+      <span style="font-family:${MONO};font-size:10.5px;font-weight:700;color:${p.txt};width:60px;text-align:right;white-space:nowrap">${val}</span>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:16px;right:16px;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:7px">
+        ${led(p.acc,6)}
+        <span style="font-size:12px;font-weight:700;letter-spacing:1.6px">SCOPE</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim}">VERT · CH1</span>
+      </div>
+      <span style="font-family:${MONO};font-size:8px;color:${p.dim};letter-spacing:1px">TRIG AUTO</span>
+    </div>
+
+    <div style="position:absolute;left:12px;top:42px;width:298px;height:208px;border:1px solid ${p.line};border-radius:6px;background:#061009;overflow:hidden">
+      <svg width="296" height="206" style="display:block">
+        ${g2grid(W,H,24,24,p.acc,.075)}
+        <path d="${g2d(q)}" fill="none" stroke="${p.acc}" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="${g2d(q)}L278 176L18 176Z" fill="${p.acc}" opacity=".07"/>
+        <line x1="${cx}" y1="0" x2="${cx}" y2="${H}" stroke="${p.acc2}" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>
+        <circle cx="${cx}" cy="${q[40][1]}" r="3" fill="${p.acc2}"/>
+        <text x="3" y="24" font-family="${MONO}" font-size="8" fill="${p.dim}">100</text>
+        <text x="3" y="108" font-family="${MONO}" font-size="8" fill="${p.dim}">50</text>
+        <text x="3" y="180" font-family="${MONO}" font-size="8" fill="${p.dim}">0</text>
+        <text x="${cx+6}" y="200" font-family="${MONO}" font-size="8" fill="${p.dim}">T+40s</text>
+        <text x="248" y="200" font-family="${MONO}" font-size="8" fill="${p.dim}">60s</text>
+      </svg>
+    </div>
+
+    <div style="position:absolute;left:16px;top:256px;width:288px">
+      <div style="font-family:${MONO};font-size:8.5px;letter-spacing:2px;color:${p.acc}">DECODE · CH1</div>
+      <div style="display:flex;align-items:flex-end;gap:6px;margin-top:1px">
+        <div style="font-size:54px;font-weight:800;line-height:.95;letter-spacing:-2px;color:${p.acc2}">42.3</div>
+        <div style="font-family:${MONO};font-size:10px;color:${p.dim};padding-bottom:7px">tok/s</div>
+      </div>
+      <div style="font-family:${MONO};font-size:8.5px;color:${p.dim};margin-top:5px">AVG <span style="color:${p.txt}">38.1</span> · MAX <span style="color:${p.txt}">58.9</span> · <span style="color:${p.acc}">+3.2%</span></div>
+    </div>
+
+    <div style="position:absolute;left:16px;top:344px;width:288px">
+      ${row('GPU','78%',78,p.acc)}
+      ${row('VRAM','18.2G',76,p.acc2)}
+      ${row('KV','61%',61,p.acc)}
+      ${row('POWER','312W',62,p.acc2)}
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;bottom:12px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>TOTAL <b style="color:${p.txt}">1.28B</b> tok</span><span>UP <b style="color:${p.txt}">3d 14h</b></span>
+    </div>
+  </div>`;
+}
+
+/* ================= I07 Sample Stack（竖 · PC · 四张频谱卡） ================= */
+function I07(){
+  const p={bg:'#101418',bg2:'#0b0e11',panel:'#151a20',acc:'#5ad1ff',acc2:'#38f28a',acc3:'#ffb000',txt:'#e6eef6',dim:'#6c7d8c',line:'#232b33'};
+  const card=function(y,lab,sub,val,unit,color,seed){
+    const hs=series(16,50,26,seed).map(function(v){return Math.max(6,Math.min(38,(v-12)*0.58));});
+    let bars='';
+    for(let i=0;i<16;i++){
+      const bx=2+i*17;
+      bars+=`<rect x="${bx}" y="${(40-hs[i]).toFixed(1)}" width="10" height="${hs[i].toFixed(1)}" rx="1" fill="${color}" opacity="${i===15?1:.62}"/>`;
+    }
+    return `<div style="position:absolute;left:12px;top:${y}px;width:296px;height:96px;background:${p.panel};border:1px solid ${p.line};border-radius:10px;padding:9px 12px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between">
+        <div>
+          <div style="font-family:${MONO};font-size:8px;letter-spacing:1.8px;color:${color}">${lab}</div>
+          <div style="font-size:8px;color:${p.dim};margin-top:2px">${sub}</div>
+        </div>
+        <div style="font-family:${MONO};font-size:21px;font-weight:700;line-height:1;color:${p.txt}">${val}<span style="font-size:8px;color:${p.dim}"> ${unit}</span></div>
+      </div>
+      <div style="margin-top:6px">
+        <svg width="272" height="44" style="display:block">
+          <line x1="0" y1="40" x2="272" y2="40" stroke="${color}" stroke-width="1" opacity=".3"/>
+          <line x1="0" y1="20" x2="272" y2="20" stroke="${color}" stroke-width="1" opacity=".06"/>
+          ${bars}
+        </svg>
+      </div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:16px;right:16px;top:0;height:34px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:7px">
+        ${led(p.acc,6)}
+        <span style="font-size:11px;font-weight:800;letter-spacing:2.4px">SAMPLE STACK</span>
+      </div>
+      <span style="font-family:${MONO};font-size:8px;color:${p.dim}">4 SPECTRA</span>
+    </div>
+
+    ${card(40,'CPU LOAD','8C / 16T · 4.82 GHz','34','%',p.acc,5)}
+    ${card(143,'GPU LOAD','RTX · 2100 MHz','71','%',p.acc2,11)}
+    ${card(246,'MEMORY','12.4 / 32 GB','39','%','#8fe3ff',17)}
+    ${card(349,'TEMPERATURE','PACKAGE · FAN 1650','62','°C',p.acc3,29)}
+
+    <div style="position:absolute;left:16px;right:16px;bottom:14px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>WIN11 · 214 PROC</span><span>NET ↓54 ↑8 Mb/s</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I08 Calibration Dial（竖 · PC · 精密表盘） ================= */
+function I08(){
+  const p={bg:'#0f0d08',bg2:'#161109',acc:'#ffb000',acc2:'#ffd166',txt:'#ffeecc',dim:'#8a7440',line:'#2e2415',track:'#33280f'};
+  const c=114,R=92,a0=225,a1=495,pct=34;
+  const eA=a0+(a1-a0)*pct/100;
+  const np=polar(c,c,R-14,eA);
+  const tx=polar(c,c,79,a0),tm=polar(c,c,79,360),te=polar(c,c,79,a1);
+  const cell=function(x,y,lab,val,unit,sub){
+    return `<div style="position:absolute;left:${x}px;top:${y}px;width:145px;height:68px;background:#171208;border:1px solid ${p.line};border-radius:8px;padding:7px 10px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">${lab}</div>
+      <div style="font-family:${MONO};font-size:19px;font-weight:700;line-height:1.2;color:${p.txt};margin-top:1px;white-space:nowrap">${val}<span style="font-size:8px;font-weight:500;color:${p.dim}"> ${unit}</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:2px">${sub}</div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:16px;right:16px;top:0;height:36px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:baseline;gap:7px">
+        <span style="font-size:11px;font-weight:800;letter-spacing:2.4px;color:${p.acc2}">CALIBRATION</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim}">DIAL 01</span>
+      </div>
+      <span style="display:flex;align-items:center;gap:6px;font-family:${MONO};font-size:8px;color:${p.dim}">${led(p.acc,6)} CAL OK</span>
+    </div>
+
+    <div style="position:absolute;left:46px;top:42px;width:228px;height:228px">
+      <svg width="228" height="228" viewBox="0 0 228 228" style="display:block">
+        <path d="${arcD(c,c,R,a0,a1)}" fill="none" stroke="${p.track}" stroke-width="7" stroke-linecap="round"/>
+        <path d="${arcD(c,c,R,a0+(a1-a0)*0.8,a1)}" fill="none" stroke="#d92d20" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+        <path d="${arcD(c,c,R,a0,eA)}" fill="none" stroke="${p.acc}" stroke-width="7" stroke-linecap="round"/>
+        ${ticks(c,c,100,106,a0,a1,61,p.dim,1,.5)}
+        ${ticks(c,c,88,106,a0,a1,9,'#c9a24a',1.4,.9)}
+        <g class="sway" style="transform-origin:${c}px ${c}px">
+          <line x1="${c}" y1="${c}" x2="${np[0].toFixed(1)}" y2="${np[1].toFixed(1)}" stroke="${p.acc2}" stroke-width="2.2" stroke-linecap="round"/>
+          <circle cx="${c}" cy="${c}" r="4.5" fill="${p.acc2}"/>
+        </g>
+        <text x="${tx[0].toFixed(1)}" y="${tx[1].toFixed(1)}" font-family="${MONO}" font-size="8.5" fill="#c9a24a" text-anchor="middle">0</text>
+        <text x="${tm[0].toFixed(1)}" y="${tm[1].toFixed(1)}" font-family="${MONO}" font-size="8.5" fill="#c9a24a" text-anchor="middle">50</text>
+        <text x="${te[0].toFixed(1)}" y="${te[1].toFixed(1)}" font-family="${MONO}" font-size="8.5" fill="#c9a24a" text-anchor="middle">100</text>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:8px">
+        <div style="display:flex;align-items:flex-start;gap:1px">
+          <span style="font-size:44px;font-weight:800;line-height:1;letter-spacing:-2px;color:${p.acc2}">34</span>
+          <span style="font-family:${MONO};font-size:14px;font-weight:700;color:${p.acc};padding-top:4px">%</span>
+        </div>
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:2px;color:${p.dim};margin-top:4px">CPU LOAD</div>
+        <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:2px">±0.4% F.S.</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:60px;top:236px;width:200px;text-align:center;font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">SPAN 0 – 100 · REF 25.0 °C</div>
+
+    ${cell(12,282,'FREQUENCY','4.82','GHz','BASE 3.40 · ±0.02')}
+    ${cell(163,282,'TEMPERATURE','62.0','°C','REF 25.0 · ±0.3')}
+    ${cell(12,360,'GPU LOAD','71','%','PEAK 88 · ±0.5')}
+    ${cell(163,360,'POWER','78','W','PKG 104 · ±1.2')}
+
+    <div style="position:absolute;left:16px;right:16px;bottom:20px">
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim};padding-top:7px;border-top:1px solid ${p.line}">
+        <span>LAST CAL <b style="color:${p.txt}">2026-03-02</b></span><span>DRIFT <b style="color:${p.acc}">0.02%</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim};margin-top:4px">
+        <span>NEXT 2026-09-01</span><span>S/N CD-118</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ================= I09 Cryo Probe（竖 · LLM · 量程温度柱） ================= */
+function I09(){
+  const p={bg:'#0b1016',bg2:'#0e1720',acc:'#5ad1ff',acc2:'#8fe3ff',acc3:'#ffd166',txt:'#e2eef7',dim:'#5b7488',line:'#1d2a36',track:'#22303c'};
+  const H=252,fillPct=60;
+  let tk='';
+  for(let i=0;i<=32;i++){
+    const y=+(H-i*(H/32)).toFixed(1);
+    tk+=`<line x1="${i%4===0?0:5}" y1="${y}" x2="12" y2="${y}" stroke="#3f5a70" stroke-width="1" opacity="${i%4===0?.9:.5}"/>`;
+  }
+  const lab=function(v){
+    const y=+((100-v)/80*H-5).toFixed(1);
+    return `<div style="position:absolute;left:0;top:${y}px;font-family:${MONO};font-size:8px;color:${p.dim}">${v}</div>`;
+  };
+  const probe=function(y,labl,val,unit,pct,c){
+    return `<div style="position:absolute;left:206px;top:${y}px;width:96px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:${p.dim}">${labl}</div>
+      <div style="font-family:${MONO};font-size:16px;font-weight:700;color:${p.txt};line-height:1.25;margin-top:1px;white-space:nowrap">${val}<span style="font-size:8px;color:${p.dim}">${unit}</span></div>
+      <div style="margin-top:4px">${bar(pct,c,p.track,4)}</div>
+    </div>`;
+  };
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:${p.txt}">
+    <div style="position:absolute;left:16px;right:16px;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid ${p.line}">
+      <div style="display:flex;align-items:center;gap:7px">
+        ${led(p.acc,6)}
+        <span style="font-size:11px;font-weight:800;letter-spacing:2.2px">CRYO PROBE</span>
+      </div>
+      <span style="font-family:${MONO};font-size:8px;color:${p.dim}">ARRAY · 4CH</span>
+    </div>
+
+    <div style="position:absolute;left:18px;top:46px;width:34px;height:${H}px;background:#0a1016;border:1px solid ${p.line};border-radius:4px;overflow:hidden">
+      <div style="position:absolute;left:3px;right:3px;bottom:3px;height:${(fillPct*0.98).toFixed(1)}%;background:linear-gradient(0deg,#1a6f9c,#5ad1ff);border-radius:2px"></div>
+      <div style="position:absolute;left:0;right:0;bottom:${fillPct}%;height:1px;background:${p.acc2}"></div>
+    </div>
+    <div style="position:absolute;left:55px;top:46px;width:12px;height:${H}px">
+      <svg width="12" height="${H}" style="display:block">${tk}</svg>
+    </div>
+    <div style="position:absolute;left:70px;top:46px;width:20px;height:${H}px">
+      ${lab(100)}${lab(80)}${lab(60)}${lab(40)}${lab(20)}
+    </div>
+
+    <div style="position:absolute;left:96px;top:44px;width:104px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.4px;color:${p.dim}">CORE TEMP</div>
+      <div style="display:flex;align-items:flex-start;gap:2px;margin-top:1px">
+        <span style="font-size:44px;font-weight:800;line-height:1;letter-spacing:-2px;color:${p.acc2}">68</span>
+        <span style="font-family:${MONO};font-size:13px;font-weight:700;color:${p.acc};padding-top:3px">°C</span>
+      </div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:2px">THROTTLE 90 · ±0.3</div>
+    </div>
+
+    <div style="position:absolute;left:96px;top:118px;width:104px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1.6px;color:${p.acc}">DECODE</div>
+      <div style="display:flex;align-items:flex-end;gap:3px;margin-top:1px">
+        <span style="font-size:32px;font-weight:800;line-height:.95;letter-spacing:-1px">42.3</span>
+        <span style="font-family:${MONO};font-size:8px;color:${p.dim};padding-bottom:3px">t/s</span>
+      </div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:5px;display:flex;justify-content:space-between"><span>AVG</span><span style="color:${p.txt}">38.1</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:3px;display:flex;justify-content:space-between"><span>MAX</span><span style="color:${p.txt}">58.9</span></div>
+    </div>
+
+    <div style="position:absolute;left:96px;top:190px;width:104px">
+      ${spark(104,34,series(18,42,5,23),p.acc,{fill:true,dot:true,grid:2,gridColor:p.dim})}
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:5px;display:flex;justify-content:space-between"><span>PREFILL</span><span style="color:${p.txt}">1860</span></div>
+      <div style="font-family:${MONO};font-size:8px;color:${p.dim};margin-top:3px;display:flex;justify-content:space-between"><span>CTX</span><span style="color:${p.txt}">12.4k</span></div>
+    </div>
+
+    ${probe(46,'VRAM','18.2','/24G',76,p.acc)}
+    ${probe(120,'QUEUE','2',' / 4',50,p.acc3)}
+    ${probe(194,'POWER','312','W',65,p.acc2)}
+    <div style="position:absolute;left:206px;top:262px;width:96px;font-family:${MONO};font-size:8px;color:${p.dim};display:flex;justify-content:space-between">
+      <span>BATCH</span><span style="color:${p.txt}">4</span>
+    </div>
+
+    <div style="position:absolute;left:18px;top:306px;width:284px;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span>KV CACHE</span><span style="color:${p.txt}">61%</span></div>
+      ${bar(61,p.acc,p.track,5,284)}
+    </div>
+    <div style="position:absolute;left:18px;top:342px;width:284px;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span>CACHE HIT</span><span style="color:${p.txt}">87%</span></div>
+      ${bar(87,p.acc3,p.track,5,284)}
+    </div>
+
+    <div style="position:absolute;left:18px;top:378px;width:88px;height:44px;background:#0f1a23;border:1px solid ${p.line};border-radius:6px;padding:6px 8px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">TTFT</div>
+      <div style="font-family:${MONO};font-size:15px;font-weight:700;color:${p.txt};margin-top:1px">0.32<span style="font-size:8px;color:${p.dim}">s</span></div>
+    </div>
+    <div style="position:absolute;left:114px;top:378px;width:88px;height:44px;background:#0f1a23;border:1px solid ${p.line};border-radius:6px;padding:6px 8px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">E2E</div>
+      <div style="font-family:${MONO};font-size:15px;font-weight:700;color:${p.txt};margin-top:1px">0.94<span style="font-size:8px;color:${p.dim}">s</span></div>
+    </div>
+    <div style="position:absolute;left:210px;top:378px;width:92px;height:44px;background:#0f1a23;border:1px solid ${p.line};border-radius:6px;padding:6px 8px">
+      <div style="font-family:${MONO};font-size:8px;letter-spacing:1px;color:${p.dim}">FAN</div>
+      <div style="font-family:${MONO};font-size:15px;font-weight:700;color:${p.txt};margin-top:1px">1450<span style="font-size:8px;color:${p.dim}">r</span></div>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;bottom:12px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:${p.dim}">
+      <span>UP <b style="color:${p.txt}">3d 14h</b></span><span>TOTAL <b style="color:${p.acc}">1.28B</b> tok</span>
+    </div>
+  </div>`;
+}
+
+/* ================= I10 Signal Chain（竖 · PC · 纵向信号链） ================= */
+function I10(){
+  const p={bg:'#eef1f4',bg2:'#e3e8ee'};
+  const nodes=[['CPU','4.82 GHz · 62°C','34','%',34,'#1f6feb','6 ms'],['GPU','2100 MHz · 67°C','71','%',71,'#17a673','8 ms'],['MEM','12.4 / 32 GB','39','%',39,'#f0a000','2 ms'],['NET','↓54 · ↑8 Mb/s','40','%',40,'#7b8794','—']];
+  const box=function(n,i){
+    const y=58+i*90;
+    return `<div style="position:absolute;left:58px;top:${y}px;width:204px;height:72px;background:#ffffff;border:1px solid #d6dde4;border-radius:8px;box-shadow:0 2px 8px rgba(23,36,50,.06);padding:9px 12px;display:flex;flex-direction:column;justify-content:space-between">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between">
+        <div>
+          <div style="font-family:${MONO};font-size:9px;letter-spacing:2px;color:#6b7a8c">${n[0]}</div>
+          <div style="font-family:${MONO};font-size:8px;color:#9aa8b6;margin-top:2px;white-space:nowrap">${n[1]}</div>
+        </div>
+        <div style="font-family:${MONO};font-size:24px;font-weight:700;line-height:1;color:${n[5]}">${n[2]}<span style="font-size:9px">${n[3]}</span></div>
+      </div>
+      <div style="margin-top:8px">${bar(n[4],n[5],'#e3e9ef',5,180)}</div>
+    </div>`;
+  };
+  let wire='';
+  wire+=`<line x1="16" y1="36" x2="16" y2="306" stroke="#b9c4cf" stroke-width="1.5"/>`;
+  for(let i=0;i<4;i++){
+    const cy=36+i*90;
+    wire+=`<line x1="16" y1="${cy}" x2="38" y2="${cy}" stroke="#b9c4cf" stroke-width="1.5"/>`;
+    wire+=`<circle cx="16" cy="${cy}" r="3.5" fill="#ffffff" stroke="${nodes[i][5]}" stroke-width="1.6"/>`;
+    if(i<3) wire+=`<polygon points="12,${cy+33} 20,${cy+33} 16,${cy+40}" fill="#b9c4cf"/>`;
+  }
+  return `<div class="scr" style="position:relative;overflow:hidden;width:320px;height:480px;background:linear-gradient(180deg,${p.bg},${p.bg2});font-family:${FONT};color:#16202b">
+    <div style="position:absolute;left:16px;right:16px;top:0;height:30px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:baseline;gap:7px">
+        <span style="font-size:11px;font-weight:800;letter-spacing:2.6px">SIGNAL CHAIN</span>
+        <span style="font-family:${MONO};font-size:8px;color:#8b98a6">BENCH</span>
+      </div>
+      <span style="display:flex;align-items:center;gap:6px;font-family:${MONO};font-size:8px;color:#6b7a8c">${led('#17a673',6)} LIVE</span>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:30px;height:22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #d5dce3;padding-bottom:6px">
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;letter-spacing:1px;color:#6b7a8c">${led('#1f6feb',5)} CPU</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;letter-spacing:1px;color:#6b7a8c">${led('#17a673',5)} GPU</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;letter-spacing:1px;color:#6b7a8c">${led('#f0a000',5)} MEM</span>
+      <span style="display:flex;align-items:center;gap:5px;font-family:${MONO};font-size:8px;letter-spacing:1px;color:#6b7a8c">${led('#7b8794',5)} NET</span>
+    </div>
+
+    <div style="position:absolute;left:20px;top:58px;width:38px;height:306px">
+      <svg width="38" height="306" style="display:block">${wire}</svg>
+    </div>
+
+    ${nodes.map(box).join('')}
+
+    <div style="position:absolute;left:266px;top:134px;font-family:${MONO};font-size:8px;color:#9aa8b6">6 ms</div>
+    <div style="position:absolute;left:266px;top:224px;font-family:${MONO};font-size:8px;color:#9aa8b6">8 ms</div>
+    <div style="position:absolute;left:266px;top:314px;font-family:${MONO};font-size:8px;color:#9aa8b6">2 ms</div>
+
+    <div style="position:absolute;left:12px;top:410px;width:296px;height:34px;background:#ffffff;border:1px solid #d6dde4;border-radius:8px;display:flex;align-items:center">
+      <div style="flex:1;text-align:center">
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:#8b98a6">DURATION</div>
+        <div style="font-family:${MONO};font-size:12px;font-weight:700">5d 02h</div>
+      </div>
+      <div style="width:1px;height:18px;background:#e1e7ed"></div>
+      <div style="flex:1;text-align:center">
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:#8b98a6">FRAME</div>
+        <div style="font-family:${MONO};font-size:12px;font-weight:700">7.2 ms</div>
+      </div>
+      <div style="width:1px;height:18px;background:#e1e7ed"></div>
+      <div style="flex:1;text-align:center">
+        <div style="font-family:${MONO};font-size:8px;letter-spacing:1.2px;color:#8b98a6">POWER</div>
+        <div style="font-family:${MONO};font-size:12px;font-weight:700">78 W</div>
+      </div>
+    </div>
+
+    <div style="position:absolute;left:16px;right:16px;top:454px;display:flex;justify-content:space-between;font-family:${MONO};font-size:8px;color:#8b98a6">
+      <span>WIN11 · 214 PROC</span><span>NET ↓54 ↑8 Mb/s</span>
+    </div>
+  </div>`;
+}
+
+
+
+
+/* ================= 第 2 组主题清单（仪器实验室） ================= */
+const THEMES=[
+  {id:'I01',name:'Phosphor Scope',ori:'L',cat:'LLM 服务器',style:'磷光示波 · 双通道波形',render:I01,
+   pal:['#07110b','#38f28a','#a9ffce','#ffd166'],
+   hier:'CH1 解码波形占据主视区 → 左侧 42.3 tok/s 大字为读数值 → 右列 GPU/VRAM/KV/队列竖排 → 底部功耗与累计量收口。',
+   art:'显式 1px 网格、双色荧光轨迹、虚线光标与 CH1/CH2 读数框、左轴 0/50/100 刻度、等宽数字。',
+   motion:'轨迹末端点与光标点 1.6s 呼吸；LED 常亮；数值切换 300ms 缓动（LVGL 实现）。',
+   tags:'lv_chart(line) / lv_line / lv_label / lv_bar / lv_led'},
+  {id:'I02',name:'Spectrum Analyzer',ori:'L',cat:'LLM 服务器',style:'频谱分析 · 柱阵 + 峰值保持',render:I02,
+   pal:['#12161b','#5ad1ff','#ffd166','#bfe9ff'],
+   hier:'24 柱频谱为主体 → 左下 42.3 解码主值 → 右侧 KV/队列/功耗三块仪表卡 → 底部衰减与参考电平。',
+   art:'24 根等宽柱 + 亮色柱帽、琥珀峰值保持横标与连线、MKR 虚线游标、频率刻度 0–24k、细网格。',
+   motion:'峰值保持缓慢回落（每帧 0.5px）；MKR 游标闪烁；柱高 200ms 缓动。',
+   tags:'lv_chart(bar) / lv_line / lv_obj(rows) / lv_bar / lv_label'},
+  {id:'I03',name:'Bench Meter',ori:'L',cat:'电脑性能',style:'浅色实验台 · 双数字表',render:I03,
+   pal:['#f2f4f6','#1f6feb','#d92d20','#17a673'],
+   hier:'CH A CPU 34% 与 CH B GPU 71% 双大数字并置 → 分段短刻度条 → 下方四行测量表（温度/功耗/内存/磁盘）→ 页脚校准信息。',
+   art:'白卡浮起（shadow）、蓝色角括号读数框、26 段短刻度、0/50/100 标尺、括号数值、细行分隔。',
+   motion:'分段条 250ms 缓动；超限段变红；LED 呼吸；无位移动画。',
+   tags:'lv_label / lv_bar(segments) / lv_obj(shadow) / lv_table / lv_led'},
+  {id:'I04',name:'Vector Trace',ori:'L',cat:'电脑性能',style:'XY 矢量示波 · 相位轨迹',render:I04,
+   pal:['#0b0f14','#5ad1ff','#ffd166','#61758a'],
+   hier:'CPU×GPU 散点轨迹占满左侧方域 → 左上角 X/Y 十字光标读数 → 右列频率/温度/功耗三项 → 底部窗口与采样量。',
+   art:'XY 网格与双轴刻度、渐隐散点轨迹、末端光环、琥珀十字准线、7px 轴标、细描边。',
+   motion:'轨迹头部光点闪烁；准线随新采样位移（LVGL 直线平移）；散点按序淡入。',
+   tags:'lv_chart(scatter) / lv_line / lv_obj(cursor) / lv_label'},
+  {id:'I05',name:'Channel Rack',ori:'L',cat:'LLM 服务器',style:'双通道轨迹架 · 深灰',render:I05,
+   pal:['#14171b','#38f28a','#ffb000','#e8edf2'],
+   hier:'CH1 解码与 CH2 预填两条等高轨迹 → 每条右侧当前值/峰值 → 右侧 TTFT/队列/KV/命中四格 → 底部批大小与累计。',
+   art:'两块圆角通道面板、面积填充轨迹、通道色块图例、细网格与 0 线、四宫格读数卡。',
+   motion:'两轨迹末端点呼吸；通道指示灯常亮；读数卡数值 300ms 缓动。',
+   tags:'lv_chart(line) / lv_obj(card) / lv_bar / lv_label / lv_led'},
+  {id:'I06',name:'Scope Portrait',ori:'P',cat:'LLM 服务器',style:'竖版示波 · 大网格波形',render:I06,
+   pal:['#07110b','#38f28a','#a9ffce','#4d8b6a'],
+   hier:'竖向大网格波形占上半屏 → 42.3 tok/s 巨型主值 → 下部 GPU/VRAM/KV/功耗四条 → 底部累计与在线时长。',
+   art:'竖幅网格、单通道荧光轨迹与淡面积、虚线时间游标 T+40s、左轴刻度、细条进度。',
+   motion:'游标点呼吸；波形尾部点闪烁；进度条 250ms 缓动。',
+   tags:'lv_chart(line) / lv_line / lv_bar / lv_label / lv_led'},
+  {id:'I07',name:'Sample Stack',ori:'P',cat:'电脑性能',style:'四层采样堆叠 · 迷你频谱',render:I07,
+   pal:['#101418','#5ad1ff','#38f28a','#ffb000'],
+   hier:'CPU/GPU/内存/温度四张等高卡自上而下 → 每卡左上标签与副标、右上大数值、下部 16 柱迷你频谱。',
+   art:'四层堆叠卡、统一柱距与基线、末柱高亮、卡片圆角细边、单色系分组。',
+   motion:'各卡末柱呼吸；柱高按采样 200ms 缓动；卡片不位移。',
+   tags:'lv_chart(bar) / lv_obj(card) / lv_label / lv_led'},
+  {id:'I08',name:'Calibration Dial',ori:'P',cat:'电脑性能',style:'精密校准表盘 · 细刻度指针',render:I08,
+   pal:['#0f0d08','#ffb000','#ffd166','#d92d20'],
+   hier:'大号表盘与 34% 主值居上 → 2×2 校准读数（频率/温度/GPU/功耗）→ 底部校准日期与漂移量。',
+   art:'双层刻度（61 细 + 9 粗）、琥珀弧、红区弧段、细指针与轮毂、0/50/100 字样、方形读数格。',
+   motion:'指针 ±1.4° 微摆 3.6s；校准 LED 呼吸；弧值 300ms 缓动。',
+   tags:'lv_meter / lv_scale / lv_arc / lv_label / lv_led'},
+  {id:'I09',name:'Cryo Probe',ori:'P',cat:'LLM 服务器',style:'低温探针 · 竖向量程柱',render:I09,
+   pal:['#0b1016','#5ad1ff','#8fe3ff','#ffd166'],
+   hier:'左侧竖向量程温度柱 68°C 与刻度为锚 → 中列温度大字与 42.3 解码 → 右列 VRAM/队列/功耗探针 → 下部 KV/命中/延迟三格。',
+   art:'竖柱渐变液面、32 级细刻度、量程标签、水平液位线、探针卡、细进度条。',
+   motion:'液面在 ±2% 内缓慢浮动；LED 呼吸；解码折线末端点闪烁。',
+   tags:'lv_bar(vertical) / lv_scale / lv_chart / lv_obj(probe) / lv_label'},
+  {id:'I10',name:'Signal Chain',ori:'P',cat:'电脑性能',style:'纵向信号链 · 实验台浅色',render:I10,
+   pal:['#eef1f4','#1f6feb','#17a673','#f0a000'],
+   hier:'CPU→GPU→MEM→NET 四个方框纵向串联 → 每框数值与进度条 → 左侧连线节点与延时标注 → 底部时长/帧耗/功耗与页脚。',
+   art:'浅色台面、白色方框浮起、左侧竖直连线与箭头节点、四色 LED 条、等宽数值、细分隔线。',
+   motion:'LED 指示呼吸；节点圆点常亮；进度条 250ms 缓动；箭头可做 1px 位移动画。',
+   tags:'lv_obj(card/line) / lv_bar / lv_led / lv_label'}
+];
+
+
+/* ================= 渲染画廊 ================= */
+const app=document.getElementById('app');
+const cards=THEMES.map(function(t){
+  return `<article class="card" id="card-${t.id}">
+    <div class="meta">
+      <span class="id">${t.id}</span>
+      <b>${t.name}</b>
+      <span style="font-size:10px;color:#67788f">${t.cat}</span>
+      <span class="ori">${t.ori==='L'?'横屏 480×320':'竖屏 320×480'}</span>
+    </div>
+    ${t.render()}
+    <div class="spec">
+      <div class="swatches"><i style="background:${t.pal[0]}"></i><i style="background:${t.pal[1]}"></i><i style="background:${t.pal[2]}"></i><i style="background:${t.pal[3]}"></i><code>${t.pal.join('  ')}</code></div>
+      <div><b>信息层级</b>${t.hier}</div>
+      <div><b>图形元素</b>${t.art}</div>
+      <div><b>动效</b>${t.motion}</div>
+      <div><b>LVGL 映射</b><code>${t.tags}</code></div>
+    </div>
+  </article>`;
+}).join('');
+app.innerHTML=`<div class="gallery">${cards}</div>`;
+
+window.__pick=function(){
+  const list=[].slice.call(document.querySelectorAll('.card'));
+  list.forEach(function(c){c.classList.remove('pick');});
+  const c=list[Math.floor(Math.random()*list.length)];
+  c.scrollIntoView({behavior:'smooth',block:'center'});
+  c.classList.add('pick');
+  setTimeout(function(){c.classList.remove('pick');},2800);
+};
+document.addEventListener('keydown',function(e){
+  if(e.key==='r'||e.key==='R') window.__pick();
+});
+</script>
+</body>
+</html>
