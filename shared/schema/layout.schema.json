@@ -39,6 +39,21 @@
       "maxItems": 40,
       "items": {"$ref": "#/definitions/widget"}
     },
+    "framework": {
+      "type": "string",
+      "enum": ["widgets", "classic"],
+      "default": "widgets",
+      "description": "界面框架：widgets=小组件网格（默认），classic=固定式传统界面主题（横屏 480×320，widgets 留空）。"
+    },
+    "classic_theme": {
+      "type": "string",
+      "enum": [
+        "instrument", "hud", "mecha", "stealth", "arcade", "drone", "scope",
+        "heatsink", "loadout", "armor", "sweep"
+      ],
+      "default": "instrument",
+      "description": "传统框架下的固定界面主题：instrument=磷光示波器，hud=战术 HUD，mecha=机甲反应堆，stealth=潜行终端，arcade=街机计分板，drone=无人机链路，scope=狙击镜，heatsink=散热塔，loadout=装备槽，armor=动力装甲，sweep=战术雷达。"
+    },
     "v1": {
       "type": "object",
       "required": ["v", "profile", "widgets"],
@@ -47,6 +62,8 @@
         "v": {"type": "integer", "const": 1},
         "profile": {"type": "string"},
         "theme": {"type": "string"},
+        "framework": {"$ref": "#/definitions/framework"},
+        "classic_theme": {"$ref": "#/definitions/classic_theme"},
         "widgets": {"$ref": "#/definitions/widgets"}
       }
     },
@@ -58,6 +75,8 @@
         "v": {"type": "integer", "const": 2},
         "profile": {"type": "string"},
         "theme": {"type": "string"},
+        "framework": {"$ref": "#/definitions/framework"},
+        "classic_theme": {"$ref": "#/definitions/classic_theme"},
         "pages": {
           "type": "array",
           "minItems": 1,

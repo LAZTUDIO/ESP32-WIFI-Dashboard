@@ -6,6 +6,10 @@ from .catalog import Catalog
 from .layout_geom import intersects, pack_page
 
 MAX_PAGE_WIDGETS = 40
+CLASSIC_THEMES = (
+    "instrument", "hud", "mecha", "stealth", "arcade", "drone", "scope",
+    "heatsink", "loadout", "armor", "sweep",
+)
 # 单页模式：去掉翻页后只保留一页，把资源让给组件细节和局部动画。
 MAX_TOTAL_WIDGETS = 20
 MAX_PAGES = 1
@@ -226,6 +230,13 @@ def validate_layout(layout: Any, catalog: Catalog) -> dict[str, Any]:
             raise LayoutError(f"未知主题: {theme}")
         if theme not in catalog.themes and theme not in catalog.theme_aliases:
             raise LayoutError(f"未知主题: {theme}")
+
+    framework = layout.get("framework")
+    if framework is not None and framework not in ("widgets", "classic"):
+        raise LayoutError(f"未知界面框架: {framework}（接受 widgets / classic）")
+    classic_theme = layout.get("classic_theme")
+    if classic_theme is not None and classic_theme not in CLASSIC_THEMES:
+        raise LayoutError(f"未知传统主题: {classic_theme}（接受 {' / '.join(CLASSIC_THEMES)}）")
 
     if version == 1:
         _validate_widgets(

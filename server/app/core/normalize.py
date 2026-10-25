@@ -130,12 +130,17 @@ def _as_v2(layout: dict[str, Any]) -> dict[str, Any]:
     if layout.get("v") == 2 and isinstance(layout.get("pages"), list):
         return layout
     widgets = layout.get("widgets") if isinstance(layout.get("widgets"), list) else []
-    return {
+    result = {
         "v": 2,
         "profile": layout.get("profile"),
         "theme": layout.get("theme"),
         "pages": [{"name": "主页", "widgets": widgets}],
     }
+    # 界面框架字段跨版本透传
+    for key in ("framework", "classic_theme"):
+        if key in layout:
+            result[key] = layout[key]
+    return result
 
 
 def normalize_layout(

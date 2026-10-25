@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 #include "lvgl.h"
 #include "ui.h"
+#include "ui_classic.h"
 #include "ui_mini.h"
 #include "ui_pet.h"
 
@@ -146,6 +147,8 @@ typedef struct {
     lv_obj_t *deco;
     dyn_widget_t *widgets;
     int widget_count;
+    /* 传统框架：非 NULL 时整屏由 ui_classic 渲染，widgets 为空 */
+    ui_classic_t *classic;
 } dyn_view_t;
 
 static dyn_view_t *s_view;
@@ -1706,7 +1709,11 @@ static void apply_widget(dyn_widget_t *w)
 static void free_view(dyn_view_t *v, bool delete_screen)
 {
     if (!v) return;
-    if (delete_screen && v->screen) lv_obj_del(v->screen);
+    if (v->classic) {
+        ui_classic_destroy(v->classic); /* 屏幕随 classic 一起释放 */
+    } else if (delete_screen && v->screen) {
+        lv_obj_del(v->screen);
+    }
     if (v->widgets) {
         for (int i = 0; i < v->widget_count; i++) {
             if (v->widgets[i].mini) ui_mini_destroy(v->widgets[i].mini);
@@ -1720,8 +1727,12 @@ void ui_dynamic_apply(void)
 {
     if (!s_view) return;
     int64_t t0 = esp_timer_get_time();
-    for (int i = 0; i < s_view->widget_count; i++) {
-        apply_widget(&s_view->widgets[i]);
+    if (s_view->classic) {
+        ui_classic_apply(s_view->classic);
+    } else {
+        for (int i = 0; i < s_view->widget_count; i++) {
+            apply_widget(&s_view->widgets[i]);
+        }
     }
     int64_t dt = esp_timer_get_time() - t0;
     s_apply_last_us = dt;
@@ -1957,6 +1968,32 @@ bool ui_dynamic_build(const char *layout_json, char *subscribe_out,
         }
     }
     s_canvas = canvas;
+
+    /* 传统框架：固定式界面主题整屏渲染，指标订阅为固定集合 */
+    if (strcmp(jstr(root, "framework", "widgets"), "classic") == 0) {
+        const char *ct = jstr(root, "classic_theme", "instrument");
+        ui_classic_t *classic = ui_classic_build(ct, canvas.w, canvas.h);
+        if (!classic) {
+            ESP_LOGE(TAG, "classic theme build failed: %s", ct);
+            goto out;
+        }
+        char cids[DYN_MAX_SUB_IDS][DASH_METRIC_ID_LEN];
+        int cid_count = 0;
+        int n_ids = 0;
+        const char **ids = ui_classic_metric_ids(&n_ids);
+        for (int i = 0; i < n_ids && cid_count < DYN_MAX_SUB_IDS; i++) {
+            copy_str(cids[cid_count++], DASH_METRIC_ID_LEN, ids[i]);
+        }
+        build_subscribe(cids, cid_count, subscribe_out, subscribe_cap);
+        next->classic = classic;
+        next->screen = ui_classic_screen(classic);
+        s_staging = next;
+        next = NULL;
+        ok = true;
+        ESP_LOGI(TAG, "classic UI staged: theme=%s, %d metrics", ct,
+                 cid_count);
+        goto out;
+    }
 
     int version = jint(root, "v", 1);
     cJSON *widgets_json = NULL;

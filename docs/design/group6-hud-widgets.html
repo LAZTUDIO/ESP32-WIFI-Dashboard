@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>第 6 组 HUD · 小组件主题套件（按数据类型选型）</title>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#070a08;color:#d8f5d0;font-family:'Inter','PingFang SC','Microsoft YaHei','Helvetica Neue',Arial,sans-serif}
+  .top{max-width:1220px;margin:0 auto;padding:34px 24px 8px}
+  h1{font-size:22px;margin:0 0 9px;letter-spacing:.4px}
+  .lead{font-size:12.5px;line-height:1.9;color:#7e9784;max-width:960px}
+  .lead em{color:#b7d8bc;font-style:normal}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+  .chip{font-size:11px;border:1px solid #1e3524;background:#0b1410;border-radius:99px;padding:4px 11px;color:#87a58d}
+  .chip.on{color:#0a0f0c;background:#7cff4f;border-color:#7cff4f;font-weight:700}
+  .wrap{max-width:1220px;margin:0 auto;padding:6px 24px 70px}
+  .sec{margin-top:34px;scroll-margin-top:16px}
+  .sec>h2{font-size:15px;margin:0 0 4px;letter-spacing:.5px;display:flex;align-items:center;gap:10px}
+  .sec>h2:before{content:"";width:3px;height:15px;background:#7cff4f}
+  .sec>h2 span{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#54705a;font-weight:400;letter-spacing:1px}
+  .hint{font-size:11.5px;line-height:1.8;color:#6d8673;margin:0 0 16px;max-width:980px}
+  .hint b{color:#a9c9af;font-weight:600}
+
+  /* ---------- tokens ---------- */
+  .tokens{display:flex;flex-wrap:wrap;gap:10px}
+  .tk{border:1px solid #1c2b1f;background:#0a110d;border-radius:6px;width:112px;overflow:hidden}
+  .tk i{display:block;height:34px;border-bottom:1px solid #1c2b1f}
+  .tk div{padding:6px 8px 7px;line-height:1.5}
+  .tk b{display:block;font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#cfe8d3;font-weight:600}
+  .tk span{font-family:'SF Mono',Menlo,monospace;font-size:9px;color:#5f7a65}
+  .tk em{font-size:9.5px;color:#5f7a65;font-style:normal;display:block}
+
+  /* ---------- decision tree ---------- */
+  .tree{display:flex;flex-direction:column;gap:0;border:1px solid #1c2b1f;background:#0a110d;padding:16px 18px;border-radius:8px}
+  .qrow{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px dashed #18261b}
+  .qrow:last-child{border-bottom:0}
+  .q{flex:0 0 218px;font-family:'SF Mono',Menlo,monospace;font-size:10.5px;line-height:1.7;color:#7cff4f}
+  .q b{color:#d8f5d0;font-family:'Inter','PingFang SC',sans-serif;font-size:11.5px;font-weight:600;display:block}
+  .a{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .a .arrow{color:#3c5a44;font-size:10px}
+  .a code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#0a0f0c;background:#7cff4f;border-radius:3px;padding:3px 7px}
+  .a code.alt{background:#ffb020;color:#161006}
+  .a code.ter{background:#3be0c0;color:#06120f}
+  .a small{font-size:10px;color:#617d68}
+
+  /* ---------- matrix ---------- */
+  .tbl{width:100%;border-collapse:collapse;font-size:11px;line-height:1.6}
+  .tbl th{text-align:left;font-weight:600;color:#8eab94;background:#0b1410;border-bottom:1px solid #27402d;padding:8px 10px;font-size:10.5px;letter-spacing:.3px}
+  .tbl td{border-bottom:1px solid #16241a;padding:8px 10px;vertical-align:top;color:#8fa997}
+  .tbl tr:hover td{background:#0a1310}
+  .tbl td b{color:#d8f5d0;font-weight:600}
+  .tbl .m{font-family:'SF Mono',Menlo,monospace;color:#9ed3a6;font-size:10.5px}
+  .tbl .first{color:#7cff4f;font-family:'SF Mono',Menlo,monospace;font-size:10.5px}
+  .tbl .alt{color:#ffb020;font-family:'SF Mono',Menlo,monospace;font-size:10.5px}
+  .tbl .why{color:#6d8673;font-size:10.5px}
+
+  /* ---------- specimen card ---------- */
+  .spec{border:1px solid #1c2b1f;background:linear-gradient(160deg,#0b130e,#080e0a);border-radius:10px;padding:14px 16px 16px;margin-bottom:18px}
+  .spec-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .spec-head .tag{font-family:'SF Mono',Menlo,monospace;font-size:9.5px;letter-spacing:1px;color:#0a0f0c;background:#7cff4f;border-radius:3px;padding:2px 7px}
+  .spec-head .tag.num{background:#ffb020;color:#161006}
+  .spec-head .tag.ser{background:#3be0c0;color:#06120f}
+  .spec-head .tag.txt{background:#b7d8bc;color:#0a120b}
+  .spec-head h3{font-size:13px;margin:0;color:#e4f7e6;font-weight:650}
+  .spec-head .rule{margin-left:auto;font-size:10.5px;color:#6d8673;font-family:'SF Mono',Menlo,monospace}
+  .rowstage{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end}
+  .vfig{margin:0}
+  .vfig figcaption{font-family:'SF Mono',Menlo,monospace;font-size:9.5px;color:#5f7a65;margin-top:6px;letter-spacing:.2px}
+  .vfig figcaption b{color:#9ed3a6;font-weight:600}
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-top:13px;font-size:10.5px;line-height:1.7;color:#7e9784}
+  .notes b{color:#b7d8bc;font-weight:600;margin-right:5px}
+  .notes code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#8fd39a}
+  .notes .full{grid-column:1/-1}
+  @media(max-width:760px){.notes{grid-template-columns:1fr}.rowstage{gap:12px}}
+
+  /* ---------- widget shell (LVGL achievable) ---------- */
+  .w{position:relative;overflow:hidden;border:1px solid #27402d;border-radius:2px;
+     background:linear-gradient(158deg,#12201a,#0a120e 64%,#0b1510);
+     color:#d8f5d0;font-family:'Inter','PingFang SC',sans-serif;display:flex;flex-direction:column}
+  .w .cnr{position:absolute;width:9px;height:9px;border:0 solid #7cff4f;opacity:.85;pointer-events:none}
+  .w .cnr.tl{left:4px;top:4px;border-left-width:1px;border-top-width:1px}
+  .w .cnr.tr{right:4px;top:4px;border-right-width:1px;border-top-width:1px}
+  .w .cnr.bl{left:4px;bottom:4px;border-left-width:1px;border-bottom-width:1px}
+  .w .cnr.br{right:4px;bottom:4px;border-right-width:1px;border-bottom-width:1px}
+  .w .hd{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+        padding:5px 7px 4px;border-bottom:1px solid #1b2f21;min-height:16px;gap:6px}
+  .w .hd .t{font-size:8px;letter-spacing:1.4px;color:#6d8673;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .w .hd .r{font-family:'SF Mono',Menlo,monospace;font-size:8px;color:#7cff4f;white-space:nowrap}
+  .w .bd{flex:1 1 auto;min-height:0;position:relative;display:flex;flex-direction:column;justify-content:center;padding:5px 7px 6px}
+  .mono{font-family:'SF Mono',Menlo,monospace}
+  .led{display:inline-block;border-radius:50%;background:#7cff4f;box-shadow:0 0 6px rgba(124,255,79,.55);animation:blink 2.2s ease-in-out infinite}
+  .led.off{background:#22381f;box-shadow:none;animation:none}
+  .led.warn{background:#ffb020;box-shadow:0 0 6px rgba(255,176,32,.5)}
+  .led.cyan{background:#3be0c0;box-shadow:0 0 6px rgba(59,224,192,.5)}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.24}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .scan{transform-box:view-box;animation:spin 6s linear infinite}
+  .slow{transform-box:view-box;animation:spin 18s linear infinite}
+  .seg{display:flex;gap:2px;align-items:flex-end}
+  .seg i{flex:1;min-width:0;border-radius:1px;background:#22381f;display:block}
+  .seg i.on{background:#7cff4f}
+  .seg i.on.amber{background:#ffb020}
+  .seg i.on.cyan{background:#3be0c0}
+  .bar{height:4px;background:#1b2f21;border-radius:99px;overflow:hidden}
+  .bar i{display:block;height:100%;background:#7cff4f;border-radius:99px}
+  .rowline{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+  .lbl{font-family:'SF Mono',Menlo,monospace;font-size:8px;letter-spacing:1.2px;color:#5f7a65;white-space:nowrap}
+  .val{font-family:'SF Mono',Menlo,monospace;font-weight:700;color:#e4f7e6;line-height:1.1;white-space:nowrap}
+  .val small{font-size:8px;color:#6d8673;font-weight:400;margin-left:2px}
+  .ghost{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(124,255,79,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(124,255,79,.045) 1px,transparent 1px);background-size:10px 10px}
+  .badge{display:inline-flex;align-items:center;gap:5px;border:1px solid #27402d;background:#0b1510;padding:2px 5px;border-radius:2px}
+
+  /* ---------- density / screen ---------- */
+  .density{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;border:1px solid #1c2b1f;background:#0a110d;border-radius:8px;padding:16px}
+  .scr{position:relative;width:320px;height:480px;background:#0a0f0c;border:1px solid #27402d;border-radius:4px;overflow:hidden;flex:0 0 auto}
+  .scr .w{position:absolute}
+  .recipe{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px;font-size:10.5px;line-height:1.8;color:#7e9784;align-content:start}
+  .recipe b{color:#b7d8bc;font-weight:600}
+  .recipe code{font-family:'SF Mono',Menlo,monospace;color:#8fd39a;font-size:10px}
+  .codebox{border:1px solid #1c2b1f;background:#080e0a;border-radius:8px;padding:13px 15px;overflow:auto}
+  .codebox pre{margin:0;font-family:'SF Mono',Menlo,monospace;font-size:10.5px;line-height:1.75;color:#9fc0a5}
+  .codebox .k{color:#7cff4f}.codebox .s{color:#ffb020}.codebox .c{color:#4d6b54}
+  ul.rules{margin:0;padding-left:16px;font-size:11px;line-height:1.9;color:#7e9784}
+  ul.rules b{color:#b7d8bc}
+  ul.rules code{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#8fd39a}
+  footer{max-width:1220px;margin:0 auto;padding:0 24px 50px;font-size:10.5px;color:#4d6b54;line-height:1.8}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>第 6 组 HUD · 小组件主题套件</h1>
+  <p class="lead">
+    从 <a href="group6-hud.html" style="color:#cfe8d3">group6-hud.html</a> 的 10 屏 Game HUD 里抽出一套可复用的<em>小组件主题</em>：荧光绿主数据、琥珀告警、青色副序列，四角括号、等宽数字、分段条与刻度环。
+    选型不按组件名拍脑袋，而是<em>按数据类型与可用形状</em>决定：布尔→灯，有界百分比→环/条/柱，无界标量→大数字，单序列→折线，双序列→双折线，文本→徽章。
+    所有尺寸按小组件 2.0 的 26.667px 网格 1:1 绘制，元素仅使用 LVGL 9.3 可实现的纯色/渐变、描边、圆角、圆弧、分段条、折线、LED 与透明度动画。
+  </p>
+  <div class="bar">
+    <span class="chip on">HUD Tactical</span>
+    <span class="chip">bool / number / string / series</span>
+    <span class="chip">10 类组件 · 16 种类型</span>
+    <span class="chip">320×480 网格 12×18</span>
+    <span class="chip">LVGL 9.3 可落地</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= 1. tokens ================= -->
+  <section class="sec" id="tokens">
+    <h2>01 主题 token <span>HUD TACTICAL / GREEN × AMBER × CYAN</span></h2>
+    <p class="hint">
+      底色取 H01/H08/H10 的军绿黑，主数据用荧光绿，告警与第二序列用琥珀，第三序列用青。深色 SPI 屏 <b>不用阴影和毛玻璃</b>，层次靠 1px 描边、四角括号和字号落差建立；轨道色必须比卡片底色亮一档，否则看不见。
+    </p>
+    <div class="tokens">
+      <div class="tk"><i style="background:#0a0f0c"></i><div><b>bg</b><span>#0A0F0C</span><em>页面底</em></div></div>
+      <div class="tk"><i style="background:#12201a"></i><div><b>surface</b><span>#12201A</span><em>组件卡</em></div></div>
+      <div class="tk"><i style="background:#0a120e"></i><div><b>surface_2</b><span>#0A120E</span><em>内凹/渐变尾</em></div></div>
+      <div class="tk"><i style="background:#27402d"></i><div><b>border</b><span>#27402D</span><em>描边/轨道</em></div></div>
+      <div class="tk"><i style="background:#d8f5d0"></i><div><b>text</b><span>#D8F5D0</span><em>主文字</em></div></div>
+      <div class="tk"><i style="background:#6d8673"></i><div><b>text_dim</b><span>#6D8673</span><em>标签</em></div></div>
+      <div class="tk"><i style="background:#3e5740"></i><div><b>text_mut</b><span>#3E5740</span><em>刻度/脚注</em></div></div>
+      <div class="tk"><i style="background:#7cff4f"></i><div><b>accent</b><span>#7CFF4F</span><em>主数据/OK</em></div></div>
+      <div class="tk"><i style="background:#ffb020"></i><div><b>accent_2</b><span>#FFB020</span><em>告警/副数据</em></div></div>
+      <div class="tk"><i style="background:#3be0c0"></i><div><b>cyan</b><span>#3BE0C0</span><em>第三序列</em></div></div>
+      <div class="tk"><i style="background:#ff5347"></i><div><b>err</b><span>#FF5347</span><em>危险</em></div></div>
+      <div class="tk"><i style="background:#ff78a0"></i><div><b>pink</b><span>#FF78A0</span><em>点缀</em></div></div>
+    </div>
+    <p class="hint" style="margin-top:12px">
+      语义映射：<b style="color:#7cff4f">ok = accent</b> · <b style="color:#ffb020">warn = accent_2</b> · <b style="color:#ff5347">danger = err</b> · 第二数据序列固定 <b style="color:#3be0c0">cyan</b>。不要在同一个组件里同时用三种强调色表达同一层级。
+    </p>
+  </section>
+
+  <!-- ================= 2. decision ================= -->
+  <section class="sec" id="decision">
+    <h2>02 先看数据，再选组件 <span>DECISION TREE</span></h2>
+    <p class="hint">每一步只问一个维度：<b>类型 → 维度 → 值域 → 可用宽高比</b>。形状是硬约束：环形只放得进正方形，长条只放横向比例，垂直柱只放竖向比例。</p>
+    <div class="tree">
+      <div class="qrow">
+        <div class="q"><b>布尔状态</b>bool</div>
+        <div class="a"><span class="arrow">单值 →</span><code>led_dot</code><small>2×2 纯灯 / 4×4 加副文本</small></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>布尔状态组</b>bool · 2–16 项</div>
+        <div class="a"><span class="arrow">2–4 项 →</span><code>led_matrix</code><span class="arrow">≥5 项 →</span><code class="alt">metric_list</code><small>标签比灯更重要时用列表</small></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>有界百分比</b>number · 0–100</div>
+        <div class="a"><span class="arrow">正方形 →</span><code>gauge_ring</code><span class="arrow">宽扁 →</span><code>bar_strip</code><span class="arrow">窄高 →</span><code class="ter">vbar_gauge</code><small>同数据，三种形状三套形态</small></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>无界标量</b>number · 无自然上限</div>
+        <div class="a"><span class="arrow">唯一焦点 →</span><code>big_stat</code><span class="arrow">并列读数 →</span><code class="alt">kpi</code><span class="arrow">要趋势 →</span><code class="ter">sparkline</code></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>时间序列</b>number[]</div>
+        <div class="a"><span class="arrow">单序列 →</span><code>sparkline</code><span class="arrow">多条横排 →</span><code class="alt">spark_row</code><span class="arrow">两条对比 →</span><code class="ter">dual_line</code></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>多类别对比</b>number[] · 1–8</div>
+        <div class="a"><span class="arrow">离散项 →</span><code>multi_bars</code><small>柱高比较，不做时间轴</small></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>文本 / 枚举</b>string</div>
+        <div class="a"><span class="arrow">短 →</span><code class="alt">text_badge</code><span class="arrow">带在线态 →</span><code>status_pill</code><span class="arrow">多行 →</span><code class="ter">metric_list</code></div>
+      </div>
+      <div class="qrow">
+        <div class="q"><b>复合设备概览</b>number + string</div>
+        <div class="a"><span class="arrow">固定 3–5 行 →</span><code>server_card</code><span class="arrow">可增删行 →</span><code class="alt">metric_list</code></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3. matrix ================= -->
+  <section class="sec" id="matrix">
+    <h2>03 选型矩阵 <span>DATA TYPE → WIDGET</span></h2>
+    <table class="tbl">
+      <thead>
+        <tr><th style="width:120px">数据形态</th><th style="width:120px">典型测点</th><th style="width:130px">首选组件</th><th style="width:130px">备选</th><th>选型理由 / 触发条件</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>bool</b> 单状态</td><td class="m">llm.online</td><td class="first">led_dot</td><td class="alt">text_badge</td><td class="why">状态是二值的，灯是最低认知成本的编码；4×4 以上补副文本，2×2 只留灯。</td></tr>
+        <tr><td><b>bool[]</b> 状态组</td><td class="m">4 项服务健康</td><td class="first">led_matrix</td><td class="alt">metric_list</td><td class="why">先扫灯再读字；标签长度 &gt; 6 字或行数 &gt; 8 时改用列表。</td></tr>
+        <tr><td><b>pct</b> 有界百分比</td><td class="m">cpu / gpu / vram</td><td class="first">gauge_ring</td><td class="alt">bar_strip</td><td class="why">正方形用环，宽扁用条，窄高用柱；有明确 0–100 值域才用环，否则会被“假满格”误导。</td></tr>
+        <tr><td><b>scalar</b> 无界标量</td><td class="m">decode_tps</td><td class="first">big_stat</td><td class="alt">kpi</td><td class="why">一屏只允许一个 hero；没有趋势需求时不要用折线抢焦点。</td></tr>
+        <tr><td><b>series</b> 单序列</td><td class="m">tps 60s</td><td class="first">sparkline</td><td class="alt">big_stat</td><td class="why">折线只回答“在涨还是在跌”，不给纵轴刻度；需要读数时把当前值贴在右上。</td></tr>
+        <tr><td><b>series×2</b> 双序列</td><td class="m">decode / prefill</td><td class="first">dual_line</td><td class="alt">spark_row</td><td class="why">两条线共享纵轴才用 dual_line；量级差 &gt; 10× 时拆成两个 sparkline，避免小序列被压平。</td></tr>
+        <tr><td><b>category[]</b> 多类别</td><td class="m">4 项吞吐对比</td><td class="first">multi_bars</td><td class="alt">spark_row</td><td class="why">离散类别用柱高，连续时间用折线；柱数 &gt; 8 时改横向列表。</td></tr>
+        <tr><td><b>string</b> 文本</td><td class="m">model / phase</td><td class="first">text_badge</td><td class="alt">status_pill</td><td class="why">字符串没有量程，禁止套环/条；2×4 竖排用大字号折行，12×2 用行内左标右值。</td></tr>
+        <tr><td><b>string[]</b> 混合行</td><td class="m">服务/模型/阶段</td><td class="first">metric_list</td><td class="alt">server_card</td><td class="why">行数可增删、每行类型不同时用列表；固定 3–5 行且含进度时用服务器卡。</td></tr>
+        <tr><td><b>composite</b> 设备概览</td><td class="m">CPU/内存/GPU/温度</td><td class="first">server_card</td><td class="alt">metric_list</td><td class="why">复合卡只放 2 个视觉焦点（一个大值 + 2–3 条细进度），不要再叠加环。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ================= 4. specimens ================= -->
+  <section class="sec" id="specimens">
+    <h2>04 组件标本 <span>1:1 · 26.667px GRID · PORTRAIT</span></h2>
+    <p class="hint">每张卡片展示同一数据类型在不同尺寸下的形态变化。左侧标签是组件类型，右下角是真实网格尺寸与像素；所有数值、单位、标签均按 8/10/13/16/22/30px 字阶。</p>
+    <div id="specimens-host"></div>
+  </section>
+
+  <!-- ================= 5. density ================= -->
+  <section class="sec" id="density">
+    <h2>05 尺寸密度规则 <span>SMALL → LARGE</span></h2>
+    <p class="hint">尺寸变大不是等比放大，而是<b>逐级增加信息</b>：小尺寸只保留编码，大尺寸才补刻度、阈值、单位和脚注。低于 60px 高的组件不画标题栏。</p>
+    <div class="density" id="density-host"></div>
+  </section>
+
+  <!-- ================= 6. screen recipe ================= -->
+  <section class="sec" id="screen">
+    <h2>06 整屏配方 <span>320×480 · 12×18 GRID</span></h2>
+    <p class="hint">同一套 token 拼成一块竖屏：顶部状态条 → 主指标 + 环形仪表 → 宽条 → 曲线排 → 状态墙 → 文本徽章。留 1 行空余，方便编辑器插入组件而不溢出。</p>
+    <div class="density" style="align-items:flex-start">
+      <div class="scr" id="screen-host"></div>
+      <div class="recipe">
+        <div><b>12×2</b> <code>status_pill</code></div><div>在线灯 + 模型 + 阶段，贴顶</div>
+        <div><b>6×4</b> <code>big_stat</code></div><div>唯一 hero：DECODE 42.3 tok/s</div>
+        <div><b>6×4</b> <code>gauge_ring</code></div><div>GPU 71%，与 hero 并列但降一级</div>
+        <div><b>12×3</b> <code>bar_strip</code></div><div>VRAM 18.2 / 24G，堆叠大数</div>
+        <div><b>12×3</b> <code>spark_row</code></div><div>解码/预填/GPU/CPU 四条趋势</div>
+        <div><b>12×3</b> <code>led_matrix</code></div><div>4 项服务健康，行内灯 + 标签</div>
+        <div><b>12×2</b> <code>text_badge</code></div><div>Qwen3-32B · BATCH 4，贴底</div>
+        <div style="color:#54705a">合计 17 / 18 行，余 1 行。</div><div style="color:#54705a">横屏 480×320 可换成 12×12 网格。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 7. implementation ================= -->
+  <section class="sec" id="impl">
+    <h2>07 落地清单 <span>THEME TOKENS + LVGL</span></h2>
+    <p class="hint">先写入 <code style="color:#8fd39a">shared/catalog/themes.json</code>，再让 <code style="color:#8fd39a">ui_mini.c</code> 读取同一组 token；Web 编辑器按 token 注入 CSS 变量。新增皮肤时同步补 <code style="color:#8fd39a">app.js</code> / <code style="color:#8fd39a">style.css</code> 的 skin 分支。</p>
+    <div class="codebox">
+<pre>{
+  <span class="k">"id"</span>: <span class="s">"hud-tactical"</span>,
+  <span class="k">"label"</span>: <span class="s">"战术 HUD"</span>,
+  <span class="k">"description"</span>: <span class="s">"军绿黑底 + 荧光绿主数据 / 琥珀告警 / 青色副序列，四角括号与分段条"</span>,
+  <span class="k">"tokens"</span>: {
+    <span class="k">"bg"</span>: <span class="s">"#0A0F0C"</span>,          <span class="c">"surface"</span>: <span class="s">"#12201A"</span>,     <span class="c">"surface_2"</span>: <span class="s">"#0A120E"</span>,
+    <span class="k">"border"</span>: <span class="s">"#27402D"</span>,      <span class="c">"text"</span>: <span class="s">"#D8F5D0"</span>,        <span class="c">"text_dim"</span>: <span class="s">"#6D8673"</span>,
+    <span class="k">"text_mut"</span>: <span class="s">"#3E5740"</span>,    <span class="c">"accent"</span>: <span class="s">"#7CFF4F"</span>,      <span class="c">"accent_2"</span>: <span class="s">"#FFB020"</span>,
+    <span class="k">"cyan"</span>: <span class="s">"#3BE0C0"</span>,        <span class="c">"ok"</span>: <span class="s">"#7CFF4F"</span>,          <span class="c">"warn"</span>: <span class="s">"#FFB020"</span>,
+    <span class="k">"err"</span>: <span class="s">"#FF5347"</span>,         <span class="c">"pink"</span>: <span class="s">"#FF78A0"</span>,        <span class="c">"radius"</span>: 2,
+    <span class="k">"skin"</span>: <span class="s">"hud-tactical"</span>,   <span class="c">"surface_grad_from"</span>: <span class="s">"#12201A"</span>, <span class="c">"surface_grad_to"</span>: <span class="s">"#0A120E"</span>,
+    <span class="k">"glow"</span>: <span class="s">"#7CFF4F"</span>,       <span class="c">"glow_opa"</span>: 0,           <span class="c">"border_width"</span>: 1,
+    <span class="k">"corner_len"</span>: 9,          <span class="c">"font_style"</span>: <span class="s">"mono"</span>,        <span class="c">"tracking"</span>: 1,
+    <span class="k">"deco"</span>: <span class="s">"corners"</span>,        <span class="c">"pet_variant"</span>: <span class="s">"hud-drone"</span>
+  }
+}</pre>
+    </div>
+    <ul class="rules" style="margin-top:14px">
+      <li><b>数值字体：</b>一律等宽（Montserrat 数字仍可用，但小数/单位分开排版）；标签 8–9px，正文 10–12px，数值 13–24px，hero 30–60px。</li>
+      <li><b>分段条：</b>用 <code>lv_obj</code> 自绘 N 段，段数按宽度取 <code>clamp(w/10, 6, 32)</code>，禁止用 <code>lv_bar</code> 的连续填充冒充弹药条。</li>
+      <li><b>角括号：</b>4 个 9×9 的 1px 描边 <code>lv_obj</code>（或 <code>lv_line</code>），只描两条边；不要做整卡圆角 + 阴影。</li>
+      <li><b>刻度：</b><code>lv_line</code> 每 10° 一条，主刻度不透明度 0.6，次刻度 0.25；刻度环旋转仅在外层，18s/圈。</li>
+      <li><b>动效预算：</b>LED 呼吸 2.2s，扫描扇 6s，数值用 300ms <code>lv_anim</code>；SPI 屏默认关闭旋转与全屏重绘，只失效组件局部。</li>
+      <li><b>阈值着色：</b>未越线用 <code>accent</code>，越过 <code>warn_above</code> 用 <code>accent_2</code>，越过 <code>danger_above</code> 用 <code>err</code>；颜色变化只作用于进度与数值，不改变卡片底色。</li>
+      <li><b>空值：</b>指标不可用时数值显示 <code>--</code>，灯变 <code>text_mut</code> 并停止呼吸，禁止显示 0 造成误判。</li>
+      <li><b>Web 对齐：</b>编辑器的 <code>mini_ratio</code> / <code>mini_value_color</code> 必须与固件同口径；新主题的 skin 覆盖写在 <code>#canvas[data-theme="hud-tactical"]</code> 下。</li>
+      <li><b>皮肤枚举：</b><code>skin_from_name()</code> 目前只认 4 套，未知值会静默回退 <code>UI_SKIN_NEON</code>。新增 HUD 必须在 <code>ui.h</code> 加 <code>UI_SKIN_HUD</code>、在 <code>ui_dynamic.c</code> 加映射、并在 <code>ui_mini.c</code> 补分支；只改 <code>themes.json</code> 只会换色，不会换形态。</li>
+      <li><b>桌宠：</b><code>pet_variant: "hud-drone"</code> 未实现前会回退 <code>cyber-cat</code>；要无人机造型需在 <code>ui_pet.c</code> 新增分支。</li>
+    </ul>
+  </section>
+
+</div>
+
+<footer>
+  设计参考：group6-hud.html（H01 Tactical / H02 Mecha / H03 Stealth / H04 Arcade / H05 Drone / H06 Sniper / H07 Heat Sink / H08 Loadout / H09 Power Armor / H10 Sweep）。<br>
+  组件契约：shared/catalog/widgets.json（16 类 · generation 2）；尺寸网格：320×480 → 12×18，单元 26.667px。<br>
+  相关：<a href="widget-gallery-v2.html" style="color:#7cff4f">小组件图鉴 generation 2</a> · <a href="group6-hud.html" style="color:#7cff4f">第 6 组 HUD 整屏设计</a>
+</footer>
+
+<script>
+/* ================= 通用绘图 ================= */
+const FONT = "'Inter','PingFang SC','Microsoft YaHei',sans-serif";
+const MONO = "'SF Mono',Menlo,monospace";
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];}
+function arcD(cx,cy,r,a0,a1){const s=polar(cx,cy,r,a0),e=polar(cx,cy,r,a1),big=(a1-a0)>180?1:0;
+  return `M${s[0].toFixed(1)} ${s[1].toFixed(1)}A${r} ${r} 0 ${big} 1 ${e[0].toFixed(1)} ${e[1].toFixed(1)}`;}
+function ticks(cx,cy,r1,r2,a0,a1,n,color,op){let s='';for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n,p1=polar(cx,cy,r1,a),p2=polar(cx,cy,r2,a);
+  s+=`<line x1="${p1[0].toFixed(1)}" y1="${p1[1].toFixed(1)}" x2="${p2[0].toFixed(1)}" y2="${p2[1].toFixed(1)}" stroke="${color}" stroke-width="1" opacity="${i%5===0?Math.min(1,op+.35):op}"/>`;}return s;}
+function spark(w,h,data,color,opt){opt=opt||{};const pad=2,min=Math.min(...data),max=Math.max(...data),n=data.length;
+  const pts=data.map((v,i)=>[pad+i*(w-2*pad)/(n-1),h-pad-((v-min)/((max-min)||1))*(h-2*pad)]);
+  const d=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join('');
+  let s='';
+  if(opt.fill)s+=`<path d="${d}L${pts[n-1][0]} ${h}L${pts[0][0]} ${h}Z" fill="${color}" opacity=".13"/>`;
+  s+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="${opt.lw||1.6}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  if(opt.dot)s+=`<circle class="led" cx="${pts[n-1][0]}" cy="${pts[n-1][1]}" r="2.4" fill="${color}"/>`;
+  if(opt.grid)for(let i=0;i<opt.grid;i++)s+=`<line x1="0" x2="${w}" y1="${(h/(opt.grid-1))*i}" y2="${(h/(opt.grid-1))*i}" stroke="${color}" opacity=".08"/>`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">${s}</svg>`;}
+function seg(pct,color,n,h,gap){const on=Math.round(Math.max(0,Math.min(100,pct))/100*n);let s='';
+  for(let i=0;i<n;i++)s+=`<i class="${i<on?'on':''}${i<on?' '+color:''}" style="height:${h||5}px"></i>`;
+  return `<div class="seg" style="gap:${gap==null?2:gap}px">${s}</div>`;}
+function hdr(title,right){return `<div class="hd"><span class="t">${title}</span>${right?`<span class="r">${right}</span>`:''}</div>`;}
+function cnr(){return `<i class="cnr tl"></i><i class="cnr tr"></i><i class="cnr bl"></i><i class="cnr br"></i>`;}
+function widget(w,h,body,opt){opt=opt||{};
+  return `<div class="w" style="width:${w}px;height:${h}px">${cnr()}${opt.ghost?'<i class="ghost"></i>':''}${opt.hideHd?'':hdr(opt.title||'',opt.right||'')}<div class="bd">${body}</div></div>`;}
+function ledDot(size,on,cls){return `<span class="led ${on?'':'off'} ${cls||''}" style="width:${size}px;height:${size}px"></span>`;}
+
+/* ================= 组件形态 ================= */
+const S = 320/12;
+const px = c => +(c*S).toFixed(2);
+
+/* --- 环形仪表：正方形专用 --- */
+function gaugeBody(size,pct,color,opt){
+  opt = opt||{};
+  const sw = opt.sw || Math.max(3,Math.round(size/22));
+  const cx=size/2, cy=size/2, r=size/2-sw-3;
+  const full=!!opt.full;
+  let svg=`<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`;
+  if(full){
+    const c=2*Math.PI*r, on=c*Math.max(0,Math.min(100,pct))/100;
+    svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1b2f21" stroke-width="${sw}"/>`;
+    svg+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${on.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    if(opt.ticks)svg+=ticks(cx,cy,r+3,r+6,0,360,opt.ticks,color,.28);
+  }else{
+    svg+=`<path d="${arcD(cx,cy,r,225,495)}" fill="none" stroke="#1b2f21" stroke-width="${sw}" stroke-linecap="round"/>`;
+    svg+=`<path d="${arcD(cx,cy,r,225,225+270*Math.max(0,Math.min(100,pct))/100)}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    if(opt.ticks)svg+=ticks(cx,cy,r+2,r+5,225,495,opt.ticks,color,.26);
+  }
+  svg+='</svg>';
+  const fs=opt.fs||Math.max(12,Math.round(size/4.2));
+  return `<div style="position:relative;width:${size}px;height:${size}px;margin:0 auto">
+    ${svg}<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1">
+      <div class="val" style="font-size:${fs}px;color:${opt.valColor||color}">${pct}<small>%</small></div>
+      ${opt.label?`<div class="lbl" style="margin-top:3px">${opt.label}</div>`:''}
+    </div></div>`;
+}
+
+/* --- 横向分段条 --- */
+function barStripBody(pct,opt){
+  opt=opt||{};
+  const color=opt.color||'#7cff4f';
+  const cls=opt.cls||(color==='#3be0c0'?'cyan':color==='#ffb020'?'amber':'');
+  const inline=opt.mode==='inline';
+  if(inline){
+    return `<div style="width:100%">
+      <div class="rowline" style="margin-bottom:4px">
+        <span class="lbl" style="color:#8eab94">${opt.label||'VRAM'}</span>
+        <span class="val" style="font-size:13px">${opt.value}<small>${opt.unit||'%'}</small></span>
+      </div>
+      ${seg(pct,cls,28,5,2)}
+    </div>`;
+  }
+  return `<div style="width:100%">
+    <div class="rowline" style="align-items:flex-end">
+      <div><div class="lbl">${opt.label||'VRAM'}</div>
+        <div class="val" style="font-size:${opt.big?20:16}px;margin-top:1px">${opt.value}<small>${opt.unit||'%'}</small></div></div>
+      <div class="mono" style="font-size:8px;color:#6d8673;text-align:right;line-height:1.5">${opt.sub||'18.2 / 24 G'}<br><span style="color:${opt.tagColor||color}">${opt.tag||'OK'}</span></div>
+    </div>
+    <div style="margin-top:7px">${seg(pct,cls,28,opt.big?7:6,2)}</div>
+    ${opt.scale?`<div class="rowline mono" style="font-size:7.5px;color:#3e5740;margin-top:4px"><span>0</span><span>25</span><span>50</span><span>75</span><span style="color:${color}">100</span></div>`:''}
+  </div>`;
+}
+
+/* --- 垂直柱（温度计式） --- */
+function vbarBody(pct,opt){
+  opt=opt||{};
+  const color=opt.color||'#7cff4f', n=opt.n||10, cell=opt.cell||4, gap=opt.gap||2, cw=opt.cw||14;
+  const on=Math.round(Math.max(0,Math.min(100,pct))/100*n);
+  let cells='';
+  for(let i=0;i<n;i++){
+    const lit=i<on, hot=lit&&i>=n-3;
+    cells+=`<i style="flex:0 0 ${cell}px;width:${cw}px;height:${cell}px;border-radius:1px;background:${lit?color:'#1b2f21'};${hot?'box-shadow:0 0 5px '+color+';':''};display:block"></i>`;
+  }
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;overflow:hidden">
+    <div class="val" style="font-size:${opt.fs||14}px;color:${color}">${pct}<small>%</small></div>
+    <div class="lbl">${opt.label||'UTIL'}</div>
+    <div style="display:flex;flex-direction:column-reverse;gap:${gap}px;flex:0 0 auto">${cells}</div>
+    ${opt.sub?`<div class="mono" style="font-size:7.5px;color:#5f7a65;text-align:center;line-height:1.4">${opt.sub}</div>`:''}
+  </div>`;
+}
+
+/* --- 主指标 / KPI --- */
+function bigStatBody(value,unit,sub,opt){
+  opt=opt||{};
+  return `<div style="width:100%">
+    <div class="lbl">${opt.label||'DECODE'}</div>
+    <div style="display:flex;align-items:flex-end;gap:4px;margin-top:1px">
+      <div class="val" style="font-size:${opt.fs||34}px;letter-spacing:-.5px">${value}</div>
+      <div class="mono" style="font-size:9px;color:#6d8673;padding-bottom:4px">${unit||'tok/s'}</div>
+    </div>
+    <div class="rowline" style="margin-top:2px">
+      <span class="mono" style="font-size:8.5px;color:${opt.trendColor||'#7cff4f'}">${sub||'+3.2% / 60s'}</span>
+      ${opt.peak?`<span class="lbl">PEAK ${opt.peak}</span>`:''}
+    </div>
+    ${opt.spark?`<div style="margin-top:${opt.sparkGap||7}px">${spark(opt.sw||140,opt.sh||20,opt.spark,'#7cff4f',{fill:true,dot:true,lw:1.4})}</div>`:''}
+  </div>`;
+}
+
+function kpiBody(value,unit,opt){
+  opt=opt||{};
+  return `<div style="height:100%;display:flex;flex-direction:column;justify-content:center">
+    <div class="lbl">${opt.label||'FPS'}</div>
+    <div class="val" style="font-size:${opt.fs||24}px;margin-top:2px">${value}<small>${unit||''}</small></div>
+    ${opt.sub?`<div class="mono" style="font-size:8px;color:#5f7a65;margin-top:2px">${opt.sub}</div>`:''}
+  </div>`;
+}
+
+/* --- 折线类 --- */
+function sparkBody(data,opt){
+  opt=opt||{};
+  return `<div style="width:100%">
+    <div class="rowline" style="margin-bottom:3px">
+      <span class="lbl">${opt.label||'TREND'}</span>
+      <span class="mono" style="font-size:10px;color:${opt.color||'#7cff4f'}">${opt.value}</span>
+    </div>
+    ${spark(opt.w||140,opt.h||64,data,opt.color||'#7cff4f',{fill:true,dot:true,grid:opt.grid,lw:1.6})}
+    ${opt.axis?`<div class="rowline mono" style="font-size:7.5px;color:#3e5740;margin-top:3px"><span>${opt.axis[0]}</span><span>${opt.axis[1]}</span></div>`:''}
+  </div>`;
+}
+function sparkRowBody(series,opt){
+  opt=opt||{};
+  const cols=series.length, w=opt.w||300, h=opt.h||26;
+  return `<div style="display:flex;gap:${opt.gap||8}px;width:100%">
+    ${series.map(s=>`<div style="flex:1;min-width:0">
+      <div class="rowline"><span class="lbl" style="font-size:7.5px">${s.label}</span><span class="mono" style="font-size:9.5px;color:${s.color}">${s.value}</span></div>
+      <div style="margin-top:2px">${spark(w/cols-8,h,s.data,s.color,{dot:true,lw:1.3})}</div>
+    </div>`).join('')}
+  </div>`;
+}
+function dualLineBody(a,b,opt){
+  opt=opt||{};
+  const w=opt.w||300, h=opt.h||52, all=a.concat(b), min=Math.min(...all), max=Math.max(...all);
+  const toPts=(d)=>d.map((v,i)=>[2+i*(w-4)/(d.length-1),h-2-((v-min)/((max-min)||1))*(h-4)]);
+  const d1=toPts(a), d2=toPts(b);
+  const path=(p)=>p.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join('');
+  let svg=`<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">`;
+  for(let i=0;i<3;i++)svg+=`<line x1="0" x2="${w}" y1="${(h/2)*i}" y2="${(h/2)*i}" stroke="#ffffff" opacity=".05"/>`;
+  svg+=`<path d="${path(d1)}" fill="none" stroke="#7cff4f" stroke-width="1.6" stroke-linejoin="round"/>`;
+  svg+=`<path d="${path(d2)}" fill="none" stroke="#3be0c0" stroke-width="1.6" stroke-linejoin="round"/>`;
+  svg+=`<circle class="led" cx="${d1[d1.length-1][0]}" cy="${d1[d1.length-1][1]}" r="2.2" fill="#7cff4f"/>`;
+  svg+=`<circle class="led" cx="${d2[d2.length-1][0]}" cy="${d2[d2.length-1][1]}" r="2.2" fill="#3be0c0"/>`;
+  svg+='</svg>';
+  return `<div style="width:100%">
+    <div class="rowline" style="margin-bottom:2px">
+      <span class="lbl">${opt.label||'DECODE × PREFILL'}</span>
+      <span class="mono" style="font-size:8px"><span style="color:#7cff4f">${opt.v1}</span> <span style="color:#3be0c0">${opt.v2}</span></span>
+    </div>${svg}</div>`;
+}
+
+/* --- 多柱 --- */
+function multiBarsBody(items,opt){
+  opt=opt||{};
+  const max=opt.max||Math.max(...items.map(i=>i.v))*1.15;
+  const h=opt.h||48;
+  return `<div style="width:100%">
+    <div style="display:flex;gap:${opt.gap||6}px;align-items:flex-end;height:${h}px">
+      ${items.map(it=>`<div style="flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:2px">
+        <div class="mono" style="font-size:7.5px;color:${it.c};text-align:center">${opt.showValue===false?'':it.v}</div>
+        <div style="height:${Math.max(3,Math.round(it.v/max*(h-12)))}px;background:${it.c};border-radius:1px 1px 0 0"></div>
+        <div class="mono" style="font-size:7px;color:#5f7a65;text-align:center;white-space:nowrap;overflow:hidden">${it.l}</div>
+      </div>`).join('')}
+    </div>
+    ${opt.baseline?`<div style="height:1px;background:#27402d"></div>`:''}
+  </div>`;
+}
+
+/* --- 列表 / 徽章 / 复合卡 --- */
+function statusPillBody(online,model,phase){
+  return `<div style="display:flex;align-items:center;gap:7px;width:100%">
+    ${ledDot(6,online)}<span class="mono" style="font-size:9px;color:${online?'#7cff4f':'#6d8673'}">${online?'ONLINE':'OFFLINE'}</span>
+    <span style="width:1px;height:10px;background:#27402d"></span>
+    <span style="font-size:10px;color:#d8f5d0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${model}</span>
+    <span class="mono" style="margin-left:auto;font-size:8px;color:#6d8673;white-space:nowrap">${phase}</span>
+  </div>`;
+}
+function textBadgeBody(text,opt){
+  opt=opt||{};
+  return `<div style="width:100%;display:flex;flex-direction:column;justify-content:center;gap:3px;text-align:${opt.align||'left'}">
+    <div class="lbl">${opt.label||'MODEL'}</div>
+    <div style="font-family:${opt.mono?MONO:FONT};font-size:${opt.fs||16}px;font-weight:${opt.weight||600};color:#e4f7e6;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:${opt.wrap?'normal':'nowrap'}">${text}</div>
+    ${opt.sub?`<div class="mono" style="font-size:8px;color:#6d8673">${opt.sub}</div>`:''}
+  </div>`;
+}
+function metricListBody(rows,opt){
+  opt=opt||{};
+  const rh=opt.rh||18;
+  return `<div style="width:100%">
+    ${rows.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;height:${rh}px;border-bottom:1px solid #16241a;gap:6px">
+      <span class="lbl" style="font-size:8px">${r.l}</span>
+      ${r.kind==='status'?`<span style="display:flex;align-items:center;gap:5px"><span class="mono" style="font-size:8.5px;color:${r.on?'#7cff4f':'#6d8673'}">${r.on?'ON':'OFF'}</span>${ledDot(5,r.on)}</span>`:
+        `<span class="mono" style="font-size:${opt.vfs||10}px;color:${r.c||'#d8f5d0'}">${r.v}${r.u?`<small style="color:#6d8673"> ${r.u}</small>`:''}</span>`}
+    </div>`).join('')}
+  </div>`;
+}
+function serverCardBody(rows,opt){
+  opt=opt||{};
+  return `<div style="width:100%">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:6px">
+      <div><div class="lbl">CPU</div><div class="val" style="font-size:22px">34<small>%</small></div></div>
+      <div class="mono" style="font-size:8px;color:#6d8673;text-align:right;line-height:1.6">192.168.31.95<br><span style="color:#7cff4f">ONLINE</span></div>
+    </div>
+    ${rows.map(r=>`<div style="margin-bottom:5px">
+      <div class="rowline"><span class="lbl">${r.l}</span><span class="mono" style="font-size:8.5px;color:${r.c||'#d8f5d0'}">${r.v}</span></div>
+      <div class="bar" style="margin-top:3px;height:3px"><i style="width:${r.pct}%;background:${r.bar||'#7cff4f'}"></i></div>
+    </div>`).join('')}
+  </div>`;
+}
+
+/* ================= 标本渲染 ================= */
+function ser(n,base,amp,seed){let s=seed,a=[],v=base;for(let i=0;i<n;i++){s=(s*9301+49297)%233280;v=Math.max(base*.42,Math.min(base*1.5,v+(s/233280-.48)*amp));a.push(+v.toFixed(1));}return a;}
+const TPS=ser(28,42,6,7), PREFILL=ser(24,28,5,31), GPU=ser(26,71,9,13), CPU=ser(24,34,7,23);
+
+function matrixBody(cols,items,opt){
+  opt=opt||{};
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:${opt.gap||5}px ${opt.gapX||8}px;width:100%">
+    ${items.map(it=>`<div style="display:flex;align-items:center;gap:${opt.gapDot||5}px;min-width:0">
+      ${ledDot(opt.dot||6,it.on,it.on?'':(it.warn?'warn':''))}
+      <span class="mono" style="font-size:${opt.fs||7.5}px;color:${it.on?'#9ed3a6':'#5f7a65'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.l}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
+function specimen(o){
+  return `<article class="spec">
+    <div class="spec-head"><span class="tag ${o.tagClass||''}">${o.tag}</span><h3>${o.title}</h3><span class="rule">${o.rule}</span></div>
+    <div class="rowstage">${o.figs.map(f=>`<figure class="vfig">${f.html}<figcaption>${f.cap}</figcaption></figure>`).join('')}</div>
+    <div class="notes">${o.notes.map(n=>`<div class="${n.full?'full':''}"><b>${n.k}</b>${n.v}</div>`).join('')}</div>
+  </article>`;
+}
+
+const SPECS=[];
+
+/* ---- A. 布尔 ---- */
+SPECS.push(specimen({
+  tag:'BOOL', tagClass:'', title:'布尔状态：灯的尺寸决定信息量', rule:'led_dot 2×2 / 3×3 / 4×4 · led_matrix 6×4 / 12×3',
+  figs:[
+    {html:widget(px(2),px(2),`<div style="height:100%;display:flex;align-items:center;justify-content:center">${ledDot(12,true)}</div>`,{hideHd:true}),
+     cap:'<b>2×2</b> · 53×53 · 纯灯'},
+    {html:widget(px(3),px(3),`<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px">${ledDot(14,true)}<span class="mono" style="font-size:8px;color:#7cff4f">ONLINE</span></div>`,{title:'LINK'}),
+     cap:'<b>3×3</b> · 80×80 · 灯+状态'},
+    {html:widget(px(4),px(4),`<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">${ledDot(20,true)}<span class="mono" style="font-size:9px;color:#7cff4f">ONLINE</span><span class="mono" style="font-size:7.5px;color:#5f7a65">Qwen3-32B</span></div>`,{title:'LLM LINK'}),
+     cap:'<b>4×4</b> · 106×106 · 灯+副文本'},
+    {html:widget(px(6),px(4),`<div style="height:100%;display:flex;align-items:center">${matrixBody(2,[{l:'推理服务',on:true},{l:'正在推理',on:true},{l:'前缀缓存',on:true},{l:'草稿器',on:false}],{dot:6,gap:6,gapX:10})}</div>`,{title:'SERVICES'}),
+     cap:'<b>6×4</b> · 160×106 · 2×2 矩阵'},
+    {html:widget(px(12),px(3),`<div style="height:100%;display:flex;align-items:center">${matrixBody(4,[{l:'INFER',on:true},{l:'BUSY',on:true},{l:'CACHE',on:true},{l:'DRAFT',on:false}],{dot:6,gap:4,gapX:12,fs:7.5})}</div>`,{title:'SERVICE WALL',right:'3/4 ONLINE'}),
+     cap:'<b>12×3</b> · 320×80 · 行内 1×4'}
+  ],
+  notes:[
+    {k:'选型：',v:'bool 只有一个比特，最小尺寸用纯灯；4×4 起才允许加模型/阶段副文本。'},
+    {k:'判定：',v:'状态组 ≤4 项且标签 ≤6 字用 led_matrix；否则改 metric_list。'},
+    {k:'LVGL：',v:'<code>lv_led</code> + <code>lv_anim</code> 透明度 2.2s；离线时灯色切 <code>text_mut</code> 并停止动画。'},
+    {k:'禁忌：',v:'不要给布尔值套环形进度或百分比条，二值数据没有“填充比例”。'}
+  ]
+}));
+
+/* ---- A2. 状态条 ---- */
+SPECS.push(specimen({
+  tag:'BOOL+STRING', tagClass:'', title:'在线状态 + 模型 + 阶段：横向状态条', rule:'status_pill 12×2',
+  figs:[
+    {html:widget(px(12),px(2),statusPillBody(true,'Qwen3-32B','DECODE'),{hideHd:true}),
+     cap:'<b>12×2</b> · 320×53 · 在线'},
+    {html:widget(px(12),px(2),statusPillBody(false,'Qwen3-32B','IDLE'),{hideHd:true}),
+     cap:'<b>12×2</b> · 320×53 · 离线'}
+  ],
+  notes:[
+    {k:'选型：',v:'三种数据类型混排时用状态条，不要拆成三个小组件。'},
+    {k:'层级：',v:'灯 + ONLINE 是主状态，模型名最高对比，阶段靠右弱化。'},
+    {k:'LVGL：',v:'单个 flex row，模型名 <code>LV_TEXT_ALIGN_LEFT</code>，阶段固定宽右对齐。'},
+    {k:'尺寸：',v:'高度 53px &lt; 60，按规则不画标题栏，整条就是内容。'}
+  ]
+}));
+
+/* ---- B. 百分比 ---- */
+SPECS.push(specimen({
+  tag:'PERCENT', tagClass:'num', title:'有界百分比：按形状选环 / 条 / 柱', rule:'gauge_ring 2×2 / 4×4 / 6×6 · bar_strip 12×2 / 12×4 · vbar_gauge 2×4 / 3×6',
+  figs:[
+    {html:widget(px(2),px(2),`<div style="height:100%;display:flex;align-items:center">${gaugeBody(38,34,'#7cff4f',{sw:4,fs:12,full:true})}</div>`,{hideHd:true}),
+     cap:'<b>2×2</b> · 53×53 · 纯环+值'},
+    {html:widget(px(4),px(4),`<div style="height:100%;display:flex;align-items:center">${gaugeBody(78,71,'#ffb020',{sw:6,fs:19,ticks:24,label:'GPU'})}</div>`,{title:'GPU LOAD'}),
+     cap:'<b>4×4</b> · 106×106 · 270°环+刻度'},
+    {html:widget(px(6),px(6),`<div style="height:100%;display:flex;align-items:center">${gaugeBody(128,71,'#ffb020',{sw:7,fs:30,ticks:36,label:'GPU LOAD'})}</div>`,{title:'GPU',right:'OK'}),
+     cap:'<b>6×6</b> · 160×160 · 完整刻度+阈值'},
+    {html:widget(px(12),px(2),`<div style="height:100%;display:flex;align-items:center">${barStripBody(76,{mode:'inline',label:'VRAM',value:'18.2',unit:'G',color:'#3be0c0'})}</div>`,{hideHd:true}),
+     cap:'<b>12×2</b> · 320×53 · Inline'},
+    {html:widget(px(12),px(4),`<div style="height:100%;display:flex;align-items:center">${barStripBody(76,{label:'USED',value:'18.2',unit:'G',sub:'18.2 / 24 G',tag:'HIGH',tagColor:'#ffb020',scale:true,color:'#3be0c0'})}</div>`,{title:'VRAM',right:'76%'}),
+     cap:'<b>12×4</b> · 320×106 · 大数+刻度'},
+    {html:widget(px(2),px(4),`<div style="height:100%;display:flex">${vbarBody(78,{n:8,cell:3,gap:1,cw:14,label:'UTIL',color:'#ffb020',fs:13})}</div>`,{title:'GPU'}),
+     cap:'<b>2×4</b> · 53×106 · 窄柱'},
+    {html:widget(px(3),px(6),`<div style="height:100%;display:flex">${vbarBody(76,{n:12,cell:4,gap:2,cw:20,label:'USED',color:'#3be0c0',fs:15,sub:'18.2 / 24G'})}</div>`,{title:'VRAM'}),
+     cap:'<b>3×6</b> · 80×160 · 温度计'}
+  ],
+  notes:[
+    {k:'选型：',v:'先看可用形状：正方形→gauge_ring；宽扁→bar_strip；窄高→vbar_gauge。同一测点换尺寸只换形态，不换颜色。'},
+    {k:'值域：',v:'只有明确 0–100 的指标才用环；温度、功耗、延迟要显式设 <code>max_value</code>，否则会“假满格”。'},
+    {k:'阈值：',v:'≥warn 用琥珀，≥danger 用 <code>err</code>；阈值颜色只作用于进度与数值，卡片底色不变。'},
+    {k:'LVGL：',v:'<code>lv_arc</code> 用 <code>arc_width/arc_rounded</code>；分段条用 N 个 <code>lv_obj</code>，不要用 <code>lv_bar</code> 连续填充。'}
+  ]
+}));
+
+/* ---- C. 标量 ---- */
+SPECS.push(specimen({
+  tag:'SCALAR', tagClass:'num', title:'无界标量：一屏只留一个 hero', rule:'big_stat 6×4 / 12×4 · kpi 4×3',
+  figs:[
+    {html:widget(px(6),px(4),`${bigStatBody('42.3','tok/s','+3.2% / 60s',{fs:30,label:'CURRENT',spark:TPS,sw:136,sh:16,sparkGap:5})}`,{title:'DECODE'}),
+     cap:'<b>6×4</b> · 160×106 · 数值+微趋势'},
+    {html:widget(px(12),px(4),`<div style="height:100%;display:flex;align-items:center;gap:12px">
+      <div style="flex:0 0 118px">${bigStatBody('42.3','tok/s','+3.2% / 60s',{fs:34,label:'CURRENT'})}</div>
+      <div style="flex:1;min-width:0">${spark(170,48,TPS,'#7cff4f',{fill:true,dot:true,grid:3,lw:1.5})}
+        <div class="rowline mono" style="font-size:7.5px;color:#3e5740;margin-top:3px"><span>60s AGO</span><span>NOW</span></div></div>
+    </div>`,{title:'DECODE THROUGHPUT',right:'42.3 T/S'}),
+     cap:'<b>12×4</b> · 320×106 · Hero+背景曲线'},
+    {html:widget(px(4),px(3),kpiBody('141','FPS',{label:'FRAME RATE',fs:26,sub:'7.1 MS'}),{title:'FPS'}),
+     cap:'<b>4×3</b> · 106×80 · 并列读数'}
+  ],
+  notes:[
+    {k:'选型：',v:'TPS、温度、功耗、延迟这类没有自然上限的值用 big_stat；hero 必须是整屏最大数字。'},
+    {k:'层级：',v:'一屏只允许一个 hero；其余同量级指标降为 kpi 或 sparkline，不要再放大数字。'},
+    {k:'LVGL：',v:'数值 <code>lv_label</code> 30–38px，单位 9px 基线下沉；背景曲线用 <code>lv_chart</code> 且只保留最近 28 点。'},
+    {k:'尺寸：',v:'12×4 时把曲线放右侧，避免大数字和曲线在垂直方向互相挤压。'}
+  ]
+}));
+
+/* ---- D. 时间序列 ---- */
+SPECS.push(specimen({
+  tag:'SERIES', tagClass:'ser', title:'时间序列：单线 / 多线 / 横排', rule:'sparkline 4×3 / 6×4 · spark_row 12×3 · dual_line 12×4',
+  figs:[
+    {html:widget(px(4),px(3),`<div style="height:100%;display:flex;align-items:center">${sparkBody(TPS,{label:'DECODE',value:'42.3',w:88,h:34,lw:1.4})}</div>`,{title:'TREND'}),
+     cap:'<b>4×3</b> · 106×80 · 无刻度单线'},
+    {html:widget(px(6),px(4),`<div style="height:100%;display:flex;align-items:center">${sparkBody(TPS,{label:'LAST 60s',value:'42.3',w:136,h:52,grid:3,axis:['60s','NOW']})}</div>`,{title:'DECODE'}),
+     cap:'<b>6×4</b> · 160×106 · 当前值+网格'},
+    {html:widget(px(12),px(3),`<div style="height:100%;display:flex;align-items:center">${sparkRowBody([
+      {label:'DECODE',value:'42.3',data:TPS,color:'#7cff4f'},
+      {label:'PREFILL',value:'1860',data:PREFILL,color:'#ffb020'},
+      {label:'GPU',value:'71',data:GPU,color:'#3be0c0'},
+      {label:'CPU',value:'34',data:CPU,color:'#b7d8bc'}],{w:300,h:24})}</div>`,{title:'LIVE TRENDS',right:'4 CH'}),
+     cap:'<b>12×3</b> · 320×80 · 四列独立纵轴'},
+    {html:widget(px(12),px(4),`<div style="height:100%;display:flex;align-items:center">${dualLineBody(TPS,PREFILL,{w:300,h:58,label:'DECODE × PREFILL',v1:'42.3',v2:'1860'})}</div>`,{title:'THROUGHPUT',right:'2 SERIES'}),
+     cap:'<b>12×4</b> · 320×106 · 双线对比'}
+  ],
+  notes:[
+    {k:'选型：',v:'折线只回答趋势，不给纵轴刻度；需要精确读数时把当前值贴右上，而不是画坐标轴。'},
+    {k:'量级：',v:'两条序列量级差 >10× 时不要用 dual_line，拆成两个 sparkline，否则小序列被压成直线。'},
+    {k:'LVGL：',v:'<code>lv_chart</code> 的 <code>LV_PART_INDICATOR</code> 关点，<code>LV_PART_ITEMS</code> 设线宽；9.3 无平滑曲线，靠加密采样。'},
+    {k:'空值：',v:'断点不要补 0；跳过不可用样本，避免曲线掉到谷底造成误判。'}
+  ]
+}));
+
+/* ---- E. 多类别 ---- */
+SPECS.push(specimen({
+  tag:'CATEGORY', tagClass:'num', title:'多类别对比与混合行', rule:'multi_bars 6×4 / 12×4 · metric_list 6×4',
+  figs:[
+    {html:widget(px(6),px(4),`<div style="height:100%;display:flex;align-items:center">${multiBarsBody([{l:'解码',v:42,c:'#7cff4f'},{l:'预填',v:28,c:'#ffb020'},{l:'均值',v:38,c:'#3be0c0'},{l:'峰值',v:59,c:'#b7d8bc'}],{h:54,gap:7})}</div>`,{title:'THROUGHPUT'}),
+     cap:'<b>6×4</b> · 160×106 · 4 柱'},
+    {html:widget(px(12),px(4),`<div style="height:100%;display:flex;align-items:center">${multiBarsBody([{l:'DEC',v:42,c:'#7cff4f'},{l:'PRE',v:28,c:'#ffb020'},{l:'AVG',v:38,c:'#3be0c0'},{l:'PEAK',v:59,c:'#b7d8bc'},{l:'GPU',v:71,c:'#7cff4f'},{l:'CPU',v:34,c:'#ffb020'}],{h:58,gap:10,baseline:true})}</div>`,{title:'CATEGORY COMPARE',right:'6 ITEMS'}),
+     cap:'<b>12×4</b> · 320×106 · 6 柱+基线'},
+    {html:widget(px(6),px(4),`<div style="height:100%;display:flex;align-items:center">${metricListBody([
+      {l:'推理服务',kind:'status',on:true},{l:'模型',v:'Qwen3-32B'},{l:'阶段',v:'DECODE',c:'#7cff4f'},{l:'队列',v:'2',u:'req'}],{rh:18})}</div>`,{title:'SERVICES'}),
+     cap:'<b>6×4</b> · 160×106 · 混合类型行'}
+  ],
+  notes:[
+    {k:'选型：',v:'离散类别用柱高；连续时间是折线。柱数 >8 或标签过长时改横向列表。'},
+    {k:'量程：',v:'多柱必须共享纵轴；单柱异常大时用对数或截断并标注，不要让其他柱全变成 1px。'},
+    {k:'混合行：',v:'状态 / 文本 / 数值同列表时，状态用灯，数值右对齐，文本左对齐，三者列宽固定。'},
+    {k:'LVGL：',v:'multi_bars 用 <code>lv_bar</code> 竖排或 <code>lv_chart</code> BAR 模式；列表每行一个 flex row，行间 1px 分隔。'}
+  ]
+}));
+
+/* ---- F. 文本 / 复合 ---- */
+SPECS.push(specimen({
+  tag:'TEXT+COMPOSITE', tagClass:'txt', title:'文本徽章与设备复合卡', rule:'text_badge 12×2 / 2×4 · server_card 12×6',
+  figs:[
+    {html:widget(px(12),px(2),`<div style="height:100%;display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px">
+      <div style="min-width:0"><div class="lbl">MODEL</div><div style="font-size:13px;font-weight:600;color:#e4f7e6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Qwen3-32B</div></div>
+      <div class="mono" style="font-size:8px;color:#6d8673;text-align:right;line-height:1.5;white-space:nowrap">BATCH 4<br><span style="color:#7cff4f">CTX 12.4K</span></div>
+    </div>`,{hideHd:true}),
+     cap:'<b>12×2</b> · 320×53 · 行内徽章'},
+    {html:widget(px(2),px(4),`<div style="height:100%;display:flex;flex-direction:column;justify-content:space-between">
+      <span class="lbl">MODEL</span>
+      <div style="font-size:11px;font-weight:600;color:#e4f7e6;line-height:1.35;word-break:break-word">Qwen3-<br>32B</div>
+      <span class="mono" style="font-size:7px;color:#7cff4f">BATCH 4</span>
+    </div>`,{title:'LLM'}),
+     cap:'<b>2×4</b> · 53×106 · 竖排折行'},
+    {html:widget(px(12),px(6),`<div style="height:100%;display:flex;align-items:center">${serverCardBody([
+      {l:'RAM',v:'12.4 / 32 G',pct:39,bar:'#3be0c0'},
+      {l:'GPU TEMP',v:'67 C',pct:67,bar:'#ffb020'},
+      {l:'GPU UTIL',v:'71 %',pct:71,bar:'#7cff4f'}],{})}</div>`,{title:'SERVER / PC-01',right:'ONLINE'}),
+     cap:'<b>12×6</b> · 320×160 · 复合概览'}
+  ],
+  notes:[
+    {k:'选型：',v:'字符串没有量程，禁止套环/条；短文本用徽章，长文本用竖排换行，多行结构化数据用列表。'},
+    {k:'复合：',v:'server_card 只保留 1 个大值 + 2–3 条细进度；信息再多了就拆成多个小组件。'},
+    {k:'LVGL：',v:'文本溢出用 <code>LV_LABEL_LONG_DOT</code>；竖排卡 <code>LV_LABEL_LONG_WRAP</code>，宽度先算再定字号。'},
+    {k:'字体：',v:'标签用 8–9px 等宽；中文标签必须走动态字体子集，英文标签优先内置 Montserrat。'}
+  ]
+}));
+
+document.getElementById('specimens-host').innerHTML = SPECS.join('');
+
+/* ================= 尺寸密度 ================= */
+const dg = (size,opt,noHd)=>widget(size,size,`<div style="height:100%;display:flex;align-items:center">${gaugeBody(noHd?38:size-24,71,'#ffb020',Object.assign({sw:6,label:'GPU'},opt))}</div>`,{title:'GPU',hideHd:!!noHd});
+document.getElementById('density-host').innerHTML = `
+  <div style="display:flex;flex-direction:column;gap:7px">
+    <div style="display:flex;gap:10px;align-items:flex-end">
+      ${dg(px(2),{full:true,fs:12,ticks:0},true)}
+      ${dg(px(3),{fs:16,ticks:16})}
+      ${dg(px(4),{fs:19,ticks:24})}
+      ${dg(px(6),{fs:30,ticks:36,label:'GPU LOAD'})}
+    </div>
+    <div style="display:flex;gap:10px;font-family:${MONO};font-size:8px;color:#5f7a65">
+      <span style="width:53px">2×2 编码</span><span style="width:80px">3×3 +值</span><span style="width:106px">4×4 +刻度</span><span style="width:160px">6×6 +阈值</span>
+    </div>
+  </div>
+  <div class="recipe" style="flex:1;min-width:280px">
+    <div><b>2×2 / 53px</b> 只保留编码</div><div>纯色环或纯灯，数值 13px，无标题、无刻度、无单位。</div>
+    <div><b>3×3 / 80px</b> 补读数</div><div>数值 16px + 单位；环改 270°，开始出现标签。</div>
+    <div><b>4×4 / 106px</b> 补刻度</div><div>24 格刻度、值 19px、标题栏；可加阈值色。</div>
+    <div><b>6×6 / 160px</b> 补范围</div><div>36 格刻度、min/max、warn 刻线、值 30px，成为页面焦点。</div>
+    <div><b>形状优先级</b> 先形状后组件</div><div>宽高比 &gt;2 → 条；&lt;0.8 → 柱；0.8–1.25 → 环。不要硬塞。</div>
+    <div><b>标题栏</b> &lt;60px 高自动省略</div><div>12×2、2×2 直接显示内容；≥60px 才允许标题与右侧状态。</div>
+  </div>`;
+
+/* ================= 整屏配方 ================= */
+function abs(left,top,html){return `<div style="position:absolute;left:${left}px;top:${top}px">${html}</div>`;}
+const scrHTML = [
+  abs(0,0,widget(px(12),px(2),statusPillBody(true,'Qwen3-32B','DECODE'),{hideHd:true})),
+  abs(0,px(2),widget(px(6),px(4),bigStatBody('42.3','tok/s','+3.2% / 60s',{fs:28,label:'CURRENT',spark:TPS,sw:132,sh:18,sparkGap:5}),{title:'DECODE',right:'HERO'})),
+  abs(px(6),px(2),widget(px(6),px(4),`<div style="height:100%;display:flex;align-items:center">${gaugeBody(74,71,'#ffb020',{sw:6,fs:18,ticks:20,label:'GPU'})}</div>`,{title:'GPU LOAD'})),
+  abs(0,px(6),widget(px(12),px(3),`<div style="height:100%;display:flex;align-items:center">${barStripBody(76,{label:'USED',value:'18.2',unit:'G',big:true,sub:'18.2 / 24 G',tag:'HIGH',tagColor:'#ffb020',color:'#3be0c0'})}</div>`,{title:'VRAM',right:'76%'})),
+  abs(0,px(9),widget(px(12),px(3),`<div style="height:100%;display:flex;align-items:center">${sparkRowBody([
+    {label:'DECODE',value:'42.3',data:TPS,color:'#7cff4f'},
+    {label:'PREFILL',value:'1860',data:PREFILL,color:'#ffb020'},
+    {label:'GPU',value:'71',data:GPU,color:'#3be0c0'},
+    {label:'CPU',value:'34',data:CPU,color:'#b7d8bc'}],{w:300,h:22})}</div>`,{title:'LIVE TRENDS',right:'4 CH'})),
+  abs(0,px(12),widget(px(12),px(3),`<div style="height:100%;display:flex;align-items:center">${matrixBody(4,[{l:'INFER',on:true},{l:'BUSY',on:true},{l:'CACHE',on:true},{l:'DRAFT',on:false}],{dot:6,gap:4,gapX:12,fs:7.5})}</div>`,{title:'SERVICE WALL',right:'3/4 ONLINE'})),
+  abs(0,px(15),widget(px(12),px(2),`<div style="height:100%;display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <div><div class="lbl">MODEL</div><div style="font-size:12px;font-weight:600;color:#e4f7e6">Qwen3-32B</div></div>
+    <div class="mono" style="font-size:8px;color:#6d8673;text-align:right;line-height:1.5">BATCH 4<br><span style="color:#7cff4f">CTX 12.4K</span></div>
+  </div>`,{hideHd:true}))
+].join('');
+document.getElementById('screen-host').innerHTML = scrHTML + `<div class="ghost"></div>`;
+</script>
+</body>
+</html>

@@ -38,6 +38,7 @@
   const inspectorEl = $('inspector');
   const profileSelect = $('profile-select');
   const themeSelect = $('theme-select');
+  const frameworkSelect = $('framework-select');
   const toastEl = $('toast');
   const deviceSelect = $('device-select');
   const deviceModal = $('device-modal');
@@ -105,6 +106,10 @@
       ? pages[0].widgets
       : [];
   }
+  /* 界面框架：widgets=小组件网格（默认），classic=固定式传统主题 */
+  function isClassic() {
+    return !!(state.layout && state.layout.framework === 'classic');
+  }
   const THEME_VARS = {
     bg: '--bg',
     surface: '--surface',
@@ -126,6 +131,13 @@
   };
   function applyTheme() {
     if (!state.layout) return;
+    if (isClassic()) {
+      const ct = state.layout.classic_theme || 'instrument';
+      canvas.dataset.theme = `classic-${ct}`;
+      canvas.dataset.skin = `classic-${ct}`;
+      if (themeSelect.value !== ct) themeSelect.value = ct;
+      return;
+    }
     const theme =
       state.themes.byId.get(state.layout.theme) ||
       state.themes.byId.get(state.themeDefault) ||
@@ -187,9 +199,13 @@
         layout.theme = state.themeDefault || 'neon-cyber';
       }
       layout.theme = state.themeAliases[layout.theme] || layout.theme;
+      if (layout.framework !== 'classic') layout.framework = 'widgets';
+      if (layout.framework === 'classic' && !layout.classic_theme) {
+        layout.classic_theme = 'instrument';
+      }
       return layout;
     }
-    return {
+    const rebuilt = {
       v: 2,
       profile: layout.profile,
       theme: state.themeAliases[layout.theme] || layout.theme || state.themeDefault,
@@ -200,6 +216,11 @@
         },
       ],
     };
+    if (layout.framework === 'classic') {
+      rebuilt.framework = 'classic';
+      rebuilt.classic_theme = layout.classic_theme || 'instrument';
+    }
+    return rebuilt;
   }
   function cellSize(profile) {
     const cw =
@@ -496,6 +517,10 @@
 
   function fitCanvas() {
     if (!state.layout) return;
+    if (isClassic()) {
+      fitClassicCanvas();
+      return;
+    }
     const profile = activeProfile();
     if (!profile) return;
     const mobile = window.matchMedia('(max-width: 860px)').matches;
@@ -523,6 +548,13 @@
   }
 
   function renderPalette() {
+    if (isClassic()) {
+      paletteEl.innerHTML =
+        '<p class="muted" style="padding:12px;line-height:1.8">' +
+        '传统框架为固定式界面，不使用组件库。<br>' +
+        '可在上方「配色」切换传统主题：<br>磷光示波器 / 战术 HUD。</p>';
+      return;
+    }
     paletteEl.innerHTML = '';
     const groups = new Map();
     for (const def of state.widgets.list) {
@@ -1747,8 +1779,1145 @@
     return el;
   }
 
+  /* ============================ 传统框架（classic）预览 ============================ */
+  /* 与固件 ui/src/ui_classic.c 同布局同配色：480×320 固定界面，
+   * 编辑器内用 DOM 复刻渲染并跟随实时数据刷新。 */
+
+  const CLASSIC_THEME_META = {
+    instrument: {
+      label: '磷光示波器',
+      pal: {
+        bg: '#07110B', bg2: '#0A1911', surface: '#08150E', border: '#163626',
+        text: '#D9F8E6', dim: '#4D8B6A', mut: '#2F5A44',
+        acc: '#38F28A', acc2: '#A9FFCE', acc3: '#FFD166',
+        warn: '#FFD166', err: '#FF5347', track: '#1C3A28',
+      },
+    },
+    hud: {
+      label: '战术 HUD',
+      pal: {
+        bg: '#0A0F0C', bg2: '#0D1512', surface: '#12201A', border: '#27402D',
+        text: '#D8F5D0', dim: '#6D8673', mut: '#3E5740',
+        acc: '#7CFF4F', acc2: '#FFB020', acc3: '#3BE0C0',
+        warn: '#FFB020', err: '#FF5347', track: '#1B2F21',
+      },
+    },
+    mecha: {
+      label: '机甲反应堆',
+      pal: {
+        bg: '#0E1116', bg2: '#121A24', surface: '#10161D', border: '#232D3A',
+        text: '#E8F0F7', dim: '#6B7A8C', mut: '#3D4754',
+        acc: '#FF6B35', acc2: '#00D1FF', acc3: '#9DB4C8',
+        warn: '#FFB020', err: '#FF5347', track: '#161D27',
+      },
+    },
+    stealth: {
+      label: '潜行终端',
+      pal: {
+        bg: '#14171A', bg2: '#111417', surface: '#121518', border: '#28322E',
+        text: '#D9E5DE', dim: '#5F6B66', mut: '#3A423E',
+        acc: '#4ADE80', acc2: '#9CA3AF', acc3: '#A7C4B5',
+        warn: '#D9B44A', err: '#FF5347', track: '#1D2422',
+      },
+    },
+    arcade: {
+      label: '街机计分板',
+      pal: {
+        bg: '#120A1C', bg2: '#1B0F2A', surface: '#170D24', border: '#3D2660',
+        text: '#FFF6D6', dim: '#8A7AA8', mut: '#57496F',
+        acc: '#FFCF00', acc2: '#FF3EA5', acc3: '#7EF9FF',
+        warn: '#FFCF00', err: '#FF5347', track: '#2C1B42',
+      },
+    },
+    drone: {
+      label: '无人机链路',
+      pal: {
+        bg: '#07110D', bg2: '#0A1A14', surface: '#0A1610', border: '#1A3A2C',
+        text: '#D6FFF0', dim: '#4E7A68', mut: '#2F4F42',
+        acc: '#00FF9D', acc2: '#FFB020', acc3: '#7DFFD4',
+        warn: '#FFB020', err: '#FF5347', track: '#12261E',
+      },
+    },
+    scope: {
+      label: '狙击镜',
+      pal: {
+        bg: '#07110D', bg2: '#08170F', surface: '#0A170F', border: '#1B3E2C',
+        text: '#D8FFF0', dim: '#3F6B57', mut: '#27493A',
+        acc: '#00FF9D', acc2: '#9FFFE0', acc3: '#FFB020',
+        warn: '#FFB020', err: '#FF5347', track: '#122A1F',
+      },
+    },
+    heatsink: {
+      label: '散热塔',
+      pal: {
+        bg: '#0E1116', bg2: '#131A22', surface: '#10161D', border: '#232D3A',
+        text: '#E8F0F7', dim: '#6B7A8C', mut: '#3D4754',
+        acc: '#FF6B35', acc2: '#00D1FF', acc3: '#FFD166',
+        warn: '#FFB020', err: '#FF5347', track: '#1B232E',
+      },
+    },
+    loadout: {
+      label: '装备槽',
+      pal: {
+        bg: '#0A0F0C', bg2: '#0E1712', surface: '#0D1712', border: '#22381F',
+        text: '#D8F5D0', dim: '#5D7A5A', mut: '#3A5240',
+        acc: '#7CFF4F', acc2: '#FFB020', acc3: '#3BE0C0',
+        warn: '#FFB020', err: '#FF5347', track: '#1A2A1C',
+      },
+    },
+    armor: {
+      label: '动力装甲',
+      pal: {
+        bg: '#0E1116', bg2: '#131B24', surface: '#10161D', border: '#232D3A',
+        text: '#E8F0F7', dim: '#6B7A8C', mut: '#3D4754',
+        acc: '#FF6B35', acc2: '#00D1FF', acc3: '#FFD166',
+        warn: '#FFB020', err: '#FF5347', track: '#1B232E',
+      },
+    },
+    sweep: {
+      label: '战术雷达',
+      pal: {
+        bg: '#0A0F0C', bg2: '#0D1611', surface: '#0B130E', border: '#22381F',
+        text: '#D8F5D0', dim: '#5D7A5A', mut: '#3A5240',
+        acc: '#7CFF4F', acc2: '#FFB020', acc3: '#3BE0C0',
+        warn: '#FFB020', err: '#FF5347', track: '#1A2A1C',
+      },
+    },
+  };
+  const classicThemeId = () => {
+    if (!isClassic()) return 'instrument';
+    const t = state.layout && state.layout.classic_theme;
+    return CLASSIC_THEME_META[t] ? t : 'instrument';
+  };
+  const classicThemeLabel = (id) =>
+    (CLASSIC_THEME_META[id] || CLASSIC_THEME_META.instrument).label;
+
+  let classicRoot = null;
+  let classicRefs = {};
+  let classicThemeCur = 'instrument';
+
+  const CL_ARC_C = 2 * Math.PI * 44;
+  const CL_ARC_LEN = CL_ARC_C * 0.75; /* 270° 弧长，缺口朝下 */
+
+  /* 六个占用率：0 GPU 1 CPU 2 NPU 3 MEM 4 DISK 5 KV（与固件 pct_value 一致） */
+  function classicPct(idx) {
+    switch (idx) {
+      case 0: return numberValue('host.gpu_util_pct');
+      case 1: return numberValue('host.cpu_pct');
+      case 2: return numberValue('npu.util_pct');
+      case 3: {
+        const used = numberValue('host.ram_used_mb');
+        const total = numberValue('host.ram_total_mb');
+        return total > 0 && used !== null ? (used / total) * 100 : null;
+      }
+      case 4: {
+        const free = numberValue('host.disk_free_gb');
+        const total = numberValue('host.disk_total_gb');
+        return total > 0 && free !== null ? ((total - free) / total) * 100 : null;
+      }
+      case 5: return numberValue('llm.kv_pct');
+      default: return null;
+    }
+  }
+  function fmtTokens(v) {
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return String(Math.round(v));
+  }
+  function classicValues() {
+    const online = boolValue('llm.online');
+    const busy = boolValue('llm.busy') === true;
+    const phase =
+      textValue('llm.phase') ||
+      (online === true ? (busy ? 'BUSY' : 'IDLE')
+        : online === false ? 'OFFLINE' : '--');
+    const used = numberValue('llm.kv_used_tokens');
+    const pool = numberValue('llm.kv_pool_positions');
+    const vu = numberValue('host.gpu_vram_used_mb');
+    const vt = numberValue('host.gpu_vram_total_mb');
+    const vramOk = vu !== null && vt !== null && vt > 0;
+    const memUsed = numberValue('host.ram_used_mb');
+    const memTotal = numberValue('host.ram_total_mb');
+    const memGb =
+      memUsed !== null && memTotal !== null && memTotal > 0
+        ? memUsed / 1024 : null;
+    const ctx = numberValue('llm.context_len');
+    return {
+      model: textValue('llm.model') || '--',
+      phase,
+      online: online === true,
+      busy,
+      svc: [
+        online === true,
+        boolValue('tts.loaded') === true,
+        boolValue('embed.loaded') === true,
+      ],
+      kvText:
+        used !== null && pool !== null && pool > 0
+          ? `KV ${fmtTokens(used)} / ${fmtTokens(pool)}`
+          : 'KV --',
+      conc: numberValue('llm.slots'),
+      queue: numberValue('llm.requests_deferred'),
+      temp: numberValue('host.gpu_temp_c'),
+      power: numberValue('host.gpu_power_w'),
+      decode: numberValue('llm.decode_tps'),
+      prefill: numberValue('llm.prefill_tps'),
+      davg: numberValue('llm.decode_avg'),
+      dpeak: numberValue('llm.decode_peak'),
+      vramOk,
+      vramPct: vramOk ? (vu / vt) * 100 : null,
+      vramText:
+        vramOk ? `${(vu / 1024).toFixed(1)}/${(vt / 1024).toFixed(0)}G` : '--',
+      memGb,
+      memText:
+        memUsed !== null && memTotal !== null
+          ? `${(memUsed / 1024).toFixed(1)}/${(memTotal / 1024).toFixed(0)}G`
+          : '--',
+      ctxText: ctx !== null ? fmtTokens(ctx) : '--',
+    };
+  }
+
+  function ensureClassicStyle() {
+    if (document.getElementById('classic-preview-style')) return;
+    const style = document.createElement('style');
+    style.id = 'classic-preview-style';
+    style.textContent = `
+      .classic-preview{position:absolute;inset:0;overflow:hidden;border-radius:inherit;
+        font-family:'Montserrat','Segoe UI',system-ui,sans-serif;
+        font-variant-numeric:tabular-nums;letter-spacing:.4px;user-select:none;}
+      .classic-preview .cl-abs{position:absolute;line-height:1.15;white-space:nowrap;}
+      .classic-preview .cl-card{position:absolute;border-radius:2px;}
+      .classic-preview .cl-corners>i{position:absolute;width:9px;height:9px;border:0 solid;pointer-events:none;}
+      .classic-preview .cl-led{position:absolute;border-radius:50%;}
+      .classic-preview .cl-track{position:absolute;border-radius:99px;}
+      .classic-preview .cl-fill{position:absolute;left:0;top:0;height:100%;border-radius:99px;}
+      .classic-preview .cl-seg{position:absolute;display:flex;gap:2px;}
+      .classic-preview .cl-seg>i{flex:none;border-radius:1px;}
+      .classic-preview .cl-ellip{overflow:hidden;text-overflow:ellipsis;}
+    `;
+    document.head.appendChild(style);
+  }
+
+  const clLbl = (x, y, text, color, size, opt = {}) => {
+    const style = [
+      `left:${x}px`, `top:${y}px`, `color:${color}`, `font-size:${size}px`,
+      opt.w ? `width:${opt.w}px` : '',
+      opt.center ? 'text-align:center' : '',
+      opt.right ? 'text-align:right' : '',
+      opt.ellip ? 'overflow:hidden;text-overflow:ellipsis' : '',
+      opt.bold ? 'font-weight:600' : '',
+    ].filter(Boolean).join(';');
+    const ref = opt.ref ? ` data-ref="${opt.ref}"` : '';
+    return `<div class="cl-abs${opt.ellip ? ' cl-ellip' : ''}"${ref} style="${style}">${escHtml(text)}</div>`;
+  };
+  const clCorners = (color) => `
+    <i style="left:3px;top:3px;border-left-width:1px;border-top-width:1px;border-color:${color}"></i>
+    <i style="right:3px;top:3px;border-right-width:1px;border-top-width:1px;border-color:${color}"></i>
+    <i style="left:3px;bottom:3px;border-left-width:1px;border-bottom-width:1px;border-color:${color}"></i>
+    <i style="right:3px;bottom:3px;border-right-width:1px;border-bottom-width:1px;border-color:${color}"></i>`;
+  const clCard = (x, y, w, h, pal, inner = '', corners = false) => `
+    <div class="cl-card${corners ? ' cl-corners' : ''}"
+      style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${pal.surface};border:1px solid ${pal.border}">
+      ${corners ? clCorners(pal.acc) : ''}${inner}
+    </div>`;
+  const clLed = (x, y, size, color, ref) =>
+    `<i class="cl-led"${ref ? ` data-ref="${ref}"` : ''} style="left:${x}px;top:${y}px;width:${size}px;height:${size}px;background:${color}"></i>`;
+  const clBar = (x, y, w, h, pal, ref) => `
+    <div class="cl-track" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${pal.track}">
+      <div class="cl-fill" data-ref="${ref}" style="width:0%;background:${pal.acc}"></div>
+    </div>`;
+  const clSeg = (x, y, w, h, pal, ref) => {
+    const gap = 2;
+    const sw = Math.floor((w - (10 - 1) * gap) / 10);
+    let segs = '';
+    for (let i = 0; i < 10; i += 1) {
+      segs += `<i style="width:${sw}px;height:${h}px;background:${pal.track}"></i>`;
+    }
+    return `<div class="cl-seg" data-ref="${ref}" style="left:${x}px;top:${y}px;gap:${gap}px">${segs}</div>`;
+  };
+  const clArc = (x, y, size, pal, opt = {}) => {
+    const ref = opt.ref || 'arcind';
+    const sw = opt.sw || 8;
+    const rot = opt.full ? '' : ' transform="rotate(135 50 50)"';
+    const trackDash = opt.full ? `${CL_ARC_C} ${CL_ARC_C}` : `${CL_ARC_LEN} ${CL_ARC_C}`;
+    return `
+    <svg class="cl-abs" style="left:${x}px;top:${y}px" width="${size}" height="${size}" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="44" fill="none" stroke="${pal.track}" stroke-width="${sw}"
+        stroke-linecap="round" stroke-dasharray="${trackDash}"${rot}></circle>
+      <circle data-ref="${ref}" cx="50" cy="50" r="44" fill="none" stroke="${pal.acc}" stroke-width="${sw}"
+        stroke-linecap="round" stroke-dasharray="0 ${CL_ARC_C}"${rot}></circle>
+    </svg>`;
+  };
+  const clRect = (x, y, w, h, color, opa = 1) =>
+    `<i class="cl-abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${color};opacity:${opa}"></i>`;
+  const clBox = (x, y, w, h, color) =>
+    `<i class="cl-abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;border:1px solid ${color}"></i>`;
+  const clCircle = (x, y, size, color) =>
+    `<svg class="cl-abs" style="left:${x}px;top:${y}px" width="${size}" height="${size}">
+      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 1}" fill="none" stroke="${color}" stroke-width="1"></circle>
+    </svg>`;
+  /* 可变段数横排分段条 */
+  const clSegN = (x, y, w, h, pal, ref, n) => {
+    const gap = 2;
+    const sw = Math.floor((w - (n - 1) * gap) / n);
+    let segs = '';
+    for (let i = 0; i < n; i += 1) {
+      segs += `<i style="width:${sw}px;height:${h}px;background:${pal.track}"></i>`;
+    }
+    return `<div class="cl-seg" data-ref="${ref}" style="left:${x}px;top:${y}px;gap:${gap}px">${segs}</div>`;
+  };
+  /* 可变段数纵向能量柱（第 0 段在底部，与固件一致） */
+  const clSegNV = (x, y, w, h, pal, ref, n) => {
+    const gap = 2;
+    const sh = Math.floor((h - (n - 1) * gap) / n);
+    let segs = '';
+    for (let i = 0; i < n; i += 1) {
+      segs += `<i style="width:${w}px;height:${sh}px;background:${pal.track}"></i>`;
+    }
+    return `<div class="cl-seg" data-ref="${ref}" style="left:${x}px;top:${y}px;flex-direction:column-reverse;gap:${gap}px">${segs}</div>`;
+  };
+
+  function classicInstrumentHtml(p) {
+    const labels = ['GPU', 'CPU', 'NPU', 'MEM', 'DISK', 'KV'];
+    let rows = '';
+    for (let i = 0; i < 6; i += 1) {
+      const y = 28 + i * 23;
+      rows += clLbl(12, y, labels[i], p.dim, 12);
+      rows += clBar(56, y + 3, 170, 8, p, `bar${i}`);
+      rows += clLbl(236, y, '--', p.text, 13, { w: 48, right: true, ref: `pctv${i}` });
+    }
+    let svc = '';
+    for (let i = 0; i < 3; i += 1) {
+      const y = 26 + i * 23;
+      svc += clLed(14, y + 3, 7, p.mut, `svcled${i}`);
+      svc += clLbl(28, y, ['LLM', 'TTS', 'EMB'][i], p.dim, 12);
+      svc += clLbl(66, y, 'OFF', p.mut, 12, { ref: `svcst${i}` });
+    }
+    return (
+      clCard(0, 0, 480, 28, p) +
+      clLed(10, 10, 8, p.mut, 'led_main') +
+      clLbl(24, 6, 'INFERENCE SCOPE', p.acc, 13, { bold: true }) +
+      clLbl(192, 7, '--', p.acc3, 12, { w: 130, ellip: true, ref: 'model_top' }) +
+      clLbl(330, 7, '--', p.dim, 12, { w: 96, right: true, ref: 'phase_top' }) +
+      clLbl(440, 6, 'RUN', p.acc, 12) +
+      clCard(10, 34, 296, 168, p,
+        clLbl(12, 6, 'RESOURCE LOAD', p.dim, 12) + rows) +
+      clCard(314, 34, 156, 168, p,
+        clLbl(12, 6, 'GPU LOAD', p.dim, 12) +
+        clArc(30, 22, 96, p) +
+        clLbl(30, 54, '--', p.text, 22, { w: 96, center: true, ref: 'arcv' }) +
+        clLbl(14, 124, 'TEMP', p.dim, 12) +
+        clLbl(14, 140, '--', p.text, 17, { ref: 'temp' }) +
+        clLbl(86, 124, 'PWR', p.dim, 12) +
+        clLbl(86, 140, '--', p.text, 17, { ref: 'power' })) +
+      clCard(10, 210, 460, 100, p,
+        clLbl(12, 6, 'SERVICES', p.dim, 12) + svc +
+        clLbl(150, 6, 'MODEL', p.dim, 12) +
+        clLbl(150, 24, '--', p.acc2, 17, { w: 130, ellip: true, ref: 'model' }) +
+        clLbl(300, 6, 'CONC', p.dim, 12) +
+        clLbl(300, 24, '--', p.text, 22, { ref: 'conc' }) +
+        clLbl(372, 6, 'QUEUE', p.dim, 12) +
+        clLbl(372, 24, '--', p.text, 22, { ref: 'queue' }) +
+        clLbl(150, 62, 'KV POOL', p.dim, 12) +
+        clLbl(150, 80, 'KV --', p.text, 13, { ref: 'kvtext' }))
+    );
+  }
+
+  function classicHudHtml(p) {
+    const labels = ['CPU', 'NPU', 'MEM', 'DISK'];
+    let loadRows = '';
+    for (let i = 0; i < 4; i += 1) {
+      const y = 26 + i * 26;
+      const idx = i + 1;
+      loadRows += clLbl(14, y, labels[i], p.dim, 12);
+      loadRows += clSeg(50, y + 2, 70, 10, p, `seg${idx}`);
+      loadRows += clLbl(124, y, '--', p.text, 12, { w: 36, right: true, ref: `pctv${idx}` });
+    }
+    let svc = '';
+    for (let i = 0; i < 3; i += 1) {
+      const y = 26 + i * 24;
+      svc += clLed(12, y + 3, 7, p.mut, `svcled${i}`);
+      svc += clLbl(26, y, ['LLM', 'TTS', 'EMB'][i], p.dim, 12);
+      svc += clLbl(62, y, 'OFF', p.mut, 12, { ref: `svcst${i}` });
+    }
+    return (
+      clCard(0, 0, 480, 26, p) +
+      clLed(9, 9, 8, p.mut, 'led_main') +
+      clLbl(22, 5, 'TACTICAL HUD', p.acc, 13, { bold: true }) +
+      clLbl(152, 6, '// --', p.text, 12, { w: 140, ellip: true, ref: 'model_top' }) +
+      clLbl(300, 6, '--', p.dim, 12, { w: 100, right: true, ref: 'phase_top' }) +
+      clLbl(416, 5, 'ONLINE', p.acc, 12) +
+      clCard(8, 30, 140, 134, p,
+        clLbl(16, 6, 'GPU', p.dim, 12) +
+        clArc(24, 24, 92, p) +
+        clLbl(24, 56, '--', p.acc, 22, { w: 92, center: true, ref: 'arcv' }), true) +
+      clCard(154, 30, 166, 134, p,
+        clLbl(16, 6, 'LOAD', p.dim, 12) + loadRows, true) +
+      clCard(326, 30, 146, 134, p,
+        clLbl(16, 6, 'THERMAL', p.dim, 12) +
+        clLbl(10, 24, '--', p.acc2, 25, { ref: 'temp' }) +
+        clLbl(78, 38, 'C', p.dim, 12) +
+        clLbl(10, 60, '--', p.acc3, 25, { ref: 'power' }) +
+        clLbl(92, 74, 'W', p.dim, 12) +
+        clLbl(10, 100, 'KV', p.dim, 12) +
+        clSeg(36, 102, 70, 8, p, 'seg5') +
+        clLbl(112, 100, '--', p.text, 12, { w: 28, right: true, ref: 'pctv5' }), true) +
+      clCard(8, 170, 240, 142, p,
+        clLbl(16, 6, 'SERVICES', p.dim, 12) + svc +
+        clLbl(10, 104, 'MODEL', p.dim, 12) +
+        clLbl(66, 104, '--', p.text, 13, { w: 164, ellip: true, ref: 'model' }), true) +
+      clCard(254, 170, 218, 142, p,
+        clLbl(16, 6, 'THROUGHPUT', p.dim, 12) +
+        clLbl(10, 28, '--', p.acc, 31, { ref: 'conc' }) +
+        clLbl(10, 72, 'CONC', p.dim, 12) +
+        clLbl(118, 28, '--', p.acc2, 31, { ref: 'queue' }) +
+        clLbl(118, 72, 'QUEUE', p.dim, 12) +
+        clLbl(10, 108, 'KV --', p.dim, 12, { ref: 'kvtext' }), true)
+    );
+  }
+
+  /* ==================== 主题预览生成器（H02–H10，镜像固件坐标） ==================== */
+
+  /* 通用顶栏（左标题 + model + phase + 右缀） */
+  function clTop(p, o) {
+    return (
+      clLed(o.led[0], o.led[1], 7, p.mut, 'led_main') +
+      clLbl(o.title[0], o.title[1], o.title[2], o.titleColor, 13, { bold: true }) +
+      (o.model
+        ? clLbl(o.model[0], o.model[1], '// --', p.dim, 12,
+          { w: o.model[2], ellip: true, ref: 'model_top' })
+        : '') +
+      clLbl(o.phase[0], o.phase[1], '--', p.dim, 12,
+        { w: o.phase[2], right: true, ref: 'phase_top' }) +
+      (o.extra || '')
+    );
+  }
+
+  function classicMechaHtml(p) {
+    let lrows = '';
+    for (let i = 0; i < 4; i += 1) {
+      const y = 64 + i * 50;
+      lrows += clLbl(14, y + 1, ['PREFILL', 'SLOTS', 'VRAM', 'KV'][i], p.dim, 12);
+      lrows += clLbl(40, y - 2, '--', p.text, 13, { w: 102, right: true, ref: `rowv${i}` });
+      lrows += clBar(14, y + 22, 128, 4, p, `rowbar${i}`);
+    }
+    let rrows = '';
+    for (let i = 0; i < 4; i += 1) {
+      const y = 64 + i * 50;
+      rrows += clLbl(338, y + 1, ['QUEUE', 'GPU', 'TEMP', 'PWR'][i], p.dim, 12);
+      rrows += clLbl(364, y - 2, '--', p.text, 13, { w: 102, right: true, ref: `rowv${i + 4}` });
+      rrows += clBar(338, y + 22, 128, 4, p, `rowbar${i + 4}`);
+    }
+    return (
+      clTop(p, {
+        led: [10, 9], title: [24, 5, 'MECHA CORE'], titleColor: p.acc,
+        model: [120, 6, 150], phase: [264, 6, 72],
+        extra: clLbl(386, 6, 'SYS', p.dim, 12) +
+          clLed(354, 9, 8, p.mut, 'svcled1') + clLed(372, 9, 8, p.mut, 'svcled2') +
+          clLbl(404, 6, 'UNIT-07', p.acc2, 12, { w: 72, right: true }),
+      }) +
+      clSegN(18, 44, 444, 4, p, 'seg0', 56) +
+      clArc(145, 62, 190, p, { sw: 7 }) +
+      clArc(174, 91, 132, p, { ref: 'arcind2', sw: 3 }) +
+      clLbl(190, 124, 'DECODE', p.dim, 12, { w: 100, center: true }) +
+      clLbl(190, 142, '--', p.text, 36, { w: 100, center: true, ref: 'big0' }) +
+      clLbl(190, 186, 'TOK/S', p.acc, 12, { w: 100, center: true }) +
+      lrows + rrows +
+      clRect(18, 282, 444, 1, p.border) +
+      clLbl(20, 290, '--', p.dim, 12, { ref: 'txt0' }) +
+      clLed(396, 293, 7, p.mut, 'svcled0') +
+      clLbl(410, 290, 'STABLE', p.acc, 12, { ref: 'svcst0' })
+    );
+  }
+
+  function classicStealthHtml(p) {
+    let rows = '';
+    for (let i = 0; i < 4; i += 1) {
+      const y = 64 + i * 30;
+      rows += clLbl(262, y + 2, ['AVG', 'PREFILL', 'SLOTS', 'QUEUE'][i], p.dim, 12);
+      rows += clLbl(330, y, '--', p.text, 13, { w: 118, right: true, ref: `rowv${i}` });
+      rows += clRect(262, y + 24, 186, 1, p.border);
+    }
+    return (
+      clCard(10, 10, 460, 300, p, '', false) +
+      clLed(448, 16, 7, p.mut, 'led_main') +
+      clLbl(24, 14, 'STEALTH OPS', p.acc2, 13, { bold: true }) +
+      clLbl(160, 15, '--', p.dim, 12, { w: 150, ellip: true, ref: 'model_top' }) +
+      clLbl(330, 15, '--', p.dim, 12, { w: 108, right: true, ref: 'phase_top' }) +
+      clRect(24, 38, 432, 1, p.border) +
+      clLbl(32, 58, 'DECODE', p.dim, 12) +
+      clLbl(32, 78, '--', p.text, 43, { ref: 'big0' }) +
+      clLbl(32, 134, 'TOK/S', p.dim, 12) +
+      clLbl(32, 156, 'AVG --', p.acc, 12, { ref: 'txt0' }) +
+      clLbl(32, 186, 'LOW OBSERVABILITY LINK', p.dim, 12) +
+      rows +
+      clRect(32, 204, 416, 1, p.border) +
+      clLbl(32, 214, 'CPU --', p.text, 12, { ref: 'txt1' }) +
+      clLbl(136, 214, 'GPU --', p.text, 12, { ref: 'txt2' }) +
+      clLbl(240, 214, 'RAM --', p.text, 12, { ref: 'txt3' }) +
+      clLbl(344, 214, 'KV --', p.text, 12, { ref: 'txt4' }) +
+      clLbl(32, 244, 'THERMAL LOAD', p.dim, 12) +
+      clLbl(356, 240, '--', p.text, 17, { ref: 'temp' }) +
+      clSeg(32, 268, 416, 8, p, 'seg0') +
+      clLbl(32, 288, 'SILENT MODE • NO UPLINK', p.dim, 12, { ref: 'txt5' }) +
+      clLed(424, 292, 6, p.mut, 'svcled0') +
+      clRect(438, 292, 6, 6, p.track) +
+      clRect(452, 292, 6, 6, p.track) +
+      clRect(456, 292, 6, 6, p.track)
+    );
+  }
+
+  function classicArcadeHtml(p) {
+    let mid = '';
+    for (let i = 0; i < 8; i += 1) {
+      mid += clRect(244, 56 + i * 16, 4, 12,
+        i % 3 === 0 ? p.acc2 : p.track);
+    }
+    let bots = '';
+    for (let i = 0; i < 3; i += 1) {
+      const x = 18 + i * 152;
+      bots += clLbl(x, 226, ['NPU', 'MEM', 'DISK'][i], p.acc2, 12);
+      bots += clLbl(x + 70, 224, '--', p.text, 13, { w: 66, right: true, ref: `rowv${i}` });
+      bots += clSegN(x, 246, 136, 10, p, `seg${i + 2}`, 12);
+    }
+    return (
+      clCard(0, 0, 480, 34, { surface: p.bg2, border: p.bg2, acc: p.acc }) +
+      clLbl(18, 9, 'PLAYER 1', p.acc2, 12) +
+      clLbl(150, 9, '--', p.acc, 12, { w: 180, center: true, ellip: true, ref: 'model_top' }) +
+      clLbl(350, 9, '--', p.acc2, 12, { w: 112, right: true, ref: 'phase_top' }) +
+      clRect(0, 34, 480, 2, p.acc) +
+      clRect(18, 44, 7, 7, p.acc) +
+      clRect(29, 44, 7, 7, p.acc2) +
+      clRect(40, 44, 7, 7, p.track) +
+      clLbl(52, 56, 'CPU', p.acc2, 12, { w: 168, center: true }) +
+      clLbl(52, 72, '--', p.acc, 43, { w: 168, center: true, ref: 'big0' }) +
+      clLbl(52, 128, 'PROCESSOR', p.dim, 12, { w: 168, center: true }) +
+      clSegN(98, 150, 76, 12, p, 'seg0', 5) +
+      mid +
+      clLbl(260, 56, 'GPU', p.acc, 12, { w: 168, center: true }) +
+      clLbl(260, 72, '--', p.acc2, 43, { w: 168, center: true, ref: 'big1' }) +
+      clLbl(260, 128, 'GRAPHICS', p.dim, 12, { w: 168, center: true }) +
+      clSegN(306, 150, 76, 12, p, 'seg1', 5) +
+      clCard(18, 192, 444, 24, p,
+        clLbl(8, 6, 'KV --', p.text, 12, { ref: 'txt0' }) +
+        clLbl(118, 6, 'T --', p.text, 12, { ref: 'txt1' }) +
+        clLbl(228, 6, 'P --', p.text, 12, { ref: 'txt2' }) +
+        clLbl(338, 6, 'VRAM --', p.text, 12, { ref: 'txt3' })) +
+      bots +
+      clRect(18, 272, 444, 1, p.border) +
+      clLbl(22, 282, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
+      clLbl(210, 282, '--', p.dim, 12, { ref: 'txt4' }) +
+      clLbl(300, 282, 'PRESS START', p.acc2, 12, { w: 158, right: true, ref: 'press' })
+    );
+  }
+
+  function classicDroneHtml(p) {
+    let lrows = '';
+    for (let i = 0; i < 3; i += 1) {
+      const y = 108 + i * 46;
+      lrows += clLbl(14, y + 2, ['GPU', 'TEMP', 'VRAM'][i], p.dim, 12);
+      lrows += clLbl(20, y - 2, '--', p.text, 13, { w: 98, right: true, ref: `rowv${i}` });
+      lrows += clBar(14, y + 22, 104, 4, p, `rowbar${i}`);
+    }
+    let rrows = '';
+    for (let i = 0; i < 3; i += 1) {
+      const y = 108 + i * 46;
+      rrows += clLbl(362, y + 2, ['QUEUE', 'KV', 'DISK'][i], p.dim, 12);
+      rrows += clLbl(368, y - 2, '--', p.text, 13, { w: 98, right: true, ref: `rowv${i + 3}` });
+      rrows += clBar(362, y + 22, 104, 4, p, `rowbar${i + 3}`);
+    }
+    return (
+      clCard(0, 0, 480, 26, p) +
+      clLed(18, 10, 7, p.mut, 'led_main') +
+      clLbl(30, 5, 'DRONE LINK', p.acc, 13, { bold: true }) +
+      clLbl(150, 6, '// --', p.dim, 12, { w: 130, ellip: true, ref: 'model_top' }) +
+      clLbl(292, 6, 'LINK', p.dim, 12) +
+      clLbl(322, 6, '--', p.dim, 12, { w: 72, right: true, ref: 'phase_top' }) +
+      clLbl(396, 6, 'SAT 12', p.dim, 12) +
+      clRect(18, 34, 444, 1, p.border) +
+      clLbl(140, 40, 'DECODE', p.dim, 12, { w: 208, center: true }) +
+      clLbl(140, 56, '--', p.text, 36, { w: 208, center: true, ref: 'big0' }) +
+      clLbl(140, 100, 'TOK/S', p.dim, 12, { w: 208, center: true }) +
+      clRect(209, 147, 70, 1, p.acc, 0.4) +
+      clRect(209, 167, 70, 1, p.acc, 0.4) +
+      clRect(144, 177, 200, 2, p.acc, 0.8) +
+      clRect(209, 191, 70, 1, p.acc, 0.4) +
+      clRect(209, 211, 70, 1, p.acc, 0.4) +
+      clRect(214, 170, 60, 1, p.acc2) +
+      clLbl(140, 240, 'HDG -- • PITCH --', p.dim, 12, { w: 208, center: true, ref: 'txt0' }) +
+      clLbl(140, 258, 'WP 04 • 1.8KM', p.dim, 12, { w: 120, ref: 'txt1' }) +
+      clLbl(250, 258, 'STANDBY', p.acc, 12, { w: 104, right: true, ref: 'svcst0' }) +
+      clSeg(144, 276, 200, 5, p, 'seg0') +
+      clLbl(14, 88, 'TELEMETRY / L', p.acc, 12) +
+      lrows +
+      clLbl(362, 88, 'TELEMETRY / R', p.acc, 12) +
+      rrows +
+      clRect(130, 92, 1, 162, p.border) +
+      clRect(354, 92, 1, 162, p.border) +
+      clRect(18, 290, 444, 1, p.border) +
+      clLbl(20, 298, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
+      clLbl(200, 298, 'CTX --', p.dim, 12, { ref: 'txt2' }) +
+      clLbl(330, 298, 'AUTO', p.acc, 12)
+    );
+  }
+
+  function classicScopeHtml(p) {
+    return (
+      clLbl(20, 10, 'SNIPER SCOPE', p.acc, 13, { bold: true }) +
+      clLed(446, 14, 7, p.mut, 'led_main') +
+      clLbl(356, 11, '--', p.dim, 12, { w: 76, right: true, ref: 'phase_top' }) +
+      clRect(20, 34, 440, 1, p.border) +
+      clLbl(24, 44, 'GPU', p.dim, 12) +
+      clLbl(24, 62, '--', p.text, 17, { ref: 'rowv0' }) +
+      clLbl(366, 44, 'MEM', p.dim, 12, { w: 90, right: true }) +
+      clLbl(366, 62, '--', p.text, 17, { w: 90, right: true, ref: 'rowv1' }) +
+      clArc(145, 62, 190, p, { full: true, sw: 4 }) +
+      clRect(150, 156, 64, 1, p.acc, 0.6) +
+      clRect(266, 156, 64, 1, p.acc, 0.6) +
+      clRect(239, 70, 1, 64, p.acc, 0.6) +
+      clRect(239, 184, 1, 64, p.acc, 0.6) +
+      clCircle(206, 123, 68, p.border) +
+      clLbl(140, 136, '--', p.acc, 36, { w: 200, center: true, ref: 'big0' }) +
+      clLbl(140, 182, 'CPU LOAD', p.dim, 12, { w: 200, center: true }) +
+      clLbl(24, 268, 'THERMAL', p.dim, 12) +
+      clLbl(100, 266, '--', p.text, 17, { ref: 'temp' }) +
+      clSeg(24, 292, 180, 9, p, 'seg0') +
+      clLbl(240, 268, 'PWR', p.dim, 12) +
+      clLbl(240, 286, '--', p.text, 17, { ref: 'power' }) +
+      clLbl(390, 268, 'NPU', p.dim, 12, { w: 66, right: true }) +
+      clLbl(390, 286, '--', p.text, 17, { w: 66, right: true, ref: 'rowv4' }) +
+      clLbl(24, 306, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
+      clLbl(360, 306, 'STABLE', p.acc, 12, { w: 96, right: true, ref: 'svcst0' })
+    );
+  }
+
+  function classicHeatsinkHtml(p) {
+    let cols = '';
+    for (let i = 0; i < 3; i += 1) {
+      const x = 30 + i * 150;
+      cols += clLbl(x, 132, ['GPU', 'VRAM', 'KV'][i], p.dim, 12);
+      cols += clLbl(x, 150, '--', p.text, 17, { ref: `rowv${i}` });
+      cols += clSegNV(x + 23, 178, 64, 112, p, `vseg${i}`, 10);
+      cols += clLbl(x, 300, '--', p.dim, 12, { ref: `txt${i + 4}` });
+    }
+    return (
+      clLbl(20, 6, 'HEAT SINK', p.acc, 13, { bold: true }) +
+      clLed(404, 10, 7, p.mut, 'led_main') +
+      clLbl(300, 7, '--', p.dim, 12, { w: 96, right: true, ref: 'phase_top' }) +
+      clRect(20, 32, 440, 1, p.border) +
+      clLbl(22, 40, 'DECODE', p.dim, 12) +
+      clLbl(22, 58, '--', p.text, 43, { ref: 'big0' }) +
+      clLbl(126, 84, 'TOK/S', p.dim, 12) +
+      clLbl(22, 114, '--', p.acc2, 12, { ref: 'txt0' }) +
+      clLbl(350, 42, 'AVG --', p.dim, 12, { w: 108, right: true, ref: 'txt1' }) +
+      clLbl(350, 60, 'MAX --', p.dim, 12, { w: 108, right: true, ref: 'txt2' }) +
+      clLbl(350, 78, 'GPU --', p.acc, 12, { w: 108, right: true, ref: 'txt3' }) +
+      cols
+    );
+  }
+
+  function classicLoadoutHtml(p) {
+    const nums = ['01', '02', '03', '04'];
+    const names = ['CPU', 'GPU', 'MEMORY', 'STORAGE'];
+    const descs = ['RYZEN 9 7950X', 'RTX 4070 TI', 'DDR5 6000 32G', 'NVME GEN4'];
+    const cx = [14, 254, 14, 254];
+    const cy = [40, 40, 172, 172];
+    let cards = '';
+    for (let i = 0; i < 4; i += 1) {
+      const color = i % 2 === 0 ? p.acc : p.acc2;
+      cards += clCard(cx[i], cy[i], 226, 126, p,
+        clBox(12, 46, 36, 36, p.border) +
+        clRect(24, 58, 12, 12, color, 0.7) +
+        clLbl(58, 10, nums[i], p.dim, 12) +
+        clLbl(78, 8, names[i], p.text, 13) +
+        clLbl(58, 28, descs[i], p.dim, 12) +
+        clLbl(58, 48, '--', p.dim, 12, { w: 104, ref: `txt${i}` }) +
+        clLbl(148, 10, '--', color, 21, { w: 66, right: true, ref: `rowv${i}` }) +
+        clSeg(58, 98, 150, 7, p, `seg${i}`), true);
+    }
+    return (
+      clLbl(20, 6, 'LOADOUT', p.acc, 13, { bold: true }) +
+      clLed(404, 10, 7, p.mut, 'led_main') +
+      clLbl(300, 7, '--', p.dim, 12, { w: 96, right: true, ref: 'phase_top' }) +
+      clRect(20, 32, 440, 1, p.border) +
+      cards +
+      clLbl(22, 306, '--', p.dim, 12, { ref: 'txt4' }) +
+      clLbl(360, 306, 'ALL OK', p.acc, 12, { w: 96, right: true, ref: 'svcst0' })
+    );
+  }
+
+  function classicArmorHtml(p) {
+    return (
+      clLbl(20, 6, 'POWER ARMOR', p.acc2, 13, { bold: true }) +
+      clLed(404, 10, 7, p.mut, 'led_main') +
+      clLbl(310, 7, '--', p.acc, 12, { w: 86, right: true, ref: 'phase_top' }) +
+      clLbl(20, 28, 'FUSION CORE / MK-VII', p.dim, 12) +
+      clLbl(24, 48, 'PREFILL', p.dim, 12) +
+      clLbl(24, 66, '--', p.text, 17, { ref: 'rowv0' }) +
+      clLbl(356, 48, 'VRAM', p.dim, 12, { w: 100, right: true }) +
+      clLbl(356, 66, '--', p.text, 17, { w: 100, right: true, ref: 'rowv1' }) +
+      clLbl(24, 248, 'TEMP', p.dim, 12) +
+      clLbl(24, 266, '--', p.text, 17, { ref: 'temp' }) +
+      clLbl(356, 248, 'QUEUE', p.dim, 12, { w: 100, right: true }) +
+      clLbl(356, 266, '--', p.text, 17, { w: 100, right: true, ref: 'queue' }) +
+      clArc(140, 56, 200, p, { sw: 6 }) +
+      clArc(172, 88, 136, p, { ref: 'arcind2', sw: 3 }) +
+      clLbl(190, 122, 'DECODE', p.dim, 12, { w: 100, center: true }) +
+      clLbl(190, 140, '--', p.text, 36, { w: 100, center: true, ref: 'big0' }) +
+      clLbl(190, 184, 'TOK/S', p.acc, 12, { w: 100, center: true }) +
+      clBar(24, 296, 432, 4, p, 'rowbar0') +
+      clLbl(24, 306, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
+      clLbl(356, 306, 'INT --', p.acc2, 12, { w: 100, right: true, ref: 'svcst0' })
+    );
+  }
+
+  function classicSweepHtml(p) {
+    const cells = ['CPU', 'MEM', 'GPU', 'DISK'];
+    let cards = '';
+    for (let i = 0; i < 4; i += 1) {
+      const color = i === 2 ? p.acc2 : p.acc;
+      cards += clCard(14 + i * 118, 248, 106, 52, p,
+        clLbl(6, 6, cells[i], p.dim, 12) +
+        clLbl(40, 4, '--', color, 13, { w: 60, right: true, ref: `rowv${i}` }) +
+        clSeg(6, 32, 94, 8, p, `seg${i}`));
+    }
+    return (
+      clLbl(20, 6, 'SWEEP HUD', p.acc, 13, { bold: true }) +
+      clLbl(150, 7, '// --', p.dim, 12, { w: 140, ellip: true, ref: 'model_top' }) +
+      clLed(404, 10, 7, p.mut, 'led_main') +
+      clLbl(310, 7, '--', p.dim, 12, { w: 86, right: true, ref: 'phase_top' }) +
+      clLbl(22, 30, 'RADAR / PC-01', p.dim, 12) +
+      clLbl(300, 30, 'GAIN 12 • R 5M', p.dim, 12, { w: 158, right: true }) +
+      clCircle(190, 46, 200, p.border) +
+      clCircle(224, 80, 132, p.track) +
+      clCircle(257, 113, 66, p.track) +
+      clRect(196, 145, 188, 1, p.track) +
+      clRect(289, 52, 1, 188, p.track) +
+      clRect(294, 144, 82, 3, p.acc, 0.6) +
+      clLed(286, 142, 8, p.acc, 'radar_main') +
+      clLed(250, 88, 6, p.acc) +
+      clLed(330, 118, 6, p.acc2) +
+      clLed(238, 188, 5, p.acc) +
+      clLed(338, 198, 5, p.acc2) +
+      clLed(268, 160, 5, p.acc) +
+      cards +
+      clLbl(22, 306, '--', p.dim, 12, { ref: 'txt0' }) +
+      clLbl(300, 306, '--', p.acc, 12, { w: 158, right: true, ref: 'txt1' })
+    );
+  }
+
+  const CLASSIC_HTML = {
+    instrument: classicInstrumentHtml,
+    hud: classicHudHtml,
+    mecha: classicMechaHtml,
+    stealth: classicStealthHtml,
+    arcade: classicArcadeHtml,
+    drone: classicDroneHtml,
+    scope: classicScopeHtml,
+    heatsink: classicHeatsinkHtml,
+    loadout: classicLoadoutHtml,
+    armor: classicArmorHtml,
+    sweep: classicSweepHtml,
+  };
+
+  function renderClassicCanvas() {
+    ensureClassicStyle();
+    const id = classicThemeId();
+    const meta = CLASSIC_THEME_META[id];
+    canvas.innerHTML = '';
+    canvas.style.width = '480px';
+    canvas.style.height = '320px';
+    applyTheme();
+    const wrap = document.createElement('div');
+    wrap.className = 'classic-preview';
+    wrap.style.background =
+      `linear-gradient(180deg, ${meta.pal.bg} 0%, ${meta.pal.bg2} 100%)`;
+    wrap.style.color = meta.pal.text;
+    wrap.innerHTML = CLASSIC_HTML[id](meta.pal);
+    canvas.appendChild(wrap);
+    classicRoot = wrap;
+    classicThemeCur = id;
+    classicRefs = {};
+    wrap.querySelectorAll('[data-ref]').forEach((el) => {
+      classicRefs[el.dataset.ref] = el;
+    });
+    classicApply();
+    fitCanvas();
+    requestAnimationFrame(fitCanvas);
+  }
+
+  function fitClassicCanvas() {
+    const mobile = window.matchMedia('(max-width: 860px)').matches;
+    const availW = Math.max(220, canvasScroll.clientWidth - 16);
+    const availH = Math.max(
+      280,
+      (canvasScroll.clientHeight || window.innerHeight * 0.6) - 16
+    );
+    const rawScale = mobile ? availW / 480 : Math.min(availW / 480, availH / 320);
+    const scale = Math.max(0.45, Math.min(mobile ? 1.4 : 1.8, rawScale));
+    canvas.style.width = '480px';
+    canvas.style.height = '320px';
+    canvas.style.transform = `scale(${scale})`;
+    canvasWrap.style.width = `${480 * scale}px`;
+    canvasWrap.style.height = `${320 * scale}px`;
+    $('canvas-title').textContent =
+      `传统框架 · ${classicThemeLabel(classicThemeCur)} · 480 × 320 固定界面`;
+  }
+
+  /* 数值刷新：与固件 ui_classic_apply 同逻辑 */
+  function classicApply() {
+    if (!classicRoot || !isClassic()) return;
+    const p = CLASSIC_THEME_META[classicThemeCur].pal;
+    const id = classicThemeCur;
+    const set = (ref, text, color) => {
+      const el = classicRefs[ref];
+      if (!el) return;
+      if (text !== undefined) el.textContent = text;
+      if (color) el.style.color = color;
+    };
+    const vals = classicValues();
+    const pcts = [0, 1, 2, 3, 4, 5].map(classicPct);
+    const colorOf = (v) =>
+      v === null ? p.mut : v >= 90 ? p.err : v >= 75 ? p.warn : p.acc;
+    const clamp01 = (v) => Math.max(0, Math.min(100, v));
+
+    /* 顶栏：主 LED / 模型 / 阶段（hud/mecha/drone/sweep 带 // 前缀） */
+    const ledMain = classicRefs.led_main;
+    if (ledMain) {
+      ledMain.style.background = vals.online ? p.acc : p.mut;
+      ledMain.style.opacity = vals.online ? '1' : '0.4';
+    }
+    const prefixed = ['hud', 'mecha', 'drone', 'sweep'].includes(id);
+    set('model_top', prefixed ? `// ${vals.model}` : vals.model);
+    set('phase_top', vals.phase,
+      vals.busy ? p.acc2 : vals.online ? p.dim : p.err);
+
+    if (id === 'instrument' || id === 'hud') {
+      /* 占用率（连续条 instrument / 分段条 hud） */
+      for (let i = 0; i < 6; i += 1) {
+        const v = pcts[i];
+        const c = colorOf(v);
+        set(`pctv${i}`, v === null ? '--' : `${Math.round(v)}%`, c);
+        const fill = classicRefs[`bar${i}`];
+        if (fill) {
+          fill.style.width = `${v === null ? 0 : clamp01(v)}%`;
+          fill.style.background = c;
+        }
+        const seg = classicRefs[`seg${i}`];
+        if (seg) {
+          const on = v === null ? 0 : Math.round((10 * clamp01(v)) / 100);
+          Array.prototype.forEach.call(seg.children, (s, j) => {
+            s.style.background = j < on ? c : p.track;
+          });
+        }
+      }
+
+      /* GPU 环 */
+      const gpu = pcts[0];
+      const ind = classicRefs.arcind;
+      if (ind) {
+        const ratio = gpu === null ? 0 : clamp01(gpu) / 100;
+        ind.setAttribute('stroke-dasharray', `${ratio * CL_ARC_LEN} ${CL_ARC_C}`);
+        ind.setAttribute('stroke', gpu === null ? p.mut : colorOf(gpu));
+      }
+      set('arcv', gpu === null ? '--' : `${Math.round(gpu)}%`,
+        gpu === null ? p.mut : id === 'hud' ? colorOf(gpu) : p.text);
+
+      /* 温度 / 功率 */
+      set('temp', vals.temp === null ? '--' : String(Math.round(vals.temp)),
+        vals.temp === null ? p.mut
+          : vals.temp >= 85 ? p.err : vals.temp >= 75 ? p.warn : p.text);
+      set('power', vals.power === null ? '--' : String(Math.round(vals.power)),
+        vals.power === null ? p.mut : id === 'hud' ? p.acc3 : p.text);
+
+      /* 服务状态 */
+      for (let i = 0; i < 3; i += 1) {
+        const led = classicRefs[`svcled${i}`];
+        if (led) {
+          led.style.background = vals.svc[i] ? p.acc : p.mut;
+          led.style.opacity = vals.svc[i] ? '1' : '0.4';
+        }
+        set(`svcst${i}`, vals.svc[i] ? 'ON' : 'OFF', vals.svc[i] ? p.acc : p.mut);
+      }
+
+      /* 模型 / 并发 / 排队 / KV 池 */
+      set('model', vals.model);
+      set('conc', vals.conc === null ? '--' : String(Math.round(vals.conc)),
+        id === 'hud' ? p.acc : undefined);
+      set('queue', vals.queue === null ? '--' : String(Math.round(vals.queue)),
+        vals.queue !== null && vals.queue > 0 ? (id === 'hud' ? p.acc2 : p.warn)
+          : id === 'hud' ? p.acc : p.text);
+      set('kvtext', vals.kvText, id === 'hud' ? p.dim : p.text);
+      return;
+    }
+
+    applyClassicExtras(id, p, vals, pcts, set, colorOf, clamp01);
+  }
+
+  /* H02–H10 主题数值刷新（与固件各 apply_* 同逻辑） */
+  function applyClassicExtras(id, p, vals, pcts, set, colorOf, clamp01) {
+    const tempCol = (t) =>
+      t === null ? p.mut : t >= 85 ? p.err : t >= 75 ? p.warn : p.text;
+    const setNum = (ref, v, fmt, color) =>
+      set(ref, v === null ? '--' : fmt(v), v === null ? p.mut : color);
+    const segSet = (ref, v, color, n = 10) => {
+      const seg = classicRefs[ref];
+      if (!seg) return;
+      const on = v === null ? 0 : Math.round((n * clamp01(v)) / 100);
+      Array.prototype.forEach.call(seg.children, (s, j) => {
+        s.style.background = j < on ? color : p.track;
+      });
+    };
+    const barSet = (ref, v, color) => {
+      const fill = classicRefs[ref];
+      if (!fill) return;
+      fill.style.width = `${v === null ? 0 : clamp01(v)}%`;
+      fill.style.background = color;
+    };
+    const arcSet = (ref, v, color, full) => {
+      const ind = classicRefs[ref];
+      if (!ind) return;
+      const ratio = v === null ? 0 : clamp01(v) / 100;
+      const len = full ? CL_ARC_C : CL_ARC_LEN;
+      ind.setAttribute('stroke-dasharray', `${ratio * len} ${CL_ARC_C}`);
+      ind.setAttribute('stroke', v === null ? p.mut : color);
+    };
+    const svcLed = (i, on, color) => {
+      const led = classicRefs[`svcled${i}`];
+      if (led) {
+        led.style.background = on ? color : p.mut;
+        led.style.opacity = on ? '1' : '0.4';
+      }
+    };
+    const round = (v) => String(Math.round(v));
+
+    switch (id) {
+      case 'mecha': {
+        segSet('seg0', pcts[0], colorOf(pcts[0]), 56);
+        arcSet('arcind', pcts[0], colorOf(pcts[0]));
+        arcSet('arcind2', pcts[5], colorOf(pcts[5]));
+        setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
+        setNum('rowv0', vals.prefill, (x) => `${round(x)} t/s`, p.acc);
+        barSet('rowbar0', vals.prefill === null ? null : vals.prefill / 24, p.acc);
+        setNum('rowv1', vals.conc, round, p.acc);
+        barSet('rowbar1', vals.conc === null ? null : vals.conc * 12.5, p.acc);
+        setNum('rowv2', vals.vramOk ? vals.vramPct : null,
+          (x) => vals.vramText, p.acc2);
+        barSet('rowbar2', vals.vramPct, p.acc2);
+        setNum('rowv3', pcts[5], (x) => `${Math.round(x)}%`, colorOf(pcts[5]));
+        barSet('rowbar3', pcts[5], p.acc2);
+        setNum('rowv4', vals.queue, round, p.acc2);
+        barSet('rowbar4', vals.queue === null ? null : vals.queue * 10, p.acc2);
+        setNum('rowv5', pcts[0], (x) => `${Math.round(x)}%`, colorOf(pcts[0]));
+        barSet('rowbar5', pcts[0], colorOf(pcts[0]));
+        setNum('rowv6', vals.temp, (x) => `${round(x)}°`, tempCol(vals.temp));
+        barSet('rowbar6', vals.temp, tempCol(vals.temp));
+        setNum('rowv7', vals.power, (x) => `${round(x)}W`, p.acc3);
+        barSet('rowbar7', vals.power === null ? null : vals.power / 4, p.acc3);
+        set('txt0',
+          vals.temp !== null && vals.power !== null
+            ? `CORE ${round(vals.temp)}C • PWR ${round(vals.power)}W • COOL ${round(100 - vals.temp)}%`
+            : 'CORE -- • PWR --',
+          p.dim);
+        svcLed(0, vals.busy, p.acc);
+        set('svcst0',
+          vals.online ? (vals.busy ? 'STABLE' : 'IDLE') : 'OFFLINE',
+          vals.online ? (vals.busy ? p.acc : p.dim) : p.err);
+        svcLed(1, vals.svc[1], p.acc2);
+        svcLed(2, vals.svc[2], p.acc2);
+        break;
+      }
+      case 'stealth': {
+        setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
+        set('txt0', vals.davg === null ? 'AVG --' : `AVG ${vals.davg.toFixed(1)}`, p.acc);
+        setNum('rowv0', vals.davg, (x) => x.toFixed(1), p.text);
+        setNum('rowv1', vals.prefill, round, p.text);
+        setNum('rowv2', vals.conc, round, p.text);
+        setNum('rowv3', vals.queue, round, p.text);
+        set('txt1', pcts[1] === null ? 'CPU --' : `CPU ${Math.round(pcts[1])}%`, p.text);
+        set('txt2', pcts[0] === null ? 'GPU --' : `GPU ${Math.round(pcts[0])}%`, p.text);
+        set('txt3', vals.memGb === null ? 'RAM --' : `RAM ${vals.memGb.toFixed(1)}G`, p.text);
+        set('txt4', pcts[5] === null ? 'KV --' : `KV ${Math.round(pcts[5])}%`, p.text);
+        set('temp', vals.temp === null ? '--' : round(vals.temp), tempCol(vals.temp));
+        segSet('seg0', vals.temp, tempCol(vals.temp));
+        svcLed(0, vals.online, p.acc);
+        break;
+      }
+      case 'arcade': {
+        setNum('big0', pcts[1], (x) => `${Math.round(x)}%`, colorOf(pcts[1]));
+        segSet('seg0', pcts[1], colorOf(pcts[1]), 5);
+        setNum('big1', pcts[0], (x) => `${Math.round(x)}%`, colorOf(pcts[0]));
+        segSet('seg1', pcts[0], colorOf(pcts[0]), 5);
+        set('txt0', pcts[5] === null ? 'KV --' : `KV ${Math.round(pcts[5])}%`,
+          pcts[5] === null ? p.mut : colorOf(pcts[5]));
+        set('txt1', vals.temp === null ? 'T --' : `T ${round(vals.temp)}C`,
+          vals.temp === null ? p.mut : tempCol(vals.temp));
+        set('txt2', vals.power === null ? 'P --' : `P ${round(vals.power)}W`,
+          vals.power === null ? p.mut : p.text);
+        set('txt3', vals.vramOk ? `VRAM ${Math.round(vals.vramPct)}%` : 'VRAM --',
+          vals.vramOk ? p.text : p.mut);
+        const idx = [2, 3, 4];
+        for (let i = 0; i < 3; i += 1) {
+          const v = pcts[idx[i]];
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
+          segSet(`seg${i + 2}`, v, colorOf(v), 12);
+        }
+        set('kvtext', vals.kvText, p.dim);
+        set('txt4',
+          vals.temp !== null && vals.power !== null
+            ? `${round(vals.temp)}C • ${round(vals.power)}W` : '--', p.dim);
+        break;
+      }
+      case 'drone': {
+        setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
+        setNum('rowv0', pcts[0], (x) => `${Math.round(x)}%`, colorOf(pcts[0]));
+        barSet('rowbar0', pcts[0], colorOf(pcts[0]));
+        setNum('rowv1', vals.temp, (x) => `${round(x)}°`, tempCol(vals.temp));
+        barSet('rowbar1', vals.temp, tempCol(vals.temp));
+        setNum('rowv2', vals.vramOk ? vals.vramPct : null,
+          (x) => `${Math.round(x)}%`, vals.vramOk ? p.acc : p.mut);
+        barSet('rowbar2', vals.vramPct, p.acc);
+        setNum('rowv3', vals.queue, round, p.acc2);
+        barSet('rowbar3', vals.queue === null ? null : vals.queue * 10, p.acc2);
+        setNum('rowv4', pcts[5], (x) => `${Math.round(x)}%`, colorOf(pcts[5]));
+        barSet('rowbar4', pcts[5], colorOf(pcts[5]));
+        setNum('rowv5', pcts[4], (x) => `${Math.round(x)}%`, colorOf(pcts[4]));
+        barSet('rowbar5', pcts[4], colorOf(pcts[4]));
+        segSet('seg0', pcts[2], colorOf(pcts[2]));
+        set('svcst0', vals.busy ? 'AUTO HOLD' : 'STANDBY', vals.busy ? p.acc : p.dim);
+        set('kvtext', vals.kvText, p.dim);
+        set('txt2', `CTX ${vals.ctxText}`, p.dim);
+        break;
+      }
+      case 'scope': {
+        arcSet('arcind', pcts[1], colorOf(pcts[1]), true);
+        setNum('big0', pcts[1], (x) => `${Math.round(x)}%`, colorOf(pcts[1]));
+        setNum('rowv0', pcts[0], (x) => `${Math.round(x)}%`, colorOf(pcts[0]));
+        set('rowv1', vals.memText, vals.memGb !== null ? p.text : p.mut);
+        set('temp', vals.temp === null ? '--' : round(vals.temp), tempCol(vals.temp));
+        segSet('seg0', vals.temp, tempCol(vals.temp));
+        set('power', vals.power === null ? '--' : round(vals.power),
+          vals.power === null ? p.mut : p.text);
+        setNum('rowv4', pcts[2], (x) => `${Math.round(x)}%`, colorOf(pcts[2]));
+        set('kvtext', vals.kvText, p.dim);
+        set('svcst0',
+          vals.online ? (vals.busy ? 'STABLE' : 'IDLE') : 'OFFLINE',
+          vals.online ? (vals.busy ? p.acc : p.dim) : p.err);
+        break;
+      }
+      case 'heatsink': {
+        setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
+        set('txt0',
+          vals.conc !== null ? `${vals.model} • SEQ ${round(vals.conc)}` : '--',
+          p.acc2);
+        set('txt1', vals.davg === null ? 'AVG --' : `AVG ${vals.davg.toFixed(1)}`, p.dim);
+        set('txt2', vals.dpeak === null ? 'MAX --' : `MAX ${vals.dpeak.toFixed(1)}`, p.dim);
+        set('txt3', pcts[0] === null ? 'GPU --' : `GPU ${Math.round(pcts[0])}%`,
+          pcts[0] === null ? p.mut : p.acc);
+        const hv = [pcts[0], vals.vramPct, pcts[5]];
+        const hc = [p.acc, p.acc2, p.acc];
+        for (let i = 0; i < 3; i += 1) {
+          setNum(`rowv${i}`, hv[i], (x) => `${Math.round(x)}%`, hc[i]);
+          segSet(`vseg${i}`, hv[i], hv[i] === null ? p.mut : hc[i]);
+        }
+        set('txt4',
+          vals.temp !== null && vals.power !== null
+            ? `P ${round(vals.power)}W • ${round(vals.temp)}C` : '--', p.dim);
+        set('txt5', vals.memText, p.dim);
+        const kvBody = vals.kvText.startsWith('KV ') ? vals.kvText.slice(3) : '--';
+        set('txt6', `${kvBody} CTX`, p.dim);
+        break;
+      }
+      case 'loadout': {
+        const idx = [1, 0, 3, 4];
+        for (let i = 0; i < 4; i += 1) {
+          const v = pcts[idx[i]];
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
+          segSet(`seg${i}`, v, colorOf(v));
+        }
+        set('txt0', vals.temp === null ? 'TEMP --' : `TEMP ${round(vals.temp)}C`, p.dim);
+        set('txt1',
+          vals.power !== null && vals.temp !== null
+            ? `${round(vals.power)}W • ${round(vals.temp)}C` : '--', p.dim);
+        set('txt2', vals.memText, p.dim);
+        set('txt3', vals.vramOk ? `VRAM ${Math.round(vals.vramPct)}%` : 'VRAM --', p.dim);
+        set('txt4',
+          vals.temp !== null && vals.power !== null
+            ? `TEMP ${round(vals.temp)}C • PWR ${round(vals.power)}W`
+            : 'TEMP -- • PWR --', p.dim);
+        set('svcst0', vals.online ? 'ALL OK' : 'OFFLINE',
+          vals.online ? p.acc : p.err);
+        break;
+      }
+      case 'armor': {
+        setNum('rowv0', vals.prefill, (x) => `${round(x)} t/s`, p.acc3);
+        set('rowv1', vals.vramText, vals.vramOk ? p.text : p.mut);
+        set('temp', vals.temp === null ? '--' : `${round(vals.temp)}C`,
+          tempCol(vals.temp));
+        set('queue', vals.queue === null ? '--' : round(vals.queue),
+          vals.queue === null ? p.mut : p.text);
+        arcSet('arcind', pcts[0], colorOf(pcts[0]));
+        arcSet('arcind2', pcts[5], colorOf(pcts[5]));
+        setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
+        barSet('rowbar0', pcts[5], colorOf(pcts[5]));
+        set('kvtext', vals.kvText, p.dim);
+        set('svcst0', pcts[5] === null ? 'INT --' : `INT ${Math.round(pcts[5])}%`,
+          pcts[5] === null ? p.mut : p.acc2);
+        break;
+      }
+      case 'sweep': {
+        const idx = [1, 3, 0, 4];
+        for (let i = 0; i < 4; i += 1) {
+          const v = pcts[idx[i]];
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
+          segSet(`seg${i}`, v, colorOf(v));
+        }
+        set('txt0',
+          vals.temp !== null && vals.power !== null
+            ? `T ${round(vals.temp)}C • P ${round(vals.power)}W • KV ${Math.round(pcts[5] || 0)}%`
+            : 'T -- • P --', p.dim);
+        set('txt1',
+          vals.conc !== null ? `SEQ ${round(vals.conc)} • Q ${round(vals.queue || 0)}` : 'SEQ --',
+          p.acc);
+        break;
+      }
+      default: break;
+    }
+  }
+
+  /* 配色下拉：classic 模式下切换为传统框架主题，widgets 模式恢复主题列表 */
+  function syncThemeOptions() {
+    const classic = isClassic();
+    const wanted = classic
+      ? (state.layout && state.layout.classic_theme) || 'instrument'
+      : (state.layout && state.layout.theme) || state.themeDefault;
+    themeSelect.innerHTML = '';
+    if (classic) {
+      for (const [id, meta] of Object.entries(CLASSIC_THEME_META)) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = meta.label;
+        themeSelect.appendChild(option);
+      }
+    } else {
+      for (const theme of state.themes.list) {
+        const option = document.createElement('option');
+        option.value = theme.id;
+        option.textContent = theme.label || theme.id;
+        if (theme.description) option.title = theme.description;
+        themeSelect.appendChild(option);
+      }
+    }
+    themeSelect.value = wanted;
+    if (themeSelect.value !== wanted) themeSelect.selectedIndex = 0;
+  }
+
   function renderCanvas() {
     if (!state.layout) return;
+    if (isClassic()) {
+      renderClassicCanvas();
+      return;
+    }
     const profile = activeProfile();
     canvas.innerHTML = '';
     canvas.style.width = `${profile.width}px`;
@@ -2283,6 +3452,12 @@
       return;
     }
     state.inspectorPending = false;
+    if (isClassic()) {
+      inspectorEl.innerHTML =
+        '<p class="muted">传统框架为固定式界面，无组件属性可编辑。<br>' +
+        '显示内容：模型名称、LLM/TTS/Embedding 加载状态、GPU/CPU/NPU/内存/磁盘/KV 占用、并发数、排队数、GPU 温度与功率。</p>';
+      return;
+    }
     const widget = currentWidgets().find(
       (item) => item.id === state.selectedId
     );
@@ -3043,7 +4218,10 @@
         renderInspector();
       }
       collectHistory();
-      if (!state.interacting) refreshWidgetBodies();
+      if (!state.interacting) {
+        if (isClassic()) classicApply();
+        else refreshWidgetBodies();
+      }
     });
     ws.addEventListener('close', () => {
       if (state.ws !== ws) return;
@@ -3071,8 +4249,11 @@
     state.profile =
       device && state.profiles[device.profile] ? device.profile : state.layout.profile;
     applyOrientationView();
+    frameworkSelect.value = isClassic() ? 'classic' : 'widgets';
+    syncThemeOptions();
+    renderPalette();
     profileSelect.value = state.profile;
-    profileSelect.disabled = false;
+    profileSelect.disabled = isClassic();
     state.selectedId = null;
     state.dirty = false;
     updateDirty();
@@ -3189,9 +4370,46 @@
 
     themeSelect.addEventListener('change', () => {
       if (!state.layout) return;
-      state.layout.theme = themeSelect.value;
+      if (isClassic()) state.layout.classic_theme = themeSelect.value;
+      else state.layout.theme = themeSelect.value;
       applyTheme();
       renderCanvas();
+      markDirty();
+    });
+
+    /* 框架切换：widgets=小组件网格，classic=固定式传统主题（横屏 480×320） */
+    frameworkSelect.addEventListener('change', async () => {
+      if (!state.layout) return;
+      const next = frameworkSelect.value;
+      if (next === (isClassic() ? 'classic' : 'widgets')) return;
+      state.layout.framework = next;
+      if (next === 'classic' && !state.layout.classic_theme) {
+        state.layout.classic_theme = 'instrument';
+      }
+      const device = currentDevice();
+      if (next === 'classic' && device && device.profile !== '480x320') {
+        try {
+          await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ profile: '480x320' }),
+          });
+          state.devices = state.devices.map((item) =>
+            item.id === device.id ? { ...item, profile: '480x320' } : item
+          );
+          state.profile = '480x320';
+          state.baseProfile = '480x320';
+          state.layout.profile = '480x320';
+          profileSelect.value = '480x320';
+          toast('传统框架为横屏固定界面，屏幕方向已切为 480×320');
+        } catch (error) {
+          toast(`切换屏幕方向失败：${error.message}`);
+        }
+      }
+      syncThemeOptions();
+      applyTheme();
+      renderCanvas();
+      renderPalette();
+      renderInspector();
       markDirty();
     });
 
@@ -3214,6 +4432,7 @@
       event.dataTransfer.dropEffect = 'copy';
     });
     canvas.addEventListener('drop', (event) => {
+      if (isClassic()) return;
       event.preventDefault();
       const type = event.dataTransfer.getData('text/plain');
       if (!type) return;
@@ -3258,14 +4477,7 @@
       state.themeDefault = themesDoc.default || state.themes.list[0]?.id || 'neon-cyber';
       state.themeAliases = themesDoc.aliases || {};
 
-      themeSelect.innerHTML = '';
-      for (const theme of state.themes.list) {
-        const option = document.createElement('option');
-        option.value = theme.id;
-        option.textContent = theme.label || theme.id;
-        if (theme.description) option.title = theme.description;
-        themeSelect.appendChild(option);
-      }
+      syncThemeOptions();
 
       profileSelect.innerHTML = '';
       for (const [key, profile] of Object.entries(state.profiles)) {

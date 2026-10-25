@@ -76,6 +76,12 @@ def project_layout(
 
 def resolve_layout(layout: dict[str, Any], catalog: Catalog) -> dict[str, Any]:
     """把指标标签/单位/精度写进布局，供 MCU 直接渲染，避免固件再拉目录。"""
+    # 传统框架：固定界面主题，无小组件网格；注入默认值供固件直接分支
+    if layout.get("framework") == "classic":
+        if not layout.get("classic_theme"):
+            layout["classic_theme"] = "instrument"
+    layout.setdefault("framework", "widgets")
+
     theme_id = catalog.resolve_theme(layout.get("theme"))
     theme = catalog.themes.get(theme_id) or catalog.themes.get(catalog.theme_default)
     if theme:

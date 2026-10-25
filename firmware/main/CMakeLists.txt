@@ -5,6 +5,7 @@ idf_component_register(
          "../../ui/src/ui_widgets.c"
          "../../ui/src/ui_pet.c"
          "../../ui/src/ui_mini.c"
+         "../../ui/src/ui_classic.c"
          "../../ui/src/font_cjk_16.c"
          "../../ui/src/dash_metric_store.c" "../../ui/src/ui_dynamic.c"
     INCLUDE_DIRS "." "../../ui/include"

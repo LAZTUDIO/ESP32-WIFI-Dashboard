@@ -23,6 +23,7 @@ local/
 .vscode/
 .idea/
 .trae/
+.trae-html-share-packages/
 .workbuddy/
 *.swp
 __pycache__/

@@ -16,6 +16,7 @@ A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware
 - **Source-aware metric filtering** — editor dropdowns only list metrics the selected screen can actually receive: the API type reported by the device (halogen / gufo / strata / LM Studio / Ollama / OpenAI-compatible) drives direct metrics, and the server snapshot drives dedicated metrics; portrait and landscape widgets behave the same
 - **Server-side API forwarding** — when the server runs on the API machine, keep the upstream URL and long-lived key in the console; the device only points at `http://<PC>:8080/api/v1/forward`. One port carries everything, and dropdowns label “Forwarded” versus “Dedicated server” metrics
 - **Desktop pet widget** — bind a numeric/boolean metric and switch between sleep/idle/happy/busy/alert/offline procedural animations; the busy state can bind `llm.busy`, and thresholds are editable in the inspector
+- **Classic framework themes** — besides the widget grid, the firmware also renders fixed, one-screen-one-design dashboards: **11 themes** on a 480×320 landscape canvas (Phosphor Scope / Tactical HUD / Mecha Core / Stealth Ops / Arcade Score / Drone Link / Sniper Scope / Heat Sink / Loadout / Power Armor / Sweep HUD), each with its own palette and layout; switch in the editor dropdown for instant preview, save to hot-reload the device; see the “Classic framework themes” section below
 - **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan plus separate traditional API and dashboard server fields
 - **Self-healing Wi-Fi** — keeps retrying in the background after a failed boot connect, and hides the provisioning overlay once online
 - **Font subsets** — the server generates an LVGL binfont from the layout text; the device verifies SHA-256 before loading it
@@ -137,6 +138,21 @@ Companion capture script (uses the pyserial bundled with ESP-IDF):
     --cmd "p 2" --out /tmp/board.png
 ```
 
+## Classic framework themes
+
+Besides the widget grid, the firmware also renders the **Classic framework**: fixed, one-screen-one-design dashboards on a 480×320 landscape canvas, with **11 themes**, each having its own palette, layout and visual language. The data sources are identical to the widget framework (LLM decode/prefill TPS, concurrency, queue, KV, GPU/CPU/RAM/disk utilisation, temperature, power, VRAM, …).
+
+Switch the editor's “framework” toggle to **Classic**, then pick a theme from the colour dropdown for a live canvas preview; on save it is pushed over WebSocket and the device **hot-reloads without rebooting**. The portrait design drafts (Sniper Scope / Heat Sink / Loadout / Power Armor / Sweep HUD) have been adapted to the 480×320 landscape layout.
+
+| | | |
+|:--:|:--:|:--:|
+| <img src="docs/images/classic-instrument.png" width="240"><br>**Phosphor Scope** · `instrument` | <img src="docs/images/classic-hud.png" width="240"><br>**Tactical HUD** · `hud` | <img src="docs/images/classic-mecha.png" width="240"><br>**Mecha Core** · `mecha` |
+| <img src="docs/images/classic-stealth.png" width="240"><br>**Stealth Ops** · `stealth` | <img src="docs/images/classic-arcade.png" width="240"><br>**Arcade Score** · `arcade` | <img src="docs/images/classic-drone.png" width="240"><br>**Drone Link** · `drone` |
+| <img src="docs/images/classic-scope.png" width="240"><br>**Sniper Scope** · `scope` | <img src="docs/images/classic-heatsink.png" width="240"><br>**Heat Sink** · `heatsink` | <img src="docs/images/classic-loadout.png" width="240"><br>**Loadout** · `loadout` |
+| <img src="docs/images/classic-armor.png" width="240"><br>**Power Armor** · `armor` | <img src="docs/images/classic-sweep.png" width="240"><br>**Sweep HUD** · `sweep` | |
+
+> Themes originate from the `docs/design/group6-hud.html` design draft; the firmware renderer lives in [ui/src/ui_classic.c](ui/src/ui_classic.c). Each theme can be screenshotted on the headless PC simulator: `./build/dash_sim --classic <theme> out.png`.
+
 ## Performance
 
 Measured on the board (480×320 logical resolution):
@@ -165,14 +181,15 @@ Key settings (`firmware/sdkconfig.defaults` and `firmware/main/display.c`):
 
 ```
 .
-├── ui/                 # Shared UI: theme tokens, widgets, dynamic renderer (no drivers)
+├── ui/                 # Shared UI: theme tokens, widgets, dynamic + classic renderers (no drivers)
 │   ├── include/ui.h
 │   ├── include/ui_dynamic.h
+│   ├── include/ui_classic.h
 │   ├── include/dash_metric_store.h
-│   └── src/{ui_widgets,ui_dynamic,dash_metric_store,font_cjk_16}.c
+│   └── src/{ui_widgets,ui_dynamic,ui_classic,dash_metric_store,font_cjk_16}.c
 ├── shared/             # Contract shared by server/firmware: metrics, widgets, profiles, themes
 ├── server/             # FastAPI aggregator + web layout/theme editor
-├── sim/                # Headless font probe (binfont → PNG)
+├── sim/                # Headless PC simulator (font probe binfont→PNG, classic theme screenshots)
 ├── firmware/           # ESP-IDF project
 │   ├── main/           # display/touch drivers, Wi-Fi, portal, dashboard client, console
 │   ├── components/     # on-board ST7796 / FT6336 drivers
@@ -180,7 +197,7 @@ Key settings (`firmware/sdkconfig.defaults` and `firmware/main/display.c`):
 │   ├── docs/DEBUGGING.md
 │   ├── partitions.csv
 │   └── sdkconfig.defaults
-├── docs/images/        # README screenshots (0.1 direct mode)
+├── docs/images/        # README screenshots (incl. the 11 classic framework themes)
 ├── render.sh           # one-shot font probe render
 └── LICENSE
 ```

@@ -19,6 +19,7 @@
 - **服务端 API 转发**：服务端可与 API 同机运行，把上游地址和长密钥收在「服务设置」里；设备只需指向 `http://<PC>:8080/api/v1/forward`，一个端口汇总全部数据，下拉中会明确区分「服务端转发」与「专用服务端」
 - **桌宠组件**：绑定数值/布尔指标，按阈值在睡眠/待机/开心/忙碌/警戒/离线之间切换程序化动画；忙碌态可另绑 `llm.busy`，阈值在属性面板调整
 - **小组件 2.0（10 类 / 75 种尺寸）**：环形仪表、LED 状态灯、点阵状态墙、指标条形带、垂直柱、多柱状图、双折线、主指标卡、迷你曲线排、文本徽章；覆盖 2×2 → 6×6 正方形、12×2/12×3 长条、2×4 竖条与 4×3/8×6 横竖矩形，同一组件按宽高比自动切换形态（inline / 堆叠 / hero / 点上文下），数值走统一量程与阈值着色。图鉴见 [docs/design/widget-gallery-v2.html](docs/design/widget-gallery-v2.html)，整屏示例见 `examples/widgets-showcase-320x480.json`
+- **传统框架（Classic）主题**：除小组件网格外，固件还支持一屏一设计的固定式仪表盘，480×320 横屏共 **11 套主题**（磷光示波器 / 战术 HUD / 机甲反应堆 / 潜行终端 / 街机计分板 / 无人机链路 / 狙击镜 / 散热塔 / 装备槽 / 动力装甲 / 战术雷达），逐套配色与布局独立，编辑器下拉切换即时预览，保存后设备热更新；详见下方「传统框架主题」
 - **手机配网**：SoftAP + Captive Portal，扫 Wi-Fi 列表并分别填写传统 API 与专用 Server 地址
 - **断线自愈**：上电连不上不会卡死，后台持续重连；联网后自动收起配网页
 - **字体子集**：服务端按布局文字动态生成 LVGL binfont，设备校验 SHA-256 后加载
@@ -182,6 +183,21 @@ curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
 
 启动服务和编辑布局见 [server/README.md](server/README.md)。换电脑接力开发请先看 [docs/0.2-HANDOFF.md](docs/0.2-HANDOFF.md)。
 
+## 传统框架主题
+
+除了小组件网格，固件还支持**传统框架（Classic）**：一屏一设计的固定式仪表盘，基准 480×320 横屏，共 **11 套主题**，逐套配色、布局与视觉语言独立，数据源与小组件框架完全一致（LLM 解码/预填 TPS、并发、排队、KV、GPU/CPU/内存/磁盘占用、温度、功率、VRAM 等）。
+
+在 Web 编辑器顶部把「框架」切到**传统框架**，「配色」下拉即可在 11 套主题间切换，画布实时预览；保存后经 WebSocket 下发，设备**热更新，无需重启**。竖屏设计稿（狙击镜 / 散热塔 / 装备槽 / 动力装甲 / 战术雷达）已横排适配到 480×320。
+
+| | | |
+|:--:|:--:|:--:|
+| <img src="docs/images/classic-instrument.png" width="240"><br>**磷光示波器** · `instrument` | <img src="docs/images/classic-hud.png" width="240"><br>**战术 HUD** · `hud` | <img src="docs/images/classic-mecha.png" width="240"><br>**机甲反应堆** · `mecha` |
+| <img src="docs/images/classic-stealth.png" width="240"><br>**潜行终端** · `stealth` | <img src="docs/images/classic-arcade.png" width="240"><br>**街机计分板** · `arcade` | <img src="docs/images/classic-drone.png" width="240"><br>**无人机链路** · `drone` |
+| <img src="docs/images/classic-scope.png" width="240"><br>**狙击镜** · `scope` | <img src="docs/images/classic-heatsink.png" width="240"><br>**散热塔** · `heatsink` | <img src="docs/images/classic-loadout.png" width="240"><br>**装备槽** · `loadout` |
+| <img src="docs/images/classic-armor.png" width="240"><br>**动力装甲** · `armor` | <img src="docs/images/classic-sweep.png" width="240"><br>**战术雷达** · `sweep` | |
+
+> 主题来源为 `docs/design/group6-hud.html` 设计稿，固件渲染器见 [ui/src/ui_classic.c](ui/src/ui_classic.c)；可在 PC 无头模拟器逐套截图核对：`./build/dash_sim --classic <theme> out.png`。
+
 ## 性能
 
 板子实测（320×480，ST7796 SPI 80MHz，ESP32-S3 240MHz）：
@@ -214,14 +230,15 @@ curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
 
 ```
 .
-├── ui/                 # 共享 UI：配色 token、通用控件、动态布局渲染（不含驱动）
+├── ui/                 # 共享 UI：配色 token、通用控件、动态布局与传统框架渲染（不含驱动）
 │   ├── include/ui.h
 │   ├── include/ui_dynamic.h
+│   ├── include/ui_classic.h
 │   ├── include/dash_metric_store.h
-│   └── src/{ui_widgets,ui_dynamic,dash_metric_store,font_cjk_16}.c
+│   └── src/{ui_widgets,ui_dynamic,ui_classic,dash_metric_store,font_cjk_16}.c
 ├── shared/             # 服务端/固件共享契约：指标、组件、profile、主题、布局预设
 ├── server/             # FastAPI 聚合服务 + Web 布局/配色编辑器
-├── sim/                # PC 无头字体探针（binfont → PNG）
+├── sim/                # PC 无头模拟器（字体探针 binfont→PNG、传统框架主题截图）
 ├── firmware/           # ESP-IDF 工程
 │   ├── main/           # 显示/触摸驱动、Wi-Fi、配网、动态看板客户端、调试台
 │   ├── components/     # 板载 ST7796 / FT6336 驱动（随仓库提供）
@@ -229,7 +246,7 @@ curl -o /tmp/font16.bin "http://127.0.0.1:8080/api/v1/font?profile=320x480"
 │   ├── docs/DEBUGGING.md
 │   ├── partitions.csv
 │   └── sdkconfig.defaults
-├── docs/images/        # README 截图（0.1 直连版）
+├── docs/images/        # README 截图（含传统框架 11 套主题）
 ├── render.sh           # 字体探针一键出图
 └── LICENSE
 ```

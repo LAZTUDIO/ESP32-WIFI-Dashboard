@@ -217,6 +217,7 @@ class PanelAdapter(Adapter):
             "embed.queue": _num(npu.get("queued")),
             "embed.contexts": _num(npu.get("contexts")),
             "npu.status": npu_status,
+            "npu.util_pct": _num(npu.get("util_pct")),
             "npu.passes": _num(npu.get("passes")),
             "npu.loaded_models": loaded_models,
             "host.lan_ip": _text(data.get("lan_ip")),

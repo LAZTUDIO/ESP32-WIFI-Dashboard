@@ -41,6 +41,7 @@
     {"id": "embed.contexts", "source": "api", "providers": [], "label": "Embedding 上下文", "group": "Embedding", "type": "number", "unit": "", "precision": 0, "chart": false},
 
     {"id": "npu.status", "source": "api", "providers": [], "label": "NPU 状态", "group": "NPU", "type": "string", "unit": "", "precision": 0, "chart": false},
+    {"id": "npu.util_pct", "source": "api", "providers": ["panel"], "label": "NPU 占用", "group": "NPU", "type": "number", "unit": "%", "precision": 1, "chart": true},
     {"id": "npu.passes", "source": "api", "providers": [], "label": "NPU 通道", "group": "NPU", "type": "number", "unit": "", "precision": 0, "chart": false},
     {"id": "npu.loaded_models", "source": "api", "providers": [], "label": "NPU 已加载模型", "group": "NPU", "type": "string", "unit": "", "precision": 0, "chart": false},
 
