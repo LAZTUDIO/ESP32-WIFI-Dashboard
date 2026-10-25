@@ -34,7 +34,7 @@ Traditional APIs are polled **directly by the device**; the dedicated server als
 | --- | --- | --- |
 | **halogen** | `/health` + `/metrics` | model/version, slots, context, in_flight/queued, KV pool, token counters, MTP, cache |
 | **gufo** | `/health` + `/v1/slots` | same as above; falls back to `n_decoded` deltas when `/metrics` is absent |
-| **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / engine start time |
+| **strata** | `/health` + `/v1/status` + `/metrics` | model/version, context, slots, in_flight/queued, live tok/s, KV usage, cache hits, uptime, GPU/RAM |
 | **LM Studio** | `/api/v0/models` | model, quantisation, context |
 | **Ollama** | `/api/ps` | loaded models, size, context |
 | **OpenAI-compatible** | `/v1/models` | model list |

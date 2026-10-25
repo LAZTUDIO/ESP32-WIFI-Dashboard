@@ -34,6 +34,7 @@ typedef struct {
     char provider_name[20];
     char model[64];
     char version[24];
+    char phase[16];             /* 引擎阶段：strata 的 live.phase / state */
     char endpoint[96];
     char host_agent[96];
     char api_key_mask[24];      /* 已脱敏的密钥，供设置页显示 */
@@ -49,22 +50,48 @@ typedef struct {
     uint16_t slots;
     uint32_t ctx_len;
 
+    /* 引擎健康：halogen /health（busy_for_s / longest_wait_s / engine.*）、panel health */
+    bool has_engine_state;
+    float busy_for_s;
+    float longest_wait_s;
+    bool engine_responds;
+    float engine_probe_s;
+    char capability_probe[16];  /* halogen 能力探针：ok / failed */
+
+    /* 能力声明：halogen /health 独有（panel 透传同一份 health） */
+    bool has_capabilities;
+    uint32_t max_tokens_default;
+    uint32_t indexer_budget;
+    bool vision_enabled;
+    bool structured_output;
+
+    bool has_cpu;
+    float cpu_pct;              /* 仅 panel / strata 的接口带主机 CPU */
+
     bool has_concurrency;
     uint16_t in_flight;
     bool has_queue;
     uint16_t queued;
+    bool has_queue_counters;    /* 排队计数（queue_waited / queue_gave_up）有效 */
+    uint32_t queue_waited;
+    uint32_t queue_gave_up;
 
     bool has_kv;
     float kv_pct;
     uint32_t kv_used;
     uint32_t kv_total;
+    bool has_kv_detail;         /* KV 池细分有效（/metrics 或 /cache .pool） */
+    uint32_t kv_reserved;
+    uint32_t kv_busy_regions;
+    uint32_t kv_held_regions;
+    uint32_t kv_waiting_for_room;
 
     bool has_tps;
     float tps_dec;              /* 当前 / 最近请求的解码 tok/s */
     float tps_pre;              /* 当前 / 最近请求的预填充 tok/s */
     float tps_avg;              /* 引擎累计均值 */
     float tps_avg_pre;
-    float tps_peak;             /* 本次开机观察到峰值 */
+    float tps_peak;             /* 峰值只有 strata / panel 的 API 才给 */
     float tps_peak_pre;
 
     bool has_usage;
@@ -77,9 +104,18 @@ typedef struct {
 
     bool has_mtp;
     float mtp_pct;
+    uint64_t draft_tokens;
+    bool has_drafter;           /* drafter_default / drafter_weights_loaded 有效 */
+    char drafter[24];
+    bool drafter_loaded;
 
-    bool has_cache;
-    float cache_hit_pct;
+    bool has_cache;             /* prompt_cache 配置段已知 */
+    bool cache_enabled;
+    uint32_t cache_cap_mb;
+    bool has_cache_rates;       /* 命中率有效（/cache，缺省回落 /metrics 计数） */
+    float cache_hit_rate;
+    float cache_token_hit_rate;
+    uint32_t cache_evicted;
     uint64_t cache_bytes;
     uint32_t cache_entries;
 
@@ -96,8 +132,6 @@ typedef struct {
     uint32_t ram_used_mb;
     uint32_t ram_total_mb;
 
-    bool has_host_uptime;
-    uint32_t host_uptime_s;
     bool has_model_uptime;
     uint32_t model_uptime_s;
     bool has_engine_time;

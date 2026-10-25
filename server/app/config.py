@@ -21,6 +21,10 @@ class Settings:
     system_interval_s: float = 2.0
     enable_gpu: bool = False
     gpu_interval_s: float = 5.0
+    strata_url: str = ""          # Strata 服务地址，留空不启用
+    strata_key: str = ""          # Strata 的 API key（配了则 /metrics 也要 Bearer）
+    strata_interval_s: float = 1.0
+    strata_timeout_s: float = 4.0
     host: str = "0.0.0.0"
     port: int = 8080
     public_url: str = ""         # 下发给设备的服务端地址；留空自动用局域网 IP

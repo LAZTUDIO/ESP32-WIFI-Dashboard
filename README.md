@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | **halogen** | `/health` + `/metrics` | 模型/版本、slots、上下文、in_flight/queued、KV 池、token 计数器、MTP、缓存 |
 | **gufo** | `/health` + `/v1/slots` | 同上；无 metrics 时用 slots 的 `n_decoded` 差分 |
-| **strata** | `/api/monitor` | outputTps / promptTps / queue / context / hardware.* / totals.* / 引擎启动时间 |
+| **strata** | `/health` + `/v1/status` + `/metrics` | 模型/版本、上下文、slots、in_flight/queued、实时 tok/s、KV 占用、缓存命中、uptime、GPU/内存 |
 | **LM Studio** | `/api/v0/models` | 模型、量化、上下文 |
 | **Ollama** | `/api/ps` | 已加载模型、大小、上下文 |
 | **OpenAI 兼容** | `/v1/models` | 模型列表 |

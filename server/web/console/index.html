@@ -258,9 +258,15 @@
       <div class="form-grid">
         <label>设备 IP<input id="dev-ip" placeholder="192.168.1.50" autocomplete="off"></label>
         <label>备注名<input id="dev-name" placeholder="主屏" maxlength="32"></label>
-        <label class="span2">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
-        <label>API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
-        <label>服务类型
+        <label class="span2">连接模式
+          <select id="dev-mode">
+            <option value="direct">直连模式（设备直连 API）</option>
+            <option value="forward">转发模式（经控制台转发）</option>
+          </select>
+        </label>
+        <label class="span2 direct-only">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
+        <label class="direct-only">API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
+        <label class="direct-only">服务类型
           <select id="dev-provider">
             <option value="auto">auto（自动探测）</option>
             <option value="halogen">halogen</option>
@@ -271,8 +277,7 @@
             <option value="openai">OpenAI 兼容</option>
           </select>
         </label>
-        <label class="check span2 hidden" id="dev-forward-row"><input id="dev-use-forward" type="checkbox"> 使用服务端转发（API Key 留在服务端）</label>
-        <label class="span2">主机监控地址（可选）<input id="dev-host-agent" placeholder="http://192.168.1.100:8732"></label>
+        <div class="span2 hidden" id="dev-forward-note" style="color:#6b7280;font-size:12px;line-height:1.55"></div>
         <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
       </div>
       <div class="modal-actions">
@@ -481,20 +486,18 @@
         $('dev-ip').disabled = mode !== 'connect';
         $('dev-name').value = device ? device.name : '';
         const cfg = (device && device.api) || {};
-        $('dev-api-url').value = cfg.url || '';
-        $('dev-api-key').value = cfg.key || '';
-        $('dev-provider').value = cfg.provider || 'auto';
-        $('dev-host-agent').value = cfg.host_agent || '';
+        const forwardMode = isForward(device);
+        $('dev-mode').value = forwardMode ? 'forward' : 'direct';
+        $('dev-api-url').value = forwardMode ? '' : cfg.url || '';
+        $('dev-api-key').value = forwardMode ? '' : cfg.key || '';
+        $('dev-provider').value = forwardMode ? 'auto' : cfg.provider || 'auto';
         $('dev-rot180').checked = !!(device && device.rot180);
         state.directDraft = {
-          url: cfg.url || '',
-          key: cfg.key || '',
-          provider: cfg.provider || 'auto',
+          url: forwardMode ? '' : cfg.url || '',
+          key: forwardMode ? '' : cfg.key || '',
+          provider: forwardMode ? 'auto' : cfg.provider || 'auto',
         };
-        $('dev-forward-row').classList.toggle('hidden', !state.forward.enabled);
-        const forwardMode = isForward(device);
-        $('dev-use-forward').checked = forwardMode;
-        applyForwardMode(forwardMode, false);
+        applyConnectMode(false);
         $('device-delete').classList.toggle('hidden', mode === 'connect');
         $('device-modal').classList.remove('hidden');
         setTimeout(() => {
@@ -503,13 +506,13 @@
         }, 30);
       }
 
-      function applyForwardMode(checked, captureDraft = true) {
-        const ids = ['dev-api-url', 'dev-api-key', 'dev-provider'];
-        if (checked) {
-          if (!state.forward.base_url) {
-            $('dev-use-forward').checked = false;
-            return;
-          }
+      function applyConnectMode(captureDraft = true) {
+        const forward = $('dev-mode').value === 'forward';
+        const note = $('dev-forward-note');
+        document
+          .querySelectorAll('#device-modal .direct-only')
+          .forEach((el) => el.classList.toggle('hidden', forward));
+        if (forward) {
           if (captureDraft) {
             state.directDraft = {
               url: $('dev-api-url').value,
@@ -517,16 +520,22 @@
               provider: $('dev-provider').value,
             };
           }
-          $('dev-api-url').value = state.forward.base_url;
-          $('dev-api-key').value = '';
-          $('dev-provider').value = 'auto';
+          const base = state.forward.base_url || '';
+          if (!base) {
+            note.textContent = '转发模式不可用：服务端未配置转发地址。';
+          } else if (!state.forward.enabled) {
+            note.textContent = `转发未启用：屏幕将连接 ${base}，请先在「服务设置」启用转发。`;
+          } else {
+            note.textContent = `转发模式：屏幕直连控制台 ${base}，API 密钥保存在服务端。`;
+          }
+          note.classList.remove('hidden');
         } else {
           const draft = state.directDraft || {};
           $('dev-api-url').value = draft.url || '';
           $('dev-api-key').value = draft.key || '';
           $('dev-provider').value = draft.provider || 'auto';
+          note.classList.add('hidden');
         }
-        for (const id of ids) $(id).disabled = !!checked;
       }
 
       function closeDeviceModal() {
@@ -536,11 +545,13 @@
       }
 
       function formApi() {
+        if ($('dev-mode').value === 'forward') {
+          return { url: state.forward.base_url || '', key: '', provider: 'auto' };
+        }
         return {
           url: $('dev-api-url').value.trim(),
           key: $('dev-api-key').value,
           provider: $('dev-provider').value,
-          host_agent: $('dev-host-agent').value.trim(),
         };
       }
 
@@ -552,15 +563,7 @@
         btn.textContent = '下发中…';
         try {
           const name = $('dev-name').value.trim();
-          let apiCfg = formApi();
-          if ($('dev-use-forward').checked && state.forward.enabled) {
-            apiCfg = {
-              url: state.forward.base_url,
-              key: '',
-              provider: 'auto',
-              host_agent: apiCfg.host_agent,
-            };
-          }
+          const apiCfg = formApi();
           const rot180 = $('dev-rot180').checked;
           let result;
           if (state.modalMode === 'connect') {
@@ -706,9 +709,7 @@
         if (event.target === $('device-modal')) closeDeviceModal();
       });
       $('device-save').addEventListener('click', saveDevice);
-      $('dev-use-forward').addEventListener('change', () => {
-        applyForwardMode($('dev-use-forward').checked);
-      });
+      $('dev-mode').addEventListener('change', () => applyConnectMode());
       $('nav-forward').addEventListener('click', openForwardModal);
       $('forward-close').addEventListener('click', () => $('forward-modal').classList.add('hidden'));
       $('forward-modal').addEventListener('click', (event) => {

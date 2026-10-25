@@ -8,8 +8,10 @@
  *   instrument  磷光示波器（第 2 组 I01 配色）
  *   hud         战术 HUD（第 6 组 H01 配色）
  *
- * 显示内容（两套主题一致）：模型名称、LLM/TTS/Embedding 加载状态、
- * GPU/CPU/NPU/内存/磁盘占用率、KV 池、并发数、排队数、GPU 温度、GPU 功率。
+ * 显示内容（各主题一致，全部来自引擎 API 实测可交付的测点）：模型名称、
+ * 引擎/前缀缓存/草稿器三态、KV 池占用、前缀缓存命中率、草稿接受率、
+ * GPU/CPU/内存占用率、KV 池、并发数、排队数、GPU 温度、GPU 功率。
+ * 引擎 API 取不到的点位（NPU、磁盘、SSD、TTS、Embedding）一律不显示。
  * 文案全部 ASCII，只用内置 Montserrat，不依赖服务端字体子集。
  */
 #ifndef UI_CLASSIC_H

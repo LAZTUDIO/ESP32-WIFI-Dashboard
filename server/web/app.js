@@ -742,7 +742,7 @@
     addRow(labelFor('cpu', 'CPU'), valueFor('cpu'));
     addRow(labelFor('ram_used', '内存'), ramValue());
     addRow(labelFor('gpu_temp', 'GPU'), valueFor('gpu_temp'));
-    addRow(labelFor('ip', 'IP'), valueFor('ip'));
+    addRow(labelFor('text', '版本'), valueFor('text'));
     body.appendChild(grid);
   }
 
@@ -1899,23 +1899,19 @@
   const CL_ARC_C = 2 * Math.PI * 44;
   const CL_ARC_LEN = CL_ARC_C * 0.75; /* 270° 弧长，缺口朝下 */
 
-  /* 六个占用率：0 GPU 1 CPU 2 NPU 3 MEM 4 DISK 5 KV（与固件 pct_value 一致） */
+  /* 六个占用率：0 GPU 1 CPU 2 KV 3 MEM 4 HIT 5 ACC（与固件 pct_value 一致） */
   function classicPct(idx) {
     switch (idx) {
       case 0: return numberValue('host.gpu_util_pct');
       case 1: return numberValue('host.cpu_pct');
-      case 2: return numberValue('npu.util_pct');
+      case 2: return numberValue('llm.kv_pct');
       case 3: {
         const used = numberValue('host.ram_used_mb');
         const total = numberValue('host.ram_total_mb');
         return total > 0 && used !== null ? (used / total) * 100 : null;
       }
-      case 4: {
-        const free = numberValue('host.disk_free_gb');
-        const total = numberValue('host.disk_total_gb');
-        return total > 0 && free !== null ? ((total - free) / total) * 100 : null;
-      }
-      case 5: return numberValue('llm.kv_pct');
+      case 4: return numberValue('llm.cache_token_hit_rate');
+      case 5: return numberValue('llm.draft_accept_pct');
       default: return null;
     }
   }
@@ -1949,8 +1945,8 @@
       busy,
       svc: [
         online === true,
-        boolValue('tts.loaded') === true,
-        boolValue('embed.loaded') === true,
+        boolValue('llm.cache_enabled') === true,
+        boolValue('llm.drafter_loaded') === true,
       ],
       kvText:
         used !== null && pool !== null && pool > 0
@@ -1974,6 +1970,16 @@
           ? `${(memUsed / 1024).toFixed(1)}/${(memTotal / 1024).toFixed(0)}G`
           : '--',
       ctxText: ctx !== null ? fmtTokens(ctx) : '--',
+      cacheText: (() => {
+        const cbytes = numberValue('llm.cache_bytes');
+        const ccap = numberValue('llm.cache_cap_mb');
+        if (cbytes !== null && ccap !== null && ccap > 0) {
+          return `${Math.round(cbytes)}/${Math.round(ccap)}M`;
+        }
+        const cent = numberValue('llm.cache_entries');
+        return cent !== null ? `${Math.round(cent)} ENT` : '--';
+      })(),
+      draftTokens: numberValue('llm.draft_tokens'),
     };
   }
 
@@ -2078,7 +2084,7 @@
   };
 
   function classicInstrumentHtml(p) {
-    const labels = ['GPU', 'CPU', 'NPU', 'MEM', 'DISK', 'KV'];
+    const labels = ['GPU', 'CPU', 'KV', 'MEM', 'HIT', 'ACC'];
     let rows = '';
     for (let i = 0; i < 6; i += 1) {
       const y = 28 + i * 23;
@@ -2090,7 +2096,7 @@
     for (let i = 0; i < 3; i += 1) {
       const y = 26 + i * 23;
       svc += clLed(14, y + 3, 7, p.mut, `svcled${i}`);
-      svc += clLbl(28, y, ['LLM', 'TTS', 'EMB'][i], p.dim, 12);
+      svc += clLbl(28, y, ['LLM', 'PFX', 'DRF'][i], p.dim, 12);
       svc += clLbl(66, y, 'OFF', p.mut, 12, { ref: `svcst${i}` });
     }
     return (
@@ -2124,11 +2130,12 @@
   }
 
   function classicHudHtml(p) {
-    const labels = ['CPU', 'NPU', 'MEM', 'DISK'];
+    const labels = ['CPU', 'MEM', 'HIT', 'ACC'];
+    const bIdx = [1, 3, 4, 5];
     let loadRows = '';
     for (let i = 0; i < 4; i += 1) {
       const y = 26 + i * 26;
-      const idx = i + 1;
+      const idx = bIdx[i];
       loadRows += clLbl(14, y, labels[i], p.dim, 12);
       loadRows += clSeg(50, y + 2, 70, 10, p, `seg${idx}`);
       loadRows += clLbl(124, y, '--', p.text, 12, { w: 36, right: true, ref: `pctv${idx}` });
@@ -2137,7 +2144,7 @@
     for (let i = 0; i < 3; i += 1) {
       const y = 26 + i * 24;
       svc += clLed(12, y + 3, 7, p.mut, `svcled${i}`);
-      svc += clLbl(26, y, ['LLM', 'TTS', 'EMB'][i], p.dim, 12);
+      svc += clLbl(26, y, ['LLM', 'PFX', 'DRF'][i], p.dim, 12);
       svc += clLbl(62, y, 'OFF', p.mut, 12, { ref: `svcst${i}` });
     }
     return (
@@ -2160,8 +2167,8 @@
         clLbl(10, 60, '--', p.acc3, 25, { ref: 'power' }) +
         clLbl(92, 74, 'W', p.dim, 12) +
         clLbl(10, 100, 'KV', p.dim, 12) +
-        clSeg(36, 102, 70, 8, p, 'seg5') +
-        clLbl(112, 100, '--', p.text, 12, { w: 28, right: true, ref: 'pctv5' }), true) +
+        clSeg(36, 102, 70, 8, p, 'seg2') +
+        clLbl(112, 100, '--', p.text, 12, { w: 28, right: true, ref: 'pctv2' }), true) +
       clCard(8, 170, 240, 142, p,
         clLbl(16, 6, 'SERVICES', p.dim, 12) + svc +
         clLbl(10, 104, 'MODEL', p.dim, 12) +
@@ -2276,7 +2283,7 @@
     let bots = '';
     for (let i = 0; i < 3; i += 1) {
       const x = 18 + i * 152;
-      bots += clLbl(x, 226, ['NPU', 'MEM', 'DISK'][i], p.acc2, 12);
+      bots += clLbl(x, 226, ['KV', 'MEM', 'HIT'][i], p.acc2, 12);
       bots += clLbl(x + 70, 224, '--', p.text, 13, { w: 66, right: true, ref: `rowv${i}` });
       bots += clSegN(x, 246, 136, 10, p, `seg${i + 2}`, 12);
     }
@@ -2322,7 +2329,7 @@
     let rrows = '';
     for (let i = 0; i < 3; i += 1) {
       const y = 108 + i * 46;
-      rrows += clLbl(362, y + 2, ['QUEUE', 'KV', 'DISK'][i], p.dim, 12);
+      rrows += clLbl(362, y + 2, ['QUEUE', 'ACC', 'HIT'][i], p.dim, 12);
       rrows += clLbl(368, y - 2, '--', p.text, 13, { w: 98, right: true, ref: `rowv${i + 3}` });
       rrows += clBar(362, y + 22, 104, 4, p, `rowbar${i + 3}`);
     }
@@ -2384,7 +2391,7 @@
       clSeg(24, 292, 180, 9, p, 'seg0') +
       clLbl(240, 268, 'PWR', p.dim, 12) +
       clLbl(240, 286, '--', p.text, 17, { ref: 'power' }) +
-      clLbl(390, 268, 'NPU', p.dim, 12, { w: 66, right: true }) +
+      clLbl(390, 268, 'KV', p.dim, 12, { w: 66, right: true }) +
       clLbl(390, 286, '--', p.text, 17, { w: 66, right: true, ref: 'rowv4' }) +
       clLbl(24, 306, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
       clLbl(360, 306, 'STABLE', p.acc, 12, { w: 96, right: true, ref: 'svcst0' })
@@ -2418,8 +2425,8 @@
 
   function classicLoadoutHtml(p) {
     const nums = ['01', '02', '03', '04'];
-    const names = ['CPU', 'GPU', 'MEMORY', 'STORAGE'];
-    const descs = ['RYZEN 9 7950X', 'RTX 4070 TI', 'DDR5 6000 32G', 'NVME GEN4'];
+    const names = ['CPU', 'GPU', 'MEMORY', 'CACHE'];
+    const descs = ['RYZEN 9 7950X', 'RTX 4070 TI', 'DDR5 6000 32G', 'TOKEN HIT RATE'];
     const cx = [14, 254, 14, 254];
     const cy = [40, 40, 172, 172];
     let cards = '';
@@ -2467,12 +2474,12 @@
       clLbl(190, 184, 'TOK/S', p.acc, 12, { w: 100, center: true }) +
       clBar(24, 296, 432, 4, p, 'rowbar0') +
       clLbl(24, 306, 'KV --', p.dim, 12, { ref: 'kvtext' }) +
-      clLbl(356, 306, 'INT --', p.acc2, 12, { w: 100, right: true, ref: 'svcst0' })
+      clLbl(356, 306, 'ACC --', p.acc2, 12, { w: 100, right: true, ref: 'svcst0' })
     );
   }
 
   function classicSweepHtml(p) {
-    const cells = ['CPU', 'MEM', 'GPU', 'DISK'];
+    const cells = ['CPU', 'MEM', 'GPU', 'HIT'];
     let cards = '';
     for (let i = 0; i < 4; i += 1) {
       const color = i === 2 ? p.acc2 : p.acc;
@@ -2579,6 +2586,9 @@
     const pcts = [0, 1, 2, 3, 4, 5].map(classicPct);
     const colorOf = (v) =>
       v === null ? p.mut : v >= 90 ? p.err : v >= 75 ? p.warn : p.acc;
+    /* HIT（缓存命中率）/ ACC（草稿接受率）越高越好，阈值方向相反 */
+    const colorOfHi = (v) =>
+      v === null ? p.mut : v < 50 ? p.err : v < 75 ? p.warn : p.acc;
     const clamp01 = (v) => Math.max(0, Math.min(100, v));
 
     /* 顶栏：主 LED / 模型 / 阶段（hud/mecha/drone/sweep 带 // 前缀） */
@@ -2596,7 +2606,7 @@
       /* 占用率（连续条 instrument / 分段条 hud） */
       for (let i = 0; i < 6; i += 1) {
         const v = pcts[i];
-        const c = colorOf(v);
+        const c = i === 4 || i === 5 ? colorOfHi(v) : colorOf(v);
         set(`pctv${i}`, v === null ? '--' : `${Math.round(v)}%`, c);
         const fill = classicRefs[`bar${i}`];
         if (fill) {
@@ -2656,6 +2666,9 @@
 
   /* H02–H10 主题数值刷新（与固件各 apply_* 同逻辑） */
   function applyClassicExtras(id, p, vals, pcts, set, colorOf, clamp01) {
+    const colorOfHi = (v) =>
+      v === null ? p.mut : v < 50 ? p.err : v < 75 ? p.warn : p.acc;
+    const colorOfAt = (i, v) => (i === 4 || i === 5 ? colorOfHi(v) : colorOf(v));
     const tempCol = (t) =>
       t === null ? p.mut : t >= 85 ? p.err : t >= 75 ? p.warn : p.text;
     const setNum = (ref, v, fmt, color) =>
@@ -2695,7 +2708,7 @@
       case 'mecha': {
         segSet('seg0', pcts[0], colorOf(pcts[0]), 56);
         arcSet('arcind', pcts[0], colorOf(pcts[0]));
-        arcSet('arcind2', pcts[5], colorOf(pcts[5]));
+        arcSet('arcind2', pcts[5], colorOfAt(5, pcts[5]));
         setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
         setNum('rowv0', vals.prefill, (x) => `${round(x)} t/s`, p.acc);
         barSet('rowbar0', vals.prefill === null ? null : vals.prefill / 24, p.acc);
@@ -2704,7 +2717,7 @@
         setNum('rowv2', vals.vramOk ? vals.vramPct : null,
           (x) => vals.vramText, p.acc2);
         barSet('rowbar2', vals.vramPct, p.acc2);
-        setNum('rowv3', pcts[5], (x) => `${Math.round(x)}%`, colorOf(pcts[5]));
+        setNum('rowv3', pcts[5], (x) => `${Math.round(x)}%`, colorOfAt(5, pcts[5]));
         barSet('rowbar3', pcts[5], p.acc2);
         setNum('rowv4', vals.queue, round, p.acc2);
         barSet('rowbar4', vals.queue === null ? null : vals.queue * 10, p.acc2);
@@ -2737,7 +2750,7 @@
         set('txt1', pcts[1] === null ? 'CPU --' : `CPU ${Math.round(pcts[1])}%`, p.text);
         set('txt2', pcts[0] === null ? 'GPU --' : `GPU ${Math.round(pcts[0])}%`, p.text);
         set('txt3', vals.memGb === null ? 'RAM --' : `RAM ${vals.memGb.toFixed(1)}G`, p.text);
-        set('txt4', pcts[5] === null ? 'KV --' : `KV ${Math.round(pcts[5])}%`, p.text);
+        set('txt4', pcts[5] === null ? 'ACC --' : `ACC ${Math.round(pcts[5])}%`, p.text);
         set('temp', vals.temp === null ? '--' : round(vals.temp), tempCol(vals.temp));
         segSet('seg0', vals.temp, tempCol(vals.temp));
         svcLed(0, vals.online, p.acc);
@@ -2748,8 +2761,8 @@
         segSet('seg0', pcts[1], colorOf(pcts[1]), 5);
         setNum('big1', pcts[0], (x) => `${Math.round(x)}%`, colorOf(pcts[0]));
         segSet('seg1', pcts[0], colorOf(pcts[0]), 5);
-        set('txt0', pcts[5] === null ? 'KV --' : `KV ${Math.round(pcts[5])}%`,
-          pcts[5] === null ? p.mut : colorOf(pcts[5]));
+        set('txt0', pcts[5] === null ? 'ACC --' : `ACC ${Math.round(pcts[5])}%`,
+          pcts[5] === null ? p.mut : colorOfHi(pcts[5]));
         set('txt1', vals.temp === null ? 'T --' : `T ${round(vals.temp)}C`,
           vals.temp === null ? p.mut : tempCol(vals.temp));
         set('txt2', vals.power === null ? 'P --' : `P ${round(vals.power)}W`,
@@ -2759,8 +2772,8 @@
         const idx = [2, 3, 4];
         for (let i = 0; i < 3; i += 1) {
           const v = pcts[idx[i]];
-          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
-          segSet(`seg${i + 2}`, v, colorOf(v), 12);
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOfAt(idx[i], v));
+          segSet(`seg${i + 2}`, v, colorOfAt(idx[i], v), 12);
         }
         set('kvtext', vals.kvText, p.dim);
         set('txt4',
@@ -2779,10 +2792,10 @@
         barSet('rowbar2', vals.vramPct, p.acc);
         setNum('rowv3', vals.queue, round, p.acc2);
         barSet('rowbar3', vals.queue === null ? null : vals.queue * 10, p.acc2);
-        setNum('rowv4', pcts[5], (x) => `${Math.round(x)}%`, colorOf(pcts[5]));
-        barSet('rowbar4', pcts[5], colorOf(pcts[5]));
-        setNum('rowv5', pcts[4], (x) => `${Math.round(x)}%`, colorOf(pcts[4]));
-        barSet('rowbar5', pcts[4], colorOf(pcts[4]));
+        setNum('rowv4', pcts[5], (x) => `${Math.round(x)}%`, colorOfAt(5, pcts[5]));
+        barSet('rowbar4', pcts[5], colorOfAt(5, pcts[5]));
+        setNum('rowv5', pcts[4], (x) => `${Math.round(x)}%`, colorOfAt(4, pcts[4]));
+        barSet('rowbar5', pcts[4], colorOfAt(4, pcts[4]));
         segSet('seg0', pcts[2], colorOf(pcts[2]));
         set('svcst0', vals.busy ? 'AUTO HOLD' : 'STANDBY', vals.busy ? p.acc : p.dim);
         set('kvtext', vals.kvText, p.dim);
@@ -2824,23 +2837,23 @@
           vals.temp !== null && vals.power !== null
             ? `P ${round(vals.power)}W • ${round(vals.temp)}C` : '--', p.dim);
         set('txt5', vals.memText, p.dim);
-        const kvBody = vals.kvText.startsWith('KV ') ? vals.kvText.slice(3) : '--';
-        set('txt6', `${kvBody} CTX`, p.dim);
+        set('txt6', vals.draftTokens === null
+          ? 'DRAFT --' : `DRAFT ${fmtTokens(vals.draftTokens)}`, p.dim);
         break;
       }
       case 'loadout': {
         const idx = [1, 0, 3, 4];
         for (let i = 0; i < 4; i += 1) {
           const v = pcts[idx[i]];
-          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
-          segSet(`seg${i}`, v, colorOf(v));
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOfAt(idx[i], v));
+          segSet(`seg${i}`, v, colorOfAt(idx[i], v));
         }
         set('txt0', vals.temp === null ? 'TEMP --' : `TEMP ${round(vals.temp)}C`, p.dim);
         set('txt1',
           vals.power !== null && vals.temp !== null
             ? `${round(vals.power)}W • ${round(vals.temp)}C` : '--', p.dim);
         set('txt2', vals.memText, p.dim);
-        set('txt3', vals.vramOk ? `VRAM ${Math.round(vals.vramPct)}%` : 'VRAM --', p.dim);
+        set('txt3', vals.cacheText, p.dim);
         set('txt4',
           vals.temp !== null && vals.power !== null
             ? `TEMP ${round(vals.temp)}C • PWR ${round(vals.power)}W`
@@ -2857,24 +2870,24 @@
         set('queue', vals.queue === null ? '--' : round(vals.queue),
           vals.queue === null ? p.mut : p.text);
         arcSet('arcind', pcts[0], colorOf(pcts[0]));
-        arcSet('arcind2', pcts[5], colorOf(pcts[5]));
+        arcSet('arcind2', pcts[5], colorOfAt(5, pcts[5]));
         setNum('big0', vals.decode, (x) => x.toFixed(1), p.text);
-        barSet('rowbar0', pcts[5], colorOf(pcts[5]));
+        barSet('rowbar0', pcts[5], colorOfAt(5, pcts[5]));
         set('kvtext', vals.kvText, p.dim);
-        set('svcst0', pcts[5] === null ? 'INT --' : `INT ${Math.round(pcts[5])}%`,
-          pcts[5] === null ? p.mut : p.acc2);
+        set('svcst0', pcts[5] === null ? 'ACC --' : `ACC ${Math.round(pcts[5])}%`,
+          pcts[5] === null ? p.mut : colorOfHi(pcts[5]));
         break;
       }
       case 'sweep': {
         const idx = [1, 3, 0, 4];
         for (let i = 0; i < 4; i += 1) {
           const v = pcts[idx[i]];
-          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOf(v));
-          segSet(`seg${i}`, v, colorOf(v));
+          setNum(`rowv${i}`, v, (x) => `${Math.round(x)}%`, colorOfAt(idx[i], v));
+          segSet(`seg${i}`, v, colorOfAt(idx[i], v));
         }
         set('txt0',
           vals.temp !== null && vals.power !== null
-            ? `T ${round(vals.temp)}C • P ${round(vals.power)}W • KV ${Math.round(pcts[5] || 0)}%`
+            ? `T ${round(vals.temp)}C • P ${round(vals.power)}W • ACC ${pcts[5] === null ? '--' : `${Math.round(pcts[5])}%`}`
             : 'T -- • P --', p.dim);
         set('txt1',
           vals.conc !== null ? `SEQ ${round(vals.conc)} • Q ${round(vals.queue || 0)}` : 'SEQ --',
@@ -2975,15 +2988,14 @@
   }
 
   const SERVER_CARD_BINDINGS = {
-    cpu: ['host.cpu_pct', 'server.cpu_pct', 'host.cpu_freq_mhz'],
+    cpu: ['host.cpu_pct', 'server.cpu_pct'],
     ram_used: ['host.ram_used_mb', 'server.ram_used_mb'],
     ram_total: ['host.ram_total_mb', 'server.ram_total_mb'],
     gpu_temp: ['host.gpu_temp_c', 'server.gpu_temp_c'],
-    ip: ['host.lan_ip'],
+    text: ['llm.version', 'llm.model', 'llm.drafter', 'llm.capability_probe'],
   };
   // 主机监控地址独立于 API 类型：配置后这些测点由设备轮询 host agent 得到
   const HOST_AGENT_METRICS = new Set([
-    'host.uptime_s',
     'host.gpu_available',
     'host.gpu_util_pct',
     'host.gpu_temp_c',
@@ -3004,7 +3016,7 @@
     select.appendChild(group);
   }
 
-  function appendMetricGroup(select, metrics, prefix) {
+  function appendMetricGroup(select, metrics, prefix, liveIds) {
     const buckets = new Map();
     for (const metric of metrics) {
       const key = metric.group || '其他';
@@ -3017,7 +3029,11 @@
       for (const metric of items) {
         const option = document.createElement('option');
         option.value = metric.id;
-        option.textContent = `${metric.label} · ${metric.id}`;
+        // 来源当前取不到值的测点如实标注，避免选中后满屏 --
+        const dead = liveIds && !liveIds.has(metric.id);
+        option.textContent = `${metric.label} · ${metric.id}${dead ? '（暂无数据）' : ''}`;
+        // 悬停显示该测点在引擎 API 里的原始遥测出处
+        if (metric.api) option.title = metric.api;
         group.appendChild(option);
       }
       select.appendChild(group);
@@ -3082,15 +3098,22 @@
           appendMetricGroup(
             select,
             apiMetrics,
-            `${source}${offline ? '（API 未连接）' : ''}`
+            `${source}${offline ? '（API 未连接）' : ''}`,
+            available
           );
         }
       }
     }
 
     if (hostMetrics.length) {
-      appendMetricGroup(select, hostMetrics, '设备主机监控');
+      appendMetricGroup(select, hostMetrics, '设备主机监控', available);
     }
+  }
+
+  /** 绑定值不在候选里时给出准确原因，别一律说“数据源暂不可用”。 */
+  function bindingIssue(bindingId, widgetType) {
+    if (widgetType === 'server_card') return '不适用于此字段';
+    return metricDef(bindingId) ? '当前来源无此测点' : '测点已下线';
   }
 
   function appendPetEditor(widget) {
@@ -3274,7 +3297,10 @@
       ) {
         const option = document.createElement('option');
         option.value = row.binding;
-        option.textContent = `当前绑定 · ${row.binding}（数据源暂不可用）`;
+        option.textContent = `当前绑定 · ${row.binding}（${bindingIssue(
+          row.binding,
+          widget.type
+        )}）`;
         metricSelect.appendChild(option);
       }
       metricSelect.value = row.binding || '';
@@ -3455,7 +3481,7 @@
     if (isClassic()) {
       inspectorEl.innerHTML =
         '<p class="muted">传统框架为固定式界面，无组件属性可编辑。<br>' +
-        '显示内容：模型名称、LLM/TTS/Embedding 加载状态、GPU/CPU/NPU/内存/磁盘/KV 占用、并发数、排队数、GPU 温度与功率。</p>';
+        '显示内容：模型名称、引擎/前缀缓存/草稿器三态、GPU/CPU/内存/KV 占用、缓存命中率、草稿接受率、并发数、排队数、GPU 温度与功率。</p>';
       return;
     }
     const widget = currentWidgets().find(
@@ -3561,9 +3587,10 @@
       ) {
         const fallback = document.createElement('option');
         fallback.value = currentBinding;
-        fallback.textContent = `当前绑定 · ${currentBinding}（${
-          widget.type === 'server_card' ? '不适用于此字段' : '数据源暂不可用'
-        }）`;
+        fallback.textContent = `当前绑定 · ${currentBinding}（${bindingIssue(
+          currentBinding,
+          widget.type
+        )}）`;
         select.appendChild(fallback);
       }
       select.value = currentBinding;
@@ -3605,7 +3632,7 @@
       const note = document.createElement('p');
       note.className = 'meta';
       note.textContent =
-        '服务器卡按字段限定 CPU/内存/GPU/IP 测点；LLM/TTS/NPU 等任意指标请使用大数字或指标列表。';
+        '服务器卡按字段限定 CPU/内存/GPU/文本 测点；其余任意指标请使用大数字或指标列表。';
       inspectorEl.appendChild(note);
     }
     if (def.rows) {
@@ -4049,11 +4076,16 @@
     $('dev-ip').value = device ? deviceAddr(device) : '';
     $('dev-ip').disabled = mode === 'settings';
     $('dev-name').value = device ? device.name : '';
-    $('dev-api-url').value = apiCfg.url || '';
-    $('dev-api-key').value = apiCfg.key || '';
-    $('dev-provider').value = apiCfg.provider || 'auto';
-    $('dev-host-agent').value = apiCfg.host_agent || '';
+    const forwardBase = (state.forward && state.forward.base_url) || '';
+    const isForward = !!(
+      forwardBase && apiCfg.url && normUrl(apiCfg.url) === normUrl(forwardBase)
+    );
+    $('dev-mode').value = isForward ? 'forward' : 'direct';
+    $('dev-api-url').value = isForward ? '' : apiCfg.url || '';
+    $('dev-api-key').value = isForward ? '' : apiCfg.key || '';
+    $('dev-provider').value = isForward ? 'auto' : apiCfg.provider || 'auto';
     $('dev-rot180').checked = !!(device && device.rot180);
+    applyConnectMode();
     $('device-reboot-btn').classList.toggle('hidden', mode !== 'settings');
     $('device-delete-btn').classList.toggle('hidden', mode !== 'settings');
     deviceModal.classList.remove('hidden');
@@ -4068,12 +4100,40 @@
     state.modalMode = null;
   }
 
+  /** 连接模式切换：直连显示 API 地址/密钥/服务类型，转发隐藏并提示直连控制台。 */
+  function applyConnectMode() {
+    const forward = $('dev-mode').value === 'forward';
+    const note = $('dev-forward-note');
+    document
+      .querySelectorAll('#device-modal .direct-only')
+      .forEach((el) => el.classList.toggle('hidden', forward));
+    if (!forward) {
+      note.classList.add('hidden');
+      return;
+    }
+    const base = (state.forward && state.forward.base_url) || '';
+    if (!base) {
+      note.textContent = '转发模式不可用：服务端未配置转发地址。';
+    } else if (!state.forward.enabled) {
+      note.textContent = `转发未启用：屏幕将连接 ${base}，请先在控制台「服务设置」启用转发。`;
+    } else {
+      note.textContent = `转发模式：屏幕直连控制台 ${base}，API 密钥保存在服务端。`;
+    }
+    note.classList.remove('hidden');
+  }
+
   function apiFromForm() {
+    if ($('dev-mode').value === 'forward') {
+      return {
+        url: (state.forward && state.forward.base_url) || '',
+        key: '',
+        provider: 'auto',
+      };
+    }
     return {
       url: $('dev-api-url').value.trim(),
       key: $('dev-api-key').value,
       provider: $('dev-provider').value,
-      host_agent: $('dev-host-agent').value.trim(),
     };
   }
 
@@ -4331,6 +4391,7 @@
       if (event.target === deviceModal) closeDeviceModal();
     });
     $('device-modal-save').addEventListener('click', submitDeviceModal);
+    $('dev-mode').addEventListener('change', applyConnectMode);
     $('device-reboot-btn').addEventListener('click', rebootDevice);
     $('device-delete-btn').addEventListener('click', deleteDevice);
     document.addEventListener('keydown', (event) => {

@@ -5,6 +5,7 @@ from typing import Any
 
 from .catalog import Catalog
 from .layout_geom import iter_widgets, pack_from_scratch, pack_page
+from .normalize import drop_unknown_bindings
 
 log = logging.getLogger("esp32wifi.resolve")
 
@@ -76,6 +77,8 @@ def project_layout(
 
 def resolve_layout(layout: dict[str, Any], catalog: Catalog) -> dict[str, Any]:
     """把指标标签/单位/精度写进布局，供 MCU 直接渲染，避免固件再拉目录。"""
+    # 目录里已不存在的测点绑定先摘掉，避免固件拿到死绑定显示 0
+    drop_unknown_bindings(layout, catalog)
     # 传统框架：固定界面主题，无小组件网格；注入默认值供固件直接分支
     if layout.get("framework") == "classic":
         if not layout.get("classic_theme"):

@@ -12,6 +12,7 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from app.adapters.panel import PanelAdapter  # noqa: E402
+from app.adapters.strata import StrataAdapter  # noqa: E402
 from app.core.catalog import load_catalog  # noqa: E402
 from app.core.resolve import project_layout, resolve_layout  # noqa: E402
 from app.core.normalize import normalize_layout  # noqa: E402
@@ -267,8 +268,8 @@ class ContractTest(unittest.TestCase):
                             "y": 2,
                             "w": 6,
                             "h": 3,
-                            "bindings": {"value": "tts.queue"},
-                            "options": {"title": "TTS"},
+                            "bindings": {"value": "llm.requests_deferred"},
+                            "options": {"title": "排队"},
                         },
                     ],
                 }
@@ -330,7 +331,7 @@ class ContractTest(unittest.TestCase):
         server = widgets["w-server"]["options"]
         self.assertEqual(server["labels"]["cpu"], "CPU 使用率")
         self.assertEqual(server["units"]["cpu"], "%")
-        self.assertEqual(server["labels"]["ip"], "主机 IP")
+        self.assertEqual(server["labels"]["text"], "引擎版本")
 
     def test_fixed_size_rejects_nonstandard(self) -> None:
         layout = {
@@ -421,10 +422,99 @@ class ContractTest(unittest.TestCase):
 
         self.assertEqual(self.store.values["llm.model"].value, "test-model")
         self.assertAlmostEqual(self.store.values["llm.kv_pct"].value, 50.0)
-        self.assertTrue(self.store.values["tts.online"].value)
-        self.assertTrue(self.store.values["embed.online"].value)
         self.assertAlmostEqual(self.store.values["host.gpu_temp_c"].value, 40.0)
         self.assertAlmostEqual(self.store.values["host.ram_used_mb"].value, 8192.0)
+
+    def test_strata_mapping(self) -> None:
+        """字段名取自 Strata 官方 `serve/server.py`：/metrics 的 JSON + /v1/status。"""
+        adapter = StrataAdapter("http://127.0.0.1:8080", self.store)
+        mb = 1024.0 * 1024.0
+        try:
+            adapter.apply(
+                {
+                    "engine": {"model": "qwen3-8", "max_context": 4096},
+                    "live": {
+                        "state": "generating",
+                        "phase": "decode",
+                        "queued": 1,
+                        "waiting": 2,
+                        "running": 2,
+                        "slots": 4,
+                        "prompt_tokens": 1000,
+                        "generated": 24,
+                        "tok_s": 42.5,
+                        "tok_s_mean": 40.0,
+                        "prefill_tok_s_mean": 900.0,
+                    },
+                    "totals": {"requests": 10, "reused": 512},
+                    "hardware": {
+                        "gpu_util": 55,
+                        "gpu_mem_used": 6144 * mb,
+                        "gpu_mem_total": 12288 * mb,
+                        "gpu_temp": 61.0,
+                        "gpu_power": 45.0,
+                        "cpu": 12.5,
+                        "ram_used": 8192 * mb,
+                        "ram_total": 16384 * mb,
+                    },
+                    "hardware_static": {"gpu_count": 1, "gpu_vram_total_mib": 12288},
+                    "history": {
+                        "tok_s": [30.0, 55.0, 48.0],
+                        "prefill_tok_s_mean": [800.0, 1200.0],
+                    },
+                },
+                {
+                    "model": "qwen3-8",
+                    "engine": "0.1.50",
+                    "uptime_s": 120,
+                    "concurrency": {"serving": 4, "requested": 4},
+                    "context": {"native": 4096},
+                    "activity": {"in_flight": 2},
+                },
+            )
+        finally:
+            asyncio.run(adapter.close())
+
+        values = self.store.values
+        self.assertEqual(values["llm.model"].value, "qwen3-8")
+        self.assertEqual(values["llm.version"].value, "0.1.50")
+        self.assertEqual(values["llm.phase"].value, "decode")
+        self.assertTrue(values["llm.busy"].value)
+        self.assertAlmostEqual(values["llm.decode_tps"].value, 42.5)
+        self.assertAlmostEqual(values["llm.decode_avg"].value, 40.0)
+        self.assertAlmostEqual(values["llm.decode_peak"].value, 55.0)
+        self.assertAlmostEqual(values["llm.prefill_peak"].value, 1200.0)
+        self.assertEqual(values["llm.requests_processing"].value, 2.0)
+        self.assertEqual(values["llm.requests_deferred"].value, 3.0)
+        self.assertEqual(values["llm.slots"].value, 4.0)
+        self.assertEqual(values["llm.cache_hit_tokens"].value, 512.0)
+        self.assertEqual(values["llm.uptime_s"].value, 120.0)
+        # KV 用 strata 自己的口径：在途 prompt+生成 占 context 的比例
+        self.assertAlmostEqual(values["llm.kv_used_tokens"].value, 1024.0)
+        self.assertAlmostEqual(values["llm.kv_pct"].value, 25.0)
+        self.assertAlmostEqual(values["host.cpu_pct"].value, 12.5)
+        self.assertAlmostEqual(values["host.ram_used_mb"].value, 8192.0)
+        self.assertAlmostEqual(values["host.ram_total_mb"].value, 16384.0)
+        self.assertAlmostEqual(values["host.gpu_temp_c"].value, 61.0)
+        self.assertAlmostEqual(values["host.gpu_vram_used_mb"].value, 6144.0)
+        self.assertAlmostEqual(values["host.gpu_vram_total_mb"].value, 12288.0)
+        self.assertTrue(values["host.gpu_available"].value)
+
+    def test_strata_idle_has_no_kv(self) -> None:
+        """空闲时没有在途请求，KV 必须留空而不是 0，否则曲线会假装有占用。"""
+        adapter = StrataAdapter("http://127.0.0.1:8080", self.store)
+        try:
+            adapter.apply(
+                {"engine": {"max_context": 4096}, "live": {"state": "idle"}},
+                {"concurrency": {}},
+            )
+        finally:
+            asyncio.run(adapter.close())
+
+        self.assertFalse(self.store.values["llm.kv_pct"].available)
+        self.assertFalse(self.store.values["llm.kv_used_tokens"].available)
+        self.assertFalse(self.store.values["llm.decode_peak"].available)
+        self.assertFalse(self.store.values["llm.busy"].value)
 
 
 class MetricProviderTest(unittest.TestCase):
@@ -447,6 +537,26 @@ class MetricProviderTest(unittest.TestCase):
             )
             for provider in metric["providers"]:
                 self.assertIn(provider, self.PROVIDERS, msg=f"{metric['id']} 未知类型")
+
+    def test_api_metrics_carry_provenance(self) -> None:
+        """引擎 API 测点必须逐条注明原始遥测出处，防止再混进取不到的点位。"""
+        catalog = json.loads(
+            (SERVER_DIR.parent / "shared" / "catalog" / "metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )["metrics"]
+        for metric in catalog:
+            if metric.get("source") != "api":
+                continue
+            provenance = str(metric.get("api") or "")
+            self.assertTrue(
+                len(provenance) >= 8,
+                msg=f"{metric['id']} 缺少 api 原始遥测出处",
+            )
+            self.assertTrue(
+                metric.get("providers"),
+                msg=f"{metric['id']} 标为 api 但没有交付它的引擎",
+            )
 
 
 class ForwardConfigTest(unittest.TestCase):

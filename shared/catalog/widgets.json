@@ -50,7 +50,7 @@
       "type": "server_card",
       "label": "服务器卡",
       "category": "系统",
-      "description": "CPU、内存、GPU 温度和主机 IP",
+      "description": "CPU、内存、GPU 温度与引擎版本",
       "default_size": [12, 6],
       "size_options": [[6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
       "resizable": true,
@@ -59,7 +59,7 @@
         {"key": "ram_used", "label": "内存已用", "types": ["number"], "required": true, "default": "host.ram_used_mb"},
         {"key": "ram_total", "label": "内存总量", "types": ["number"], "required": true, "default": "host.ram_total_mb"},
         {"key": "gpu_temp", "label": "GPU 温度", "types": ["number"], "required": false, "default": "host.gpu_temp_c"},
-        {"key": "ip", "label": "主机 IP", "types": ["string"], "required": false, "default": "host.lan_ip"}
+        {"key": "text", "label": "文本行", "types": ["string"], "required": false, "default": "llm.version"}
       ],
       "options": [
         {"key": "title", "label": "标题", "type": "string", "default": "服务器"}

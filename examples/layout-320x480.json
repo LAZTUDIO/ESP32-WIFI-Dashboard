@@ -93,7 +93,7 @@
             "ram_used": "host.ram_used_mb",
             "ram_total": "host.ram_total_mb",
             "gpu_temp": "host.gpu_temp_c",
-            "ip": "host.lan_ip"
+            "text": "llm.version"
           },
           "options": {
             "title": "服务器"
@@ -107,11 +107,11 @@
           "w": 8,
           "h": 3,
           "bindings": {
-            "cpu": "llm.prefill_peak",
+            "cpu": "llm.requests_processing",
             "ram_used": "llm.kv_used_tokens",
-            "ram_total": "llm.cache_hit_tokens",
-            "gpu_temp": "tts.contexts",
-            "ip": "npu.status"
+            "ram_total": "llm.kv_pool_positions",
+            "gpu_temp": "llm.longest_wait_s",
+            "text": "llm.drafter"
           },
           "options": {
             "title": "服务器",
@@ -207,7 +207,7 @@
             "ram_used": "host.ram_used_mb",
             "ram_total": "host.ram_total_mb",
             "gpu_temp": "host.gpu_temp_c",
-            "ip": "host.lan_ip"
+            "text": "llm.version"
           },
           "options": {
             "title": "服务器"

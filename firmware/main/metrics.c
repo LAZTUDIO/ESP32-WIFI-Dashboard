@@ -175,12 +175,21 @@ static bool probe(const app_config_t *cfg)
         return true;
     }
 
-    /* Strata 的 /api/monitor 最有辨识度 */
-    n = api_get_path(base, "/api/monitor", key, s_buf, BUF_BIG, 2500);
-    if (n > 0 && (strstr(s_buf, "outputTps") || strstr(s_buf, "gpuTempC"))) {
-        s_prov = DASH_PROV_STRATA;
-        ESP_LOGI(TAG, "detected strata");
-        return true;
+    /* Strata：/health 返回 "service":"strata"，且不要求密钥，辨识最稳 */
+    n = api_get_path(base, "/health", key, s_small, BUF_SMALL, 2000);
+    if (n > 0) {
+        cJSON *h = cJSON_Parse(s_small);
+        if (h) {
+            char svc[16];
+            bool is_strata = jstr(h, "service", svc, sizeof(svc)) &&
+                             strcmp(svc, "strata") == 0;
+            cJSON_Delete(h);
+            if (is_strata) {
+                s_prov = DASH_PROV_STRATA;
+                ESP_LOGI(TAG, "detected strata");
+                return true;
+            }
+        }
     }
 
     /* llama.cpp 系：/health 里有 model + slots */
@@ -220,6 +229,7 @@ static bool probe(const app_config_t *cfg)
 
 /* ============================ halogen / gufo ============================ */
 
+/* 峰值只在 strata / panel 路径累计：halogen 的本地峰值不是 API 原始值，不入册 */
 static void note_peak(float dec, float pre)
 {
     if (dec > s_peak_dec) s_peak_dec = dec;
@@ -249,9 +259,71 @@ static bool parse_llamacpp_health(const char *json, dash_metrics_t *m)
     m->has_queue = jpath(r, "queued") != NULL;
     m->busy = jbool(r, "busy") || m->in_flight > 0;
 
+    /* 排队时长与引擎探活：这几个键在 halogen /health 里总是一起出现 */
+    if (jpath(r, "busy_for_s") || jpath(r, "engine.responds")) {
+        m->has_engine_state = true;
+        m->busy_for_s = (float)jnum(r, "busy_for_s", 0);
+        m->longest_wait_s = (float)jnum(r, "longest_wait_s", 0);
+        m->engine_responds = jbool(r, "engine.responds");
+        m->engine_probe_s = (float)jnum(r, "engine.probe_s", 0);
+    }
+    jstr(r, "capability_probe", m->capability_probe, sizeof(m->capability_probe));
+
+    /* 能力声明：只有 halogen 会自报，取不到就整组留空 */
+    if (jpath(r, "vision.enabled") || jpath(r, "max_tokens_default")) {
+        m->has_capabilities = true;
+        m->max_tokens_default = (uint32_t)jnum(r, "max_tokens_default", 0);
+        m->indexer_budget = (uint32_t)jnum(r, "indexer_budget", 0);
+        m->vision_enabled = jbool(r, "vision.enabled");
+        m->structured_output = jbool(r, "structured_output.enabled");
+    }
+    if (jpath(r, "drafter_default") || jpath(r, "drafter_weights_loaded")) {
+        m->has_drafter = true;
+        jstr(r, "drafter_default", m->drafter, sizeof(m->drafter));
+        m->drafter_loaded = jbool(r, "drafter_weights_loaded");
+    }
+    if (jpath(r, "prompt_cache")) {
+        m->has_cache = true;
+        m->cache_enabled = jbool(r, "prompt_cache.enabled");
+        m->cache_cap_mb = (uint32_t)jnum(r, "prompt_cache.cap_mb", 0);
+    }
+
     m->online = true;
     cJSON_Delete(r);
     return true;
+}
+
+/** halogen 专属：/cache 给命中率与 KV 池细分（响应约 1.2KB）；失败静默忽略 */
+static void poll_halogen_cache(const app_config_t *cfg, dash_metrics_t *m)
+{
+    int n = api_get_path(cfg->server_url, "/cache", cfg->api_key,
+                         s_small, BUF_SMALL, 2500);
+    if (n <= 0) return;
+
+    cJSON *r = cJSON_Parse(s_small);
+    if (!r) return;
+
+    double v;
+    if (jnum_try(r, "hit_rate", &v)) {
+        m->cache_hit_rate = (float)(v * 100.0);
+        m->has_cache_rates = true;
+    }
+    if (jnum_try(r, "token_hit_rate", &v)) {
+        m->cache_token_hit_rate = (float)(v * 100.0);
+        m->has_cache_rates = true;
+    }
+
+    cJSON *pool = jpath(r, "pool");
+    if (pool) {
+        m->has_kv_detail = true;
+        m->kv_busy_regions = (uint32_t)jnum(pool, "busy_regions", 0);
+        m->kv_held_regions = (uint32_t)jnum(pool, "held_regions", 0);
+        m->kv_waiting_for_room = (uint32_t)jnum(pool, "waiting_for_room", 0);
+        if (m->kv_total == 0 && jnum_try(pool, "positions", &v) && v > 0) {
+            m->kv_total = (uint32_t)v;
+        }
+    }
+    cJSON_Delete(r);
 }
 
 static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
@@ -290,7 +362,6 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
             if (d_prompt_sec > 0.05 && d_prompt > 0) {
                 s_last_pre = (float)(d_prompt / d_prompt_sec);
             }
-            note_peak(s_last_dec, s_last_pre);
         } else {
             m->tps_live = false;
         }
@@ -313,9 +384,6 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
             m->tps_avg_pre = (float)((double)prompt / ((double)prompt_sec / 1000.0));
         }
 
-        m->tps_peak = s_peak_dec;
-        m->tps_peak_pre = s_peak_pre;
-
         if (mval(s_buf, "llamacpp:requests_processing", &v)) {
             m->in_flight = (uint16_t)v;
             m->has_concurrency = true;
@@ -323,6 +391,14 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
         if (mval(s_buf, "llamacpp:requests_deferred", &v)) {
             m->queued = (uint16_t)v;
             m->has_queue = true;
+        }
+        if (mval(s_buf, "halogen:queue_waited_total", &v)) {
+            m->queue_waited = (uint32_t)v;
+            m->has_queue_counters = true;
+        }
+        if (mval(s_buf, "halogen:queue_gave_up_total", &v)) {
+            m->queue_gave_up = (uint32_t)v;
+            m->has_queue_counters = true;
         }
         if (mval(s_buf, "llamacpp:kv_cache_usage_ratio", &v)) {
             m->kv_pct = (float)(v * 100.0);
@@ -340,6 +416,14 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
         } else if (mval(s_buf, "halogen:kv_pool_positions", &total)) {
             m->kv_total = (uint32_t)total;
         }
+        if (mval(s_buf, "halogen:kv_pool_reserved_tokens", &v)) {
+            m->kv_reserved = (uint32_t)v;
+            m->has_kv_detail = true;
+        }
+        if (mval(s_buf, "halogen:kv_pool_waiting_for_room", &v)) {
+            m->kv_waiting_for_room = (uint32_t)v;
+            m->has_kv_detail = true;
+        }
 
         if (mval(s_buf, "llamacpp:prompt_tokens_total", &v)) {
             m->tokens_in = (uint64_t)v;
@@ -349,9 +433,11 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
             m->tokens_out = (uint64_t)v;
             m->has_usage = true;
         }
-        if (mval(s_buf, "halogen:prompt_tokens_cached_total", &v)) {
-            m->tokens_cached = (uint64_t)v;
+        v = 0;
+        if (!mval(s_buf, "halogen:cache_prompt_tokens_saved_total", &v)) {
+            mval(s_buf, "halogen:prompt_tokens_cached_total", &v);
         }
+        m->tokens_cached = (uint64_t)v;
         if (mval(s_buf, "halogen:requests_total", &v) && v > 0) {
             m->requests_total = (uint64_t)v;
             m->has_requests = true;
@@ -365,24 +451,35 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
             mval(s_buf, "halogen:cache_misses_total", &misses)) {
             double tot = hits + misses;
             if (tot > 0) {
-                m->cache_hit_pct = (float)(hits * 100.0 / tot);
-                m->has_cache = true;
+                /* /cache 不可用（缺密钥）时，用命中/未命中计数兜底同一个口径 */
+                m->cache_hit_rate = (float)(hits * 100.0 / tot);
+                m->has_cache_rates = true;
             }
         }
         if (mval(s_buf, "halogen:cache_bytes", &bytes)) {
             m->cache_bytes = (uint64_t)bytes;
-            m->has_cache = true;
         }
         if (mval(s_buf, "halogen:cache_entries", &entries)) {
             m->cache_entries = (uint32_t)entries;
         }
+        if (mval(s_buf, "halogen:cache_evicted_total", &v)) {
+            m->cache_evicted = (uint32_t)v;
+        }
 
         double draft, accepted;
-        if (mval(s_buf, "halogen:draft_tokens_total", &draft) && draft > 0 &&
-            mval(s_buf, "halogen:draft_tokens_accepted_total", &accepted)) {
-            m->mtp_pct = (float)(accepted * 100.0 / draft);
-            m->has_mtp = true;
+        if (mval(s_buf, "halogen:draft_tokens_total", &draft)) {
+            m->draft_tokens = (uint64_t)draft;
+            if (draft > 0 &&
+                mval(s_buf, "halogen:draft_tokens_accepted_total", &accepted)) {
+                m->mtp_pct = (float)(accepted * 100.0 / draft);
+                m->has_mtp = true;
+            }
         }
+    }
+
+    /* /cache 在 /metrics 之后：它给的命中率是权威口径，覆盖上面的计数兜底值 */
+    if (s_prov == DASH_PROV_HALOGEN) {
+        poll_halogen_cache(cfg, m);
     }
 
     /* gufo 没有 /metrics 时，用 /v1/slots 的 next_token.n_decoded 求和算 TPS */
@@ -402,7 +499,6 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
                     double dt = (double)(now - s_gufo_us) / 1e6;
                     s_last_dec = (float)((double)(sum - s_gufo_decoded) / dt);
                     m->tps_live = true;
-                    note_peak(s_last_dec, s_last_pre);
                 } else {
                     m->tps_live = false;
                 }
@@ -410,7 +506,6 @@ static bool poll_llamacpp(const app_config_t *cfg, dash_metrics_t *m)
                 s_gufo_us = now;
 
                 m->tps_dec = s_last_dec;
-                m->tps_peak = s_peak_dec;
                 m->has_tps = true;
 
                 cJSON *first = cJSON_GetArrayItem(arr, 0);
@@ -451,7 +546,7 @@ static uint32_t parse_cn_duration(const char *s)
     return total;
 }
 
-/** 面板硬件段（gpu/mem/uptime）→ 统一指标；host_agent 复用 */
+/** 面板硬件段（gpu/mem）+ 容器运行时长 → 统一指标；host_agent 复用 */
 static void parse_panel_hw(cJSON *r, dash_metrics_t *m)
 {
     double v;
@@ -481,6 +576,12 @@ static void parse_panel_hw(cJSON *r, dash_metrics_t *m)
         }
     }
 
+    /* 主机 CPU：只有 panel / strata 的接口带 */
+    if (jnum_try(r, "cpu_percent", &v)) {
+        m->cpu_pct = (float)v;
+        m->has_cpu = true;
+    }
+
     cJSON *mem = jpath(r, "mem");
     if (mem) {
         double tot = 0, avail = 0;
@@ -497,11 +598,8 @@ static void parse_panel_hw(cJSON *r, dash_metrics_t *m)
         }
     }
 
+    /* 主机 uptime 已不在测点目录，只保留容器（引擎）运行时长 */
     uint32_t sec;
-    if (jstr(r, "uptime", buf, sizeof(buf)) && (sec = parse_cn_duration(buf)) != 0) {
-        m->host_uptime_s = sec;
-        m->has_host_uptime = true;
-    }
     if (jstr(r, "container_uptime", buf, sizeof(buf)) &&
         (sec = parse_cn_duration(buf)) != 0) {
         m->model_uptime_s = sec;
@@ -532,11 +630,43 @@ static bool parse_panel_status(const char *json, dash_metrics_t *m)
         m->queued = (uint16_t)jnum(h, "queued", 0);
         m->has_queue = jpath(h, "queued") != NULL;
         m->busy = jbool(h, "busy") || m->in_flight > 0;
+
+        /* 面板透传 halogen /health，字段口径与直连一致 */
+        if (jpath(h, "busy_for_s") || jpath(h, "engine.responds")) {
+            m->has_engine_state = true;
+            m->busy_for_s = (float)jnum(h, "busy_for_s", 0);
+            m->longest_wait_s = (float)jnum(h, "longest_wait_s", 0);
+            m->engine_responds = jbool(h, "engine.responds");
+            m->engine_probe_s = (float)jnum(h, "engine.probe_s", 0);
+        }
+        if (jpath(h, "drafter_default") || jpath(h, "drafter_weights_loaded")) {
+            m->has_drafter = true;
+            jstr(h, "drafter_default", m->drafter, sizeof(m->drafter));
+            m->drafter_loaded = jbool(h, "drafter_weights_loaded");
+        }
+        if (jpath(h, "prompt_cache")) {
+            m->has_cache = true;
+            m->cache_enabled = jbool(h, "prompt_cache.enabled");
+            m->cache_cap_mb = (uint32_t)jnum(h, "prompt_cache.cap_mb", 0);
+        }
+        /* 面板同样透传引擎能力声明，取到就视为有效 */
+        if (jpath(h, "max_tokens_default") || jpath(h, "indexer_budget")) {
+            m->has_capabilities = true;
+            m->max_tokens_default = (uint32_t)jnum(h, "max_tokens_default", 0);
+            m->indexer_budget = (uint32_t)jnum(h, "indexer_budget", 0);
+            m->vision_enabled = jbool(h, "vision.enabled");
+            m->structured_output = jbool(h, "structured_output.enabled");
+        }
+        if (jstr(h, "capability_probe", m->capability_probe,
+                 sizeof(m->capability_probe))) {
+            m->has_engine_state = true;
+        }
     }
 
     cJSON *mt = jpath(r, "metrics");
     if (mt) {
         double d;
+        jstr(mt, "phase", m->phase, sizeof(m->phase));
         if (jnum_try(mt, "decode_tps", &d)) {
             m->has_tps = true;
             if (d > 0) {
@@ -557,6 +687,8 @@ static bool parse_panel_status(const char *json, dash_metrics_t *m)
 
         double peak = jnum(mt, "decode_peak", 0);
         if (peak > s_peak_dec) s_peak_dec = (float)peak;
+        peak = jnum(mt, "prefill_peak", 0);
+        if (peak > s_peak_pre) s_peak_pre = (float)peak;
         note_peak(s_last_dec, s_last_pre);
         m->tps_peak = s_peak_dec;
         m->tps_peak_pre = s_peak_pre;
@@ -565,6 +697,9 @@ static bool parse_panel_status(const char *json, dash_metrics_t *m)
             m->kv_used = (uint32_t)d;
             if (m->kv_total > 0) m->kv_pct = (float)(d * 100.0 / m->kv_total);
             m->has_kv = true;
+        }
+        if (jnum_try(mt, "cache_hit_tokens", &d)) {
+            m->tokens_cached = (uint64_t)d;
         }
         if (jnum_try(mt, "draft_accept_pct", &d)) {
             m->mtp_pct = (float)d;
@@ -597,120 +732,171 @@ static bool poll_panel(const app_config_t *cfg, dash_metrics_t *m)
 
 /* ============================ strata ============================ */
 
-static int64_t now_epoch(void)
-{
-    time_t t = time(NULL);
-    return (int64_t)t;
-}
-
+/* Strata 官方接口（docs/DETAILS.md#using-it）：
+ *   /v1/status  模型、版本、上下文、并发、uptime、GPU/内存
+ *   /metrics    JSON，实时 tok/s、队列、缓存命中；带 60 点 history 与最近
+ *               请求列表，可能超出 BUF_BIG，解析失败时降级为只用 /v1/status。
+ * 注意不要用 /metrics/prometheus：那个端点不含主机硬件指标。 */
 static bool poll_strata(const app_config_t *cfg, dash_metrics_t *m)
 {
-    int n = api_get_path(cfg->server_url, "/api/monitor", cfg->api_key,
+    int n = api_get_path(cfg->server_url, "/v1/status", cfg->api_key,
                          s_buf, BUF_BIG, 3000);
     if (n <= 0) return false;
 
-    cJSON *r = cJSON_Parse(s_buf);
-    if (!r) return false;
+    cJSON *st = cJSON_Parse(s_buf);
+    if (!st) return false;
 
     m->online = true;
-    jstr(r, "model", m->model, sizeof(m->model));
-    if (!m->model[0]) jstr(r, "engine.model", m->model, sizeof(m->model));
-    jstr(r, "version", m->version, sizeof(m->version));
+    jstr(st, "model", m->model, sizeof(m->model));
+    jstr(st, "engine", m->version, sizeof(m->version));
 
     double v;
-    if (jnum_try(r, "outputTps", &v)) {
-        m->tps_dec = (float)v;
-        m->has_tps = true;
+    if (jnum_try(st, "context.native", &v) && v > 0) {
+        m->ctx_len = (uint32_t)v;
+    } else if (jnum_try(st, "cache_max_tokens", &v) && v > 0) {
+        m->ctx_len = (uint32_t)v;
     }
-    if (jnum_try(r, "promptTps", &v)) m->tps_pre = (float)v;
-    if (jnum_try(r, "averageTps", &v)) m->tps_avg = (float)v;
-    if (jnum_try(r, "peakTps", &v)) {
-        m->tps_peak = (float)v;
-        if ((float)v > s_peak_dec) s_peak_dec = (float)v;
-    } else {
-        note_peak(m->tps_dec, m->tps_pre);
-        m->tps_peak = s_peak_dec;
-    }
-    m->tps_peak_pre = s_peak_pre;
 
-    if (jnum_try(r, "queue", &v) || jnum_try(r, "queued", &v)) {
-        m->queued = (uint16_t)v;
-        m->has_queue = true;
+    if (jnum_try(st, "concurrency.serving", &v)) {
+        m->slots = (uint16_t)v;
+        m->has_slots = true;
     }
-    if (jnum_try(r, "inFlight", &v) || jnum_try(r, "activeRequests", &v) ||
-        jnum_try(r, "concurrency", &v)) {
+    if (jnum_try(st, "activity.in_flight", &v)) {
         m->in_flight = (uint16_t)v;
         m->has_concurrency = true;
         m->busy = v > 0;
     }
-    if (jnum_try(r, "context", &v) || jnum_try(r, "contextLength", &v) ||
-        jnum_try(r, "maxContext", &v)) {
-        m->ctx_len = (uint32_t)v;
-    }
-    if (jnum_try(r, "slots", &v)) {
-        m->slots = (uint16_t)v;
-        m->has_slots = true;
-    }
-    if (jnum_try(r, "kvUsage", &v)) {
-        m->kv_pct = (float)(v <= 1.0 ? v * 100.0 : v);
-        m->has_kv = true;
+    if (jnum_try(st, "uptime_s", &v) && v > 0) {
+        m->model_uptime_s = (uint32_t)v;
+        m->has_model_uptime = true;
     }
 
-    if (jnum_try(r, "totals.inputTokens", &v) || jnum_try(r, "totals.promptTokens", &v)) {
-        m->tokens_in = (uint64_t)v;
-        m->has_usage = true;
-    }
-    if (jnum_try(r, "totals.outputTokens", &v) || jnum_try(r, "totals.generatedTokens", &v)) {
-        m->tokens_out = (uint64_t)v;
-        m->has_usage = true;
-    }
-    if (jnum_try(r, "totals.requests", &v) || jnum_try(r, "requests", &v)) {
-        m->requests_total = (uint64_t)v;
-        m->has_requests = true;
-    }
-
-    if (jnum_try(r, "hardware.powerW", &v)) {
-        m->power_w = (float)v;
-        m->has_power = true;
-    }
-    if (jnum_try(r, "hardware.gpuTempC", &v) || jnum_try(r, "hardware.tempC", &v)) {
-        m->temp_c = (float)v;
-        m->has_temp = true;
-    }
-    if (jnum_try(r, "hardware.gpuLoad", &v)) {
+    /* 主机硬件：strata 是少数自带硬件指标的引擎 */
+    if (jnum_try(st, "machine.gpu.util_pct", &v)) {
         m->gpu_pct = (float)v;
         m->has_gpu = true;
     }
-    if (jnum_try(r, "hardware.vramUsedMb", &v)) {
+    if (jnum_try(st, "machine.gpu.temp_c", &v)) {
+        m->temp_c = (float)v;
+        m->has_temp = true;
+    }
+    if (jnum_try(st, "machine.gpu.power_w", &v)) {
+        m->power_w = (float)v;
+        m->has_power = true;
+    }
+    if (jnum_try(st, "machine.gpu.used_mib", &v)) {
         m->vram_used_mb = (uint32_t)v;
         m->has_vram = true;
     }
-    if (jnum_try(r, "hardware.vramTotalMb", &v)) {
+    if (jnum_try(st, "machine.gpu.total_mib", &v)) {
         m->vram_total_mb = (uint32_t)v;
         m->has_vram = true;
     }
-    if (jnum_try(r, "hardware.ramUsedMb", &v)) {
-        m->ram_used_mb = (uint32_t)v;
+    if (jnum_try(st, "machine.ram.used_gib", &v)) {
+        m->ram_used_mb = (uint32_t)(v * 1024.0);
         m->has_ram = true;
     }
-    if (jnum_try(r, "hardware.ramTotalMb", &v)) {
-        m->ram_total_mb = (uint32_t)v;
+    if (jnum_try(st, "machine.ram.total_gib", &v)) {
+        m->ram_total_mb = (uint32_t)(v * 1024.0);
         m->has_ram = true;
     }
 
-    if (jnum_try(r, "engine.startedAt", &v) && v > 1e9) {
-        int64_t up = now_epoch() - (int64_t)v;
-        if (up > 0) {
-            m->model_uptime_s = (uint32_t)up;
-            m->has_model_uptime = true;
+    /* last_timings 沿用 llama.cpp 命名，可当最近一次请求的速度 */
+    if (jnum_try(st, "last_timings.predicted_per_second", &v) && v > 0) {
+        m->tps_dec = (float)v;
+        m->has_tps = true;
+    }
+    if (jnum_try(st, "last_timings.prompt_per_second", &v) && v > 0) {
+        m->tps_pre = (float)v;
+    }
+
+    cJSON_Delete(st);
+
+    /* 第二段：/metrics 只补实时速率、队列与缓存；失败不影响在线状态 */
+    n = api_get_path(cfg->server_url, "/metrics", cfg->api_key,
+                     s_buf, BUF_BIG, 3000);
+    if (n > 0) {
+        cJSON *mt = cJSON_Parse(s_buf);
+        if (mt) {
+            char state[24] = "";
+            jstr(mt, "live.state", state, sizeof(state));
+            jstr(mt, "live.phase", m->phase, sizeof(m->phase));
+            if (!m->phase[0]) {
+                snprintf(m->phase, sizeof(m->phase), "%s", state);
+            }
+
+            bool busy_state = strcmp(state, "reading") == 0 ||
+                              strcmp(state, "generating") == 0;
+
+            if (jnum_try(mt, "live.tok_s", &v) && v > 0) {
+                m->tps_dec = (float)v;
+                m->has_tps = true;
+                m->tps_live = true;
+            }
+            if (jnum_try(mt, "live.prefill_tok_s_mean", &v) && v > 0) {
+                m->tps_pre = (float)v;
+                m->tps_avg_pre = (float)v;
+            }
+            if (jnum_try(mt, "live.tok_s_mean", &v) && v > 0) {
+                m->tps_avg = (float)v;
+            }
+
+            double queued = 0, waiting = 0;
+            bool has_queued = jnum_try(mt, "live.queued", &queued);
+            bool has_waiting = jnum_try(mt, "live.waiting", &waiting);
+            if (has_queued || has_waiting) {
+                m->queued = (uint16_t)(queued + waiting);
+                m->has_queue = true;
+            }
+
+            if (jnum_try(mt, "live.running", &v)) {
+                m->in_flight = (uint16_t)v;
+                m->has_concurrency = true;
+            }
+            if (busy_state || m->in_flight > 0) m->busy = true;
+
+            /* KV 占用用 strata 自己的口径：在途 prompt + 生成 占 context 的比例。
+             * 空闲时没有在途请求，保持不可用，避免曲线假装有占用。 */
+            double prompt_tokens = 0, generated = 0;
+            if (busy_state && m->ctx_len > 0 &&
+                jnum_try(mt, "live.prompt_tokens", &prompt_tokens)) {
+                jnum_try(mt, "live.generated", &generated);
+                double used = prompt_tokens + generated;
+                m->kv_used = (uint32_t)used;
+                m->kv_pct = (float)(used * 100.0 / (double)m->ctx_len);
+                if (m->kv_pct > 100.0f) m->kv_pct = 100.0f;
+                m->has_kv = true;
+            }
+
+            if (jnum_try(mt, "totals.reused", &v) && v > 0) {
+                m->tokens_cached = (uint64_t)v;
+            }
+            if (jnum_try(mt, "totals.prompt_tokens", &v)) {
+                m->tokens_in = (uint64_t)v;
+                m->has_usage = true;
+            }
+            if (jnum_try(mt, "totals.output_tokens", &v)) {
+                m->tokens_out = (uint64_t)v;
+                m->has_usage = true;
+            }
+            if (jnum_try(mt, "totals.requests", &v)) {
+                m->requests_total = (uint64_t)v;
+                m->has_requests = true;
+            }
+            if (jnum_try(mt, "conversation_cache.budget_mib", &v) && v > 0) {
+                m->cache_bytes = (uint64_t)(v * 1024.0 * 1024.0);
+            }
+
+            cJSON_Delete(mt);
+        } else {
+            /* /metrics 被截断（history + requests 太大），本轮只用 /v1/status */
+            ESP_LOGD(TAG, "strata /metrics too large or invalid, status only");
         }
     }
-    if (jnum_try(r, "uptime", &v) || jnum_try(r, "hostUptime", &v)) {
-        m->host_uptime_s = (uint32_t)v;
-        m->has_host_uptime = true;
-    }
 
-    cJSON_Delete(r);
+    note_peak(m->tps_dec, m->tps_pre);
+    m->tps_peak = s_peak_dec;
+    m->tps_peak_pre = s_peak_pre;
     return true;
 }
 
@@ -839,14 +1025,11 @@ static void parse_host_stats(cJSON *r, dash_metrics_t *m)
         m->ram_total_mb = (uint32_t)v;
         m->has_ram = true;
     }
-    if (jnum_try(r, "uptime_s", &v)) {
-        m->host_uptime_s = (uint32_t)v;
-        m->has_host_uptime = true;
-    }
     if (jnum_try(r, "model_uptime_s", &v)) {
         m->model_uptime_s = (uint32_t)v;
         m->has_model_uptime = true;
     }
+    /* 主机 uptime 已不在测点目录，agent 即使上报也不再接收 */
 }
 
 /** 主机地址填了面板时，只补齐主数据源缺失的字段（不覆盖已有值） */
@@ -893,9 +1076,6 @@ static void merge_panel_missing(cJSON *r, dash_metrics_t *m)
             m->has_tps = true;
             m->tps_dec = s_last_dec;
             m->tps_pre = s_last_pre;
-            note_peak(s_last_dec, s_last_pre);
-            m->tps_peak = s_peak_dec;
-            m->tps_peak_pre = s_peak_pre;
         }
     }
     if (!m->has_kv && jnum_try(mt, "kv_used_tokens", &d)) {
@@ -1101,20 +1281,43 @@ failed:
     return false;
 }
 
+/* 只发布 shared/catalog/metrics.json（version 2）里在册的 id：
+ * 服务端 MetricStore.update() 对未注册 id 抛 KeyError，固件侧同样宁缺勿滥。
+ * 已下线的 host.uptime_s / disk / npu / tts / embed / lan_ip / cpu_freq 等不再采集。 */
 void metrics_publish(const dash_metrics_t *m)
 {
     if (!m) return;
+
+    bool peak_from_api = m->provider == DASH_PROV_STRATA ||
+                         m->provider == DASH_PROV_PANEL;
 
     dash_metric_store_set_bool("llm.online", m->online, true);
     dash_metric_store_set_bool("llm.busy", m->busy, true);
     if (m->model[0]) dash_metric_store_set_string("llm.model", m->model, true);
     if (m->version[0]) dash_metric_store_set_string("llm.version", m->version, true);
+    if (m->phase[0]) dash_metric_store_set_string("llm.phase", m->phase, true);
+
+    if (m->has_engine_state) {
+        dash_metric_store_set_number("llm.busy_for_s", m->busy_for_s, true);
+        dash_metric_store_set_number("llm.longest_wait_s", m->longest_wait_s, true);
+        dash_metric_store_set_bool("llm.engine_responds", m->engine_responds, true);
+        dash_metric_store_set_number("llm.engine_probe_s", m->engine_probe_s, true);
+    }
+    if (m->capability_probe[0]) {
+        dash_metric_store_set_string("llm.capability_probe", m->capability_probe, true);
+    }
+    if (m->has_model_uptime) {
+        dash_metric_store_set_number("llm.uptime_s", m->model_uptime_s, true);
+    }
 
     if (m->has_tps) {
         dash_metric_store_set_number("llm.decode_tps", m->tps_dec, true);
         dash_metric_store_set_number("llm.prefill_tps", m->tps_pre, true);
-        dash_metric_store_set_number("llm.decode_peak", m->tps_peak, true);
-        dash_metric_store_set_number("llm.prefill_peak", m->tps_peak_pre, true);
+        /* 峰值只有 strata / panel 的 API 才原始交付，halogen 本地累计的不发布 */
+        if (peak_from_api) {
+            dash_metric_store_set_number("llm.decode_peak", m->tps_peak, true);
+            dash_metric_store_set_number("llm.prefill_peak", m->tps_peak_pre, true);
+        }
         if (m->tps_avg > 0) {
             dash_metric_store_set_number("llm.decode_avg", m->tps_avg, true);
         }
@@ -1122,11 +1325,23 @@ void metrics_publish(const dash_metrics_t *m)
             dash_metric_store_set_number("llm.prefill_avg", m->tps_avg_pre, true);
         }
     }
+    if (m->has_usage) {
+        dash_metric_store_set_number("llm.tokens_in", (double)m->tokens_in, true);
+        dash_metric_store_set_number("llm.tokens_out", (double)m->tokens_out, true);
+    }
+    if (m->has_requests) {
+        dash_metric_store_set_number("llm.requests_total", (double)m->requests_total, true);
+    }
+
     if (m->has_concurrency) {
         dash_metric_store_set_number("llm.requests_processing", m->in_flight, true);
     }
     if (m->has_queue) {
         dash_metric_store_set_number("llm.requests_deferred", m->queued, true);
+    }
+    if (m->has_queue_counters) {
+        dash_metric_store_set_number("llm.queue_waited", m->queue_waited, true);
+        dash_metric_store_set_number("llm.queue_gave_up", m->queue_gave_up, true);
     }
     if (m->has_slots) {
         dash_metric_store_set_number("llm.slots", m->slots, true);
@@ -1134,6 +1349,7 @@ void metrics_publish(const dash_metrics_t *m)
     if (m->ctx_len > 0) {
         dash_metric_store_set_number("llm.context_len", m->ctx_len, true);
     }
+
     if (m->kv_total > 0) {
         dash_metric_store_set_number("llm.kv_pool_positions", m->kv_total, true);
     }
@@ -1141,19 +1357,63 @@ void metrics_publish(const dash_metrics_t *m)
         dash_metric_store_set_number("llm.kv_used_tokens", m->kv_used, true);
         dash_metric_store_set_number("llm.kv_pct", m->kv_pct, true);
     }
+    if (m->has_kv_detail) {
+        dash_metric_store_set_number("llm.kv_reserved_tokens", m->kv_reserved, true);
+        dash_metric_store_set_number("llm.kv_busy_regions", m->kv_busy_regions, true);
+        dash_metric_store_set_number("llm.kv_held_regions", m->kv_held_regions, true);
+        dash_metric_store_set_number("llm.kv_waiting_for_room",
+                                     m->kv_waiting_for_room, true);
+    }
+
+    if (m->has_cache) {
+        dash_metric_store_set_bool("llm.cache_enabled", m->cache_enabled, true);
+    }
+    if (m->cache_cap_mb > 0) {
+        dash_metric_store_set_number("llm.cache_cap_mb", m->cache_cap_mb, true);
+    }
+    if (m->has_cache_rates) {
+        dash_metric_store_set_number("llm.cache_hit_rate", m->cache_hit_rate, true);
+        dash_metric_store_set_number("llm.cache_token_hit_rate",
+                                     m->cache_token_hit_rate, true);
+    }
     if (m->tokens_cached > 0) {
         dash_metric_store_set_number("llm.cache_hit_tokens", (double)m->tokens_cached, true);
     }
+    if (m->cache_entries > 0) {
+        dash_metric_store_set_number("llm.cache_entries", m->cache_entries, true);
+    }
     if (m->cache_bytes > 0) {
-        dash_metric_store_set_number("llm.cache_cap_mb",
+        dash_metric_store_set_number("llm.cache_bytes",
                                      (double)m->cache_bytes / (1024.0 * 1024.0), true);
-        dash_metric_store_set_bool("llm.cache_enabled", true, true);
     }
-    if (m->has_model_uptime) {
-        dash_metric_store_set_number("llm.uptime_s", m->model_uptime_s, true);
+    if (m->cache_evicted > 0) {
+        dash_metric_store_set_number("llm.cache_evicted", m->cache_evicted, true);
     }
-    if (m->has_host_uptime) {
-        dash_metric_store_set_number("host.uptime_s", m->host_uptime_s, true);
+
+    if (m->has_mtp) {
+        dash_metric_store_set_number("llm.draft_accept_pct", m->mtp_pct, true);
+    }
+    if (m->draft_tokens > 0) {
+        dash_metric_store_set_number("llm.draft_tokens", (double)m->draft_tokens, true);
+    }
+    if (m->drafter[0]) {
+        dash_metric_store_set_string("llm.drafter", m->drafter, true);
+    }
+    if (m->has_drafter) {
+        dash_metric_store_set_bool("llm.drafter_loaded", m->drafter_loaded, true);
+    }
+
+    if (m->has_capabilities) {
+        if (m->max_tokens_default > 0) {
+            dash_metric_store_set_number("llm.max_tokens_default",
+                                         m->max_tokens_default, true);
+        }
+        if (m->indexer_budget > 0) {
+            dash_metric_store_set_number("llm.indexer_budget",
+                                         m->indexer_budget, true);
+        }
+        dash_metric_store_set_bool("llm.vision_enabled", m->vision_enabled, true);
+        dash_metric_store_set_bool("llm.structured_output", m->structured_output, true);
     }
 
     if (m->has_power) {
@@ -1173,6 +1433,9 @@ void metrics_publish(const dash_metrics_t *m)
     if (m->has_ram) {
         dash_metric_store_set_number("host.ram_used_mb", m->ram_used_mb, true);
         dash_metric_store_set_number("host.ram_total_mb", m->ram_total_mb, true);
+    }
+    if (m->has_cpu) {
+        dash_metric_store_set_number("host.cpu_pct", m->cpu_pct, true);
     }
 }
 

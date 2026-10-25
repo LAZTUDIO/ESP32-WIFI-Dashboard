@@ -14,11 +14,13 @@
 - `a`：available，false 表示当前取不到（界面显示 `--`）
 - `t`：采集时间（Unix 秒）
 
-数值的标签、单位、精度、是否适合画曲线由 `shared/catalog/metrics.json` 提供。每个指标还带：
+数值的标签、单位、精度、是否适合画曲线由 `shared/catalog/metrics.json` 提供（v2）。每个指标还带：
 
 - `source`：`api`（设备轮询传统 API 得到）或 `server`（服务端聚合得到）
-- `providers`：能提供该测点的 API 类型数组（`halogen` / `gufo` / `strata` / `lmstudio` / `ollama` / `openai`）；空数组表示只能由服务端快照提供。编辑器按屏幕实际探测到的类型筛选测点。
-- 硬件测点（`host.*`）只有 `strata` / `panel` 的接口会直接返回；配置了主机监控地址（`host_agent`）的屏幕由设备轮询 host agent 获得，编辑器会单独列成「设备主机监控」分组。
+- `api`：该测点在引擎 HTTP API 里的原始遥测出处，形如「端点 + JSON 路径」或 Prometheus 指标名。**每个 `source=api` 的测点必须有这一项**，目录只收引擎 API 实测能交付的字段；编辑器下拉框悬停即可看到出处。
+- `providers`：能提供该测点的 API 类型数组（`halogen` / `gufo` / `strata` / `lmstudio` / `ollama` / `openai` / `panel`）；空数组表示只能由服务端快照提供。编辑器按屏幕实际探测到的类型筛选测点。
+- 硬件测点（`host.*`）只有 `strata` / `panel` 的接口会直接返回（`host_agent` 同理）；`halogen` / `gufo` / `lmstudio` / `ollama` 的引擎 API 完全没有 CPU / 内存 / 磁盘 / GPU 字段，这些测点在它们的屏幕上恒为不可用，界面显示 `--`。编辑器会单独列成「设备主机监控」分组。
+- 只能由第三方聚合面板（`panel`，halogen-panel 8800 `/api/status`）拿到、任何引擎 API 都没有的点位（NPU / TTS / Embedding / 磁盘 / SSD / 局域网 IP / 服务名 / CPU 频率 / GPU pstate 与 sclk）已整体移出目录，不再作为可选测点。
 
 ## REST
 

@@ -95,12 +95,11 @@ class PanelAdapter(Adapter):
         metrics = _dict(data.get("metrics"))
         gpu = _dict(data.get("gpu"))
         mem = _dict(data.get("mem"))
-        disk = _dict(data.get("disk"))
-        ssd = _dict(data.get("ssd"))
-        npu = _dict(health.get("npu"))
         version = _dict(health.get("version"))
         prompt_cache = _dict(health.get("prompt_cache"))
         engine = _dict(health.get("engine"))
+        vision = _dict(health.get("vision"))
+        structured = _dict(health.get("structured_output"))
 
         service = _text(data.get("service"))
         api_online = _bool(metrics.get("api_online"))
@@ -125,22 +124,6 @@ class PanelAdapter(Adapter):
         if deferred is None:
             deferred = _num(health.get("queued"))
 
-        loaded = npu.get("loaded") if isinstance(npu.get("loaded"), list) else []
-        loaded_models = ", ".join(str(x) for x in loaded) if loaded else None
-        npu_status = _text(npu.get("status"))
-        tts_loaded = (
-            any("tts" in str(model).lower() for model in loaded) if loaded else False
-        )
-        embed_loaded = (
-            any("embed" in str(model).lower() for model in loaded) if loaded else False
-        )
-        tts_online = (
-            (npu_status == "ok" and tts_loaded) if npu_status is not None else None
-        )
-        embed_online = (
-            (npu_status == "ok" and embed_loaded) if npu_status is not None else None
-        )
-
         gpu_available = _bool(gpu.get("available"))
         gpu_values: dict[str, Any] = {"host.gpu_available": gpu_available}
         gpu_metric_ids = (
@@ -149,8 +132,6 @@ class PanelAdapter(Adapter):
             "host.gpu_power_w",
             "host.gpu_vram_used_mb",
             "host.gpu_vram_total_mb",
-            "host.gpu_sclk_mhz",
-            "host.gpu_pstate",
         )
         if gpu_available:
             vram_used = _num(gpu.get("vram_used_gib"))
@@ -166,8 +147,6 @@ class PanelAdapter(Adapter):
                     "host.gpu_vram_total_mb": (
                         vram_total * 1024.0 if vram_total is not None else None
                     ),
-                    "host.gpu_sclk_mhz": _num(gpu.get("sclk_mhz")),
-                    "host.gpu_pstate": _text(gpu.get("pstate")),
                 }
             )
         else:
@@ -206,26 +185,16 @@ class PanelAdapter(Adapter):
             "llm.engine_responds": _bool(engine.get("responds")),
             "llm.engine_probe_s": _num(engine.get("probe_s")),
             "llm.uptime_s": parse_duration(data.get("container_uptime")),
+            "llm.draft_accept_pct": _num(metrics.get("draft_accept_pct")),
             "llm.drafter": _text(health.get("drafter_default")),
             "llm.drafter_loaded": _bool(health.get("drafter_weights_loaded")),
-            "tts.online": tts_online,
-            "tts.loaded": tts_loaded if npu_status is not None else None,
-            "tts.queue": _num(npu.get("queued")),
-            "tts.contexts": _num(npu.get("contexts")),
-            "embed.online": embed_online,
-            "embed.loaded": embed_loaded if npu_status is not None else None,
-            "embed.queue": _num(npu.get("queued")),
-            "embed.contexts": _num(npu.get("contexts")),
-            "npu.status": npu_status,
-            "npu.util_pct": _num(npu.get("util_pct")),
-            "npu.passes": _num(npu.get("passes")),
-            "npu.loaded_models": loaded_models,
-            "host.lan_ip": _text(data.get("lan_ip")),
-            "host.uptime_s": parse_duration(data.get("uptime")),
-            "host.service": service,
-            "host.container": _text(data.get("container")),
+            # 面板透传引擎 /health 的能力字段，口径与固件直连一致
+            "llm.capability_probe": _text(health.get("capability_probe")),
+            "llm.max_tokens_default": _num(health.get("max_tokens_default")),
+            "llm.indexer_budget": _num(health.get("indexer_budget")),
+            "llm.vision_enabled": _bool(vision.get("enabled")),
+            "llm.structured_output": _bool(structured.get("enabled")),
             "host.cpu_pct": _num(data.get("cpu_percent")),
-            "host.cpu_freq_mhz": _num(data.get("cpu_freq_mhz")),
             "host.ram_total_mb": (
                 mem_total * 1024.0 if mem_total is not None else None
             ),
@@ -234,14 +203,6 @@ class PanelAdapter(Adapter):
                 if mem_total is not None and mem_avail is not None
                 else None
             ),
-            "host.ram_available_mb": (
-                mem_avail * 1024.0 if mem_avail is not None else None
-            ),
-            "host.disk_total_gb": _num(disk.get("total_gib")),
-            "host.disk_free_gb": _num(disk.get("free_gib")),
-            "host.ssd_life_pct": _num(ssd.get("life_pct")),
-            "host.ssd_temp_c": _num(ssd.get("temp_c")),
-            "host.ssd_written_tb": _num(ssd.get("written_tb")),
         }
         updates.update(gpu_values)
 

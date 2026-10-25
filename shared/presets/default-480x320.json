@@ -90,7 +90,7 @@
             "ram_used": "host.ram_used_mb",
             "ram_total": "host.ram_total_mb",
             "gpu_temp": "host.gpu_temp_c",
-            "ip": "host.lan_ip"
+            "text": "llm.version"
           },
           "options": {
             "title": "服务器",

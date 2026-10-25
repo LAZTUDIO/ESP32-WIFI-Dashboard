@@ -49,8 +49,9 @@
       <div class="panel-head"><h2>组件库</h2><span class="muted">点击添加</span></div>
       <div id="palette" class="palette"></div>
       <div class="panel-note">也可以把组件拖到画布指定位置。<br>
-        指标按来源分组：<b>传统 API</b>（halogen / gufo / strata / LM Studio / Ollama 直连）与
-        <b>专用 Server</b>（服务端本机 system / GPU）。</div>
+        指标按来源分组：<b>专用服务端</b>（服务端本机 system / GPU）、
+        <b>服务端转发 / 设备直连</b>（halogen / gufo / strata / LM Studio / Ollama / 自定义 API）与
+        <b>设备主机监控</b>。标注「暂无数据」的测点当前取不到值。</div>
     </aside>
 
     <section class="stage">
@@ -86,9 +87,15 @@
       <div class="form-grid">
         <label>设备 IP<input id="dev-ip" placeholder="192.168.1.50" autocomplete="off"></label>
         <label>备注名<input id="dev-name" placeholder="主屏" maxlength="32"></label>
-        <label class="span2">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
-        <label>API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
-        <label>服务类型
+        <label class="span2">连接模式
+          <select id="dev-mode">
+            <option value="direct">直连模式（设备直连 API）</option>
+            <option value="forward">转发模式（经控制台转发）</option>
+          </select>
+        </label>
+        <label class="span2 direct-only">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
+        <label class="direct-only">API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
+        <label class="direct-only">服务类型
           <select id="dev-provider">
             <option value="auto">auto（自动探测）</option>
             <option value="halogen">halogen</option>
@@ -99,7 +106,7 @@
             <option value="openai">OpenAI 兼容</option>
           </select>
         </label>
-        <label class="span2">主机监控地址（可选）<input id="dev-host-agent" placeholder="http://192.168.1.100:8732"></label>
+        <div class="span2 muted hidden" id="dev-forward-note" style="line-height:1.55"></div>
         <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
       </div>
       <div class="modal-actions">
@@ -112,6 +119,6 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=0.6.8"></script>
+  <script src="app.js?v=0.6.9"></script>
 </body>
 </html>

@@ -33,11 +33,13 @@
 
 static const char *s_metric_ids[] = {
     "llm.model",     "llm.online",   "llm.busy",     "llm.phase",
-    "tts.loaded",    "embed.loaded",
-    "host.gpu_util_pct", "host.cpu_pct", "npu.util_pct",
+    /* 三颗服务 LED：引擎侧三态（在线 / 前缀缓存启用 / 草稿权重已加载） */
+    "llm.cache_enabled", "llm.drafter_loaded",
+    "host.gpu_util_pct", "host.cpu_pct",
     "host.ram_used_mb",  "host.ram_total_mb",
-    "host.disk_free_gb", "host.disk_total_gb",
-    "llm.kv_pct", "llm.kv_used_tokens", "llm.kv_pool_positions",
+    /* 6 路仪表：KV 占用 / 前缀缓存命中率 / 草稿接受率 */
+    "llm.kv_pct", "llm.cache_token_hit_rate", "llm.draft_accept_pct",
+    "llm.kv_used_tokens", "llm.kv_pool_positions",
     "llm.slots",  "llm.requests_deferred",
     "host.gpu_temp_c", "host.gpu_power_w",
     /* H02-H10 主题额外使用 */
@@ -45,6 +47,9 @@ static const char *s_metric_ids[] = {
     "llm.decode_peak",
     "host.gpu_vram_used_mb", "host.gpu_vram_total_mb",
     "llm.context_len",
+    /* loadout 卡 04 的缓存副行 / heatsink 第三柱的草稿 token 副行 */
+    "llm.cache_bytes", "llm.cache_cap_mb", "llm.cache_entries",
+    "llm.draft_tokens",
 };
 
 const char **ui_classic_metric_ids(int *count)
@@ -107,7 +112,7 @@ static const pal_t s_pal[TH_COUNT] = {
 
 /* ============================ 内部状态 ============================ */
 
-#define N_PCT 6  /* GPU CPU NPU MEM DISK KV */
+#define N_PCT 6  /* GPU CPU KV MEM HIT ACC */
 #define N_SEG 10
 #define N_ROW 8  /* 通用行/段槽位 */
 
@@ -192,25 +197,21 @@ static void m_text(const char *id, char *buf, size_t cap,
     }
 }
 
-/* 六个占用率：0 GPU 1 CPU 2 NPU 3 MEM 4 DISK 5 KV */
+/* 六个占用率：0 GPU 1 CPU 2 KV 3 MEM 4 HIT(前缀缓存) 5 ACC(草稿接受) */
 static bool pct_value(int idx, double *out)
 {
     double a, b;
     switch (idx) {
     case 0: return m_num("host.gpu_util_pct", out);
     case 1: return m_num("host.cpu_pct", out);
-    case 2: return m_num("npu.util_pct", out);
+    case 2: return m_num("llm.kv_pct", out);
     case 3:
         if (!m_num("host.ram_used_mb", &a)) return false;
         if (!m_num("host.ram_total_mb", &b) || b <= 0.0) return false;
         *out = a / b * 100.0;
         return true;
-    case 4:
-        if (!m_num("host.disk_free_gb", &a)) return false;
-        if (!m_num("host.disk_total_gb", &b) || b <= 0.0) return false;
-        *out = (b - a) / b * 100.0;
-        return true;
-    case 5: return m_num("llm.kv_pct", out);
+    case 4: return m_num("llm.cache_token_hit_rate", out);
+    case 5: return m_num("llm.draft_accept_pct", out);
     default: return false;
     }
 }
@@ -220,6 +221,20 @@ static uint32_t pct_color(const pal_t *p, double v)
     if (v >= 90.0) return p->err;
     if (v >= 75.0) return p->warn;
     return p->acc;
+}
+
+/* HIT（缓存命中率）/ ACC（草稿接受率）越高越好，阈值方向相反 */
+static uint32_t pct_color_hi(const pal_t *p, double v)
+{
+    if (v < 50.0) return p->err;
+    if (v < 75.0) return p->warn;
+    return p->acc;
+}
+
+/* 按仪表槽位取色：4=HIT 5=ACC 走高优先，其余走负载优先 */
+static uint32_t pct_color_at(const pal_t *p, int idx, double v)
+{
+    return (idx == 4 || idx == 5) ? pct_color_hi(p, v) : pct_color(p, v);
 }
 
 static uint32_t temp_color(const pal_t *p, double t)
@@ -499,8 +514,12 @@ static lv_obj_t *mk_arc_full(ui_classic_t *c, lv_obj_t *parent, int x, int y,
 
 /* ============================ 主题：instrument ============================ */
 
-static const char *s_pct_labels[N_PCT] = {"GPU", "CPU", "NPU",
-                                          "MEM", "DISK", "KV"};
+static const char *s_pct_labels[N_PCT] = {"GPU", "CPU", "KV",
+                                          "MEM", "HIT", "ACC"};
+
+/* 三颗服务 LED 的标签：引擎侧三态（在线 / 前缀缓存 / 草稿权重）。
+ * LED 与 ON/OFF 之间只有 36~38px 余量，Montserrat 14 下必须收在 3 个字母。 */
+static const char *s_svc_labels[3] = {"LLM", "PFX", "DRF"};
 
 static void build_instrument(ui_classic_t *c, const pal_t *p)
 {
@@ -546,11 +565,10 @@ static void build_instrument(ui_classic_t *c, const pal_t *p)
     /* 底卡：服务 / 模型 / 并发排队 */
     lv_obj_t *bottom = mk_card(c, 10, 210, 460, 100, p->surface, p->border);
     mk_lbl(bottom, 12, 6, "SERVICES", &lv_font_montserrat_14, p->dim);
-    static const char *svc_names[3] = {"LLM", "TTS", "EMB"};
     for (int i = 0; i < 3; i++) {
         const int y = 26 + i * 23;
         c->led_svc[i] = mk_led(c, bottom, 14, y + 3, 7, p->dim);
-        mk_lbl(bottom, 28, y, svc_names[i], &lv_font_montserrat_14, p->dim);
+        mk_lbl(bottom, 28, y, s_svc_labels[i], &lv_font_montserrat_14, p->dim);
         c->lbl_svc[i] = mk_lbl(bottom, 66, y, "OFF", &lv_font_montserrat_14,
                                p->mut);
     }
@@ -593,12 +611,14 @@ static void build_hud(ui_classic_t *c, const pal_t *p)
     c->arc_gpu_val = mk_lbl_w(ca, 24, 56, 92, "--", &lv_font_montserrat_28,
                               p->acc, LV_TEXT_ALIGN_CENTER);
 
-    /* 卡 B：分段条负载（CPU NPU MEM DISK） */
+    /* 卡 B：分段条负载（CPU MEM HIT ACC）。GPU 走卡 A 的环，KV 走卡 C，
+     * 卡 C 的标签槽只有 26px，放不下 "ACC"，故 ACC 排到卡 B 第 4 行。 */
+    static const int b_idx[4] = {1, 3, 4, 5};
     lv_obj_t *cb = mk_card(c, 154, 30, 166, 134, p->surface, p->border);
     mk_corners(c, cb, 166, 134, p->acc, 9);
     mk_lbl(cb, 16, 6, "LOAD", &lv_font_montserrat_14, p->dim);
     for (int i = 0; i < 4; i++) {
-        const int idx = i + 1; /* pct 索引 1..4 */
+        const int idx = b_idx[i];
         const int y = 26 + i * 26;
         mk_lbl(cb, 14, y, s_pct_labels[idx], &lv_font_montserrat_14, p->dim);
         segbar_create(c, &c->pct_seg[idx], cb, 50, y + 2, 70, 10, p->track);
@@ -616,19 +636,18 @@ static void build_hud(ui_classic_t *c, const pal_t *p)
     c->lbl_power = mk_lbl(cc, 10, 60, "--", &lv_font_montserrat_32, p->acc3);
     mk_lbl(cc, 92, 74, "W", &lv_font_montserrat_14, p->dim);
     mk_lbl(cc, 10, 100, "KV", &lv_font_montserrat_14, p->dim);
-    segbar_create(c, &c->pct_seg[5], cc, 36, 102, 70, 8, p->track);
-    c->pct_val[5] = mk_lbl_w(cc, 112, 100, 28, "--", &lv_font_montserrat_14,
+    segbar_create(c, &c->pct_seg[2], cc, 36, 102, 70, 8, p->track);
+    c->pct_val[2] = mk_lbl_w(cc, 112, 100, 28, "--", &lv_font_montserrat_14,
                              p->text, LV_TEXT_ALIGN_RIGHT);
 
     /* 卡 D：服务 + 模型 */
     lv_obj_t *cd = mk_card(c, 8, 170, 240, 142, p->surface, p->border);
     mk_corners(c, cd, 240, 142, p->acc, 9);
     mk_lbl(cd, 16, 6, "SERVICES", &lv_font_montserrat_14, p->dim);
-    static const char *svc_names[3] = {"LLM", "TTS", "EMB"};
     for (int i = 0; i < 3; i++) {
         const int y = 26 + i * 24;
         c->led_svc[i] = mk_led(c, cd, 12, y + 3, 7, p->dim);
-        mk_lbl(cd, 26, y, svc_names[i], &lv_font_montserrat_14, p->dim);
+        mk_lbl(cd, 26, y, s_svc_labels[i], &lv_font_montserrat_14, p->dim);
         c->lbl_svc[i] = mk_lbl(cd, 62, y, "OFF", &lv_font_montserrat_14,
                                p->mut);
     }
@@ -672,7 +691,7 @@ static void build_mecha(ui_classic_t *c, const pal_t *p)
     segbar_create_ex(c, &c->row_seg[0], c->screen, 18, 44, 444, 4, p->track,
                      56, false);
 
-    /* 反应堆：外环 GPU / 内环 KV / 中心 DECODE */
+    /* 反应堆：外环 GPU / 内环 ACC / 中心 DECODE */
     c->arc_gpu = mk_arc(c, c->screen, 145, 62, 190, 7, p->acc, p->track);
     c->arc_kv = mk_arc(c, c->screen, 174, 91, 132, 3, p->acc2, p->track);
     mk_lbl_w(c->screen, 190, 124, 100, "DECODE", &lv_font_montserrat_14,
@@ -683,8 +702,8 @@ static void build_mecha(ui_classic_t *c, const pal_t *p)
     mk_lbl_w(c->screen, 190, 186, 100, "TOK/S", &lv_font_montserrat_14,
              p->acc, LV_TEXT_ALIGN_CENTER);
 
-    /* 左列 4 行：PREFILL / SLOTS / VRAM / KV */
-    static const char *l_rows[4] = {"PREFILL", "SLOTS", "VRAM", "KV"};
+    /* 左列 4 行：PREFILL / SLOTS / VRAM / ACC */
+    static const char *l_rows[4] = {"PREFILL", "SLOTS", "VRAM", "ACC"};
     for (int i = 0; i < 4; i++) {
         const int y = 64 + i * 50;
         mk_lbl(c->screen, 14, y + 1, l_rows[i], &lv_font_montserrat_14,
@@ -766,7 +785,7 @@ static void build_stealth(ui_classic_t *c, const pal_t *p)
                            &lv_font_montserrat_14, p->text);
     c->txt_lbl[3] = mk_lbl(c->screen, 240, 214, "RAM --",
                            &lv_font_montserrat_14, p->text);
-    c->txt_lbl[4] = mk_lbl(c->screen, 344, 214, "KV --",
+    c->txt_lbl[4] = mk_lbl(c->screen, 344, 214, "ACC --",
                            &lv_font_montserrat_14, p->text);
 
     /* 底部热管理 */
@@ -835,7 +854,7 @@ static void build_arcade(ui_classic_t *c, const pal_t *p)
 
     /* 中段读数条 */
     mk_card(c, 18, 192, 444, 24, p->bg, p->border);
-    c->txt_lbl[0] = mk_lbl(c->screen, 26, 198, "KV --",
+    c->txt_lbl[0] = mk_lbl(c->screen, 26, 198, "ACC --",
                            &lv_font_montserrat_14, p->text);
     c->txt_lbl[1] = mk_lbl(c->screen, 136, 198, "T --",
                            &lv_font_montserrat_14, p->text);
@@ -844,8 +863,8 @@ static void build_arcade(ui_classic_t *c, const pal_t *p)
     c->txt_lbl[3] = mk_lbl(c->screen, 356, 198, "VRAM --",
                            &lv_font_montserrat_14, p->text);
 
-    /* 底部三条街机分段条：NPU / MEM / DISK */
-    static const char *cols[3] = {"NPU", "MEM", "DISK"};
+    /* 底部三条街机分段条：KV / MEM / HIT */
+    static const char *cols[3] = {"KV", "MEM", "HIT"};
     for (int i = 0; i < 3; i++) {
         const int x = 18 + i * 152;
         mk_lbl(c->screen, x, 226, cols[i], &lv_font_montserrat_14, p->acc2);
@@ -928,7 +947,7 @@ static void build_drone(ui_classic_t *c, const pal_t *p)
     }
     mk_lbl(c->screen, 362, 88, "TELEMETRY / R", &lv_font_montserrat_14,
            p->acc);
-    static const char *r_rows[3] = {"QUEUE", "KV", "DISK"};
+    static const char *r_rows[3] = {"QUEUE", "ACC", "HIT"};
     for (int i = 0; i < 3; i++) {
         const int y = 108 + i * 46;
         mk_lbl(c->screen, 362, y + 2, r_rows[i], &lv_font_montserrat_14,
@@ -987,7 +1006,7 @@ static void build_scope(ui_classic_t *c, const pal_t *p)
     mk_lbl_w(c->screen, 140, 182, 200, "CPU LOAD", &lv_font_montserrat_14,
              p->dim, LV_TEXT_ALIGN_CENTER);
 
-    /* 下部：THERMAL / PWR / NPU */
+    /* 下部：THERMAL / PWR / KV */
     mk_lbl(c->screen, 24, 268, "THERMAL", &lv_font_montserrat_14, p->dim);
     c->lbl_temp = mk_lbl(c->screen, 100, 266, "--", &lv_font_montserrat_20,
                          p->text);
@@ -995,7 +1014,7 @@ static void build_scope(ui_classic_t *c, const pal_t *p)
     mk_lbl(c->screen, 240, 268, "PWR", &lv_font_montserrat_14, p->dim);
     c->lbl_power = mk_lbl(c->screen, 240, 286, "--", &lv_font_montserrat_20,
                           p->text);
-    mk_lbl_w(c->screen, 390, 268, 66, "NPU", &lv_font_montserrat_14, p->dim,
+    mk_lbl_w(c->screen, 390, 268, 66, "KV", &lv_font_montserrat_14, p->dim,
              LV_TEXT_ALIGN_RIGHT);
     c->row_val[4] = mk_lbl_w(c->screen, 390, 286, 66, "--",
                              &lv_font_montserrat_20, p->text,
@@ -1040,8 +1059,8 @@ static void build_heatsink(ui_classic_t *c, const pal_t *p)
                              &lv_font_montserrat_14, p->acc,
                              LV_TEXT_ALIGN_RIGHT);
 
-    /* 三列纵向能量柱：GPU / VRAM / KV */
-    static const char *cols[3] = {"GPU", "VRAM", "KV"};
+    /* 三列纵向能量柱：GPU / VRAM / ACC */
+    static const char *cols[3] = {"GPU", "VRAM", "ACC"};
     static const uint32_t col_colors[3] = {0, 0, 0}; /* apply 时按主题填 */
     (void)col_colors;
     for (int i = 0; i < 3; i++) {
@@ -1068,11 +1087,11 @@ static void build_loadout(ui_classic_t *c, const pal_t *p)
                                 LV_TEXT_ALIGN_RIGHT);
     mk_rect(c, c->screen, 20, 32, 440, 1, p->border, LV_OPA_COVER);
 
-    /* 四卡 2×2：CPU / GPU / MEMORY / STORAGE */
+    /* 四卡 2×2：CPU / GPU / MEMORY / CACHE（前缀缓存命中率） */
     static const char *nums[4] = {"01", "02", "03", "04"};
-    static const char *names[4] = {"CPU", "GPU", "MEMORY", "STORAGE"};
+    static const char *names[4] = {"CPU", "GPU", "MEMORY", "CACHE"};
     static const char *descs[4] = {"RYZEN 9 7950X", "RTX 4070 TI",
-                                   "DDR5 6000 32G", "NVME GEN4"};
+                                   "DDR5 6000 32G", "TOKEN HIT RATE"};
     const int cx[4] = {14, 254, 14, 254};
     const int cy[4] = {40, 40, 172, 172};
     for (int i = 0; i < 4; i++) {
@@ -1133,7 +1152,7 @@ static void build_armor(ui_classic_t *c, const pal_t *p)
                             &lv_font_montserrat_20, p->text,
                             LV_TEXT_ALIGN_RIGHT);
 
-    /* 能量核心：外环 GPU / 内环 KV / 中心 DECODE */
+    /* 能量核心：外环 GPU / 内环 ACC / 中心 DECODE */
     c->arc_gpu = mk_arc(c, c->screen, 140, 56, 200, 6, p->acc, p->track);
     c->arc_kv = mk_arc(c, c->screen, 172, 88, 136, 3, p->acc2, p->track);
     mk_lbl_w(c->screen, 190, 122, 100, "DECODE", &lv_font_montserrat_14,
@@ -1144,12 +1163,12 @@ static void build_armor(ui_classic_t *c, const pal_t *p)
     mk_lbl_w(c->screen, 190, 184, 100, "TOK/S", &lv_font_montserrat_14,
              p->acc, LV_TEXT_ALIGN_CENTER);
 
-    /* 底部：KV 完整度条 + 页脚 */
+    /* 底部：ACC 完整度条 + 页脚 */
     c->row_bar[0] = mk_bar(c, c->screen, 24, 296, 432, 4, p->track, p->acc2,
                            &c->row_bar_w[0]);
     c->lbl_kv_text = mk_lbl(c->screen, 24, 306, "KV --",
                             &lv_font_montserrat_14, p->dim);
-    c->lbl_svc[0] = mk_lbl_w(c->screen, 356, 306, 100, "INT --",
+    c->lbl_svc[0] = mk_lbl_w(c->screen, 356, 306, 100, "ACC --",
                              &lv_font_montserrat_14, p->acc2,
                              LV_TEXT_ALIGN_RIGHT);
 }
@@ -1186,8 +1205,8 @@ static void build_sweep(ui_classic_t *c, const pal_t *p)
     mk_led(c, c->screen, 338, 198, 5, p->acc2);
     mk_led(c, c->screen, 268, 160, 5, p->acc);
 
-    /* 四格读数：CPU / MEM / GPU / DISK */
-    static const char *cells[4] = {"CPU", "MEM", "GPU", "DISK"};
+    /* 四格读数：CPU / MEM / GPU / HIT */
+    static const char *cells[4] = {"CPU", "MEM", "GPU", "HIT"};
     for (int i = 0; i < 4; i++) {
         const int x = 14 + i * 118;
         const uint32_t color = (i == 2) ? p->acc2 : p->acc;
@@ -1335,6 +1354,9 @@ typedef struct {
     bool c_ok, q_ok;
     char kv_text[40];
     char ctx_txt[16]; /* "32.8K" */
+    char cache_txt[24]; /* "110/110M" */
+    double draft_tokens;
+    bool dt_ok;
     double mem_gb;
 } cvals_t;
 
@@ -1347,9 +1369,12 @@ static void read_values(cvals_t *v)
     m_bool("llm.busy", &v->busy);
     m_text("llm.phase", v->phase, sizeof(v->phase),
            v->online ? (v->busy ? "BUSY" : "IDLE") : "OFFLINE");
-    m_bool("tts.loaded", &v->svc[1]);
-    m_bool("embed.loaded", &v->svc[2]);
+    /* 三颗服务 LED：引擎侧三态，取不到时按熄灭处理（不沿用未初始化值） */
     v->svc[0] = v->online;
+    v->svc[1] = false;
+    v->svc[2] = false;
+    m_bool("llm.cache_enabled", &v->svc[1]);
+    m_bool("llm.drafter_loaded", &v->svc[2]);
 
     for (int i = 0; i < N_PCT; i++) {
         v->pct_ok[i] = pct_value(i, &v->pct[i]);
@@ -1405,6 +1430,19 @@ static void read_values(cvals_t *v)
     } else {
         snprintf(v->ctx_txt, sizeof(v->ctx_txt), "--");
     }
+
+    /* 前缀缓存：已用/上限（MB）。上限来自 /health .prompt_cache.cap_mb */
+    double cbytes = 0.0, ccap = 0.0;
+    if (m_num("llm.cache_bytes", &cbytes) && m_num("llm.cache_cap_mb", &ccap) &&
+        ccap > 0.0) {
+        snprintf(v->cache_txt, sizeof(v->cache_txt), "%.0f/%.0fM", cbytes, ccap);
+    } else if (m_num("llm.cache_entries", &cbytes)) {
+        snprintf(v->cache_txt, sizeof(v->cache_txt), "%.0f ENT", cbytes);
+    } else {
+        snprintf(v->cache_txt, sizeof(v->cache_txt), "--");
+    }
+
+    v->dt_ok = m_num("llm.draft_tokens", &v->draft_tokens);
 }
 
 /* 六个占用率：值标签 + 连续条 / 分段条（instrument 与 hud） */
@@ -1427,18 +1465,17 @@ static void apply_pct_common(ui_classic_t *c, const pal_t *p,
 /* 大值 / 环通用：arc_gpu = 负载环，arc_kv = 内环 */
 static void apply_arc(ui_classic_t *c, const pal_t *p, lv_obj_t *arc,
                       double val, bool ok, const char *text,
-                      lv_obj_t *val_lbl, bool colored_text)
+                      lv_obj_t *val_lbl, bool colored_text, bool hi)
 {
+    const uint32_t col = hi ? pct_color_hi(p, val) : pct_color(p, val);
     if (arc) {
         lv_arc_set_value(arc, ok ? (int)lroundf((float)val) : 0);
         lv_obj_set_style_arc_color(
-            arc, lv_color_hex(ok ? pct_color(p, val) : p->mut),
-            LV_PART_INDICATOR);
+            arc, lv_color_hex(ok ? col : p->mut), LV_PART_INDICATOR);
     }
     if (val_lbl) {
         set_text_if(val_lbl, text);
-        set_color(val_lbl, ok ? (colored_text ? pct_color(p, val) : p->text)
-                              : p->mut);
+        set_color(val_lbl, ok ? (colored_text ? col : p->text) : p->mut);
     }
 }
 
@@ -1475,7 +1512,7 @@ static void apply_instrument_hud(ui_classic_t *c, const pal_t *p,
     apply_arc(c, p, c->arc_gpu, v->pct[0], v->pct_ok[0],
               v->pct_ok[0] ? (snprintf(buf, sizeof(buf), "%.0f%%",
                                        v->pct[0]), buf) : "--",
-              c->arc_gpu_val, hud);
+              c->arc_gpu_val, hud, false);
 
     set_num_lbl(c->lbl_temp, v->t_ok, v->temp, "%.0f",
                 v->t_ok ? temp_color(p, v->temp) : p->mut);
@@ -1506,12 +1543,12 @@ static void apply_mecha(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     row_seg_set(c, 0, v->pct_ok[0] ? v->pct[0] : 0.0,
                 v->pct_ok[0] ? pct_color(p, v->pct[0]) : p->mut);
 
-    /* 外环 GPU / 内环 KV / 中心 DECODE */
-    apply_arc(c, p, c->arc_gpu, v->pct[0], v->pct_ok[0], NULL, NULL, false);
-    apply_arc(c, p, c->arc_kv, v->pct[5], v->pct_ok[5], NULL, NULL, false);
+    /* 外环 GPU / 内环 ACC / 中心 DECODE */
+    apply_arc(c, p, c->arc_gpu, v->pct[0], v->pct_ok[0], NULL, NULL, false, false);
+    apply_arc(c, p, c->arc_kv, v->pct[5], v->pct_ok[5], NULL, NULL, false, true);
     set_num_lbl(c->lbl_big[0], v->d_ok, v->decode, "%.1f", p->text);
 
-    /* 左列：PREFILL / SLOTS / VRAM / KV */
+    /* 左列：PREFILL / SLOTS / VRAM / ACC */
     set_num_lbl(c->row_val[0], v->p_ok, v->prefill, "%.0f t/s",
                 v->p_ok ? p->acc : p->mut);
     row_bar_set(c, 0, v->p_ok ? clamp_pct(v->prefill / 24.0) : 0.0, p->acc);
@@ -1522,7 +1559,7 @@ static void apply_mecha(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     set_color(c->row_val[2], v->vram_ok ? p->acc2 : p->mut);
     row_bar_set(c, 2, v->vram_ok ? v->vram_pct : 0.0, p->acc2);
     set_num_lbl(c->row_val[3], v->pct_ok[5], v->pct[5], "%.0f%%",
-                v->pct_ok[5] ? pct_color(p, v->pct[5]) : p->mut);
+                v->pct_ok[5] ? pct_color_at(p, 5, v->pct[5]) : p->mut);
     row_bar_set(c, 3, v->pct_ok[5] ? v->pct[5] : 0.0, p->acc2);
 
     /* 右列：QUEUE / GPU / TEMP / PWR */
@@ -1574,7 +1611,7 @@ static void apply_stealth(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     set_num_lbl(c->row_val[2], v->c_ok, v->conc, "%.0f", p->text);
     set_num_lbl(c->row_val[3], v->q_ok, v->queue, "%.0f", p->text);
 
-    /* 中段：CPU / GPU / RAM / KV */
+    /* 中段：CPU / GPU / RAM / ACC */
     if (v->pct_ok[1]) snprintf(buf, sizeof(buf), "CPU %.0f%%", v->pct[1]);
     else snprintf(buf, sizeof(buf), "CPU --");
     set_text_if(c->txt_lbl[1], buf);
@@ -1584,8 +1621,8 @@ static void apply_stealth(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     if (v->mem_gb > 0.0) snprintf(buf, sizeof(buf), "RAM %.1fG", v->mem_gb);
     else snprintf(buf, sizeof(buf), "RAM --");
     set_text_if(c->txt_lbl[3], buf);
-    if (v->pct_ok[5]) snprintf(buf, sizeof(buf), "KV %.0f%%", v->pct[5]);
-    else snprintf(buf, sizeof(buf), "KV --");
+    if (v->pct_ok[5]) snprintf(buf, sizeof(buf), "ACC %.0f%%", v->pct[5]);
+    else snprintf(buf, sizeof(buf), "ACC --");
     set_text_if(c->txt_lbl[4], buf);
 
     /* 底部热管理 */
@@ -1614,8 +1651,8 @@ static void apply_arcade(ui_classic_t *c, const pal_t *p, const cvals_t *v)
                 v->pct_ok[0] ? pct_color(p, v->pct[0]) : p->mut);
 
     /* 中段读数 */
-    set_num_lbl(c->txt_lbl[0], v->pct_ok[5], v->pct[5], "KV %.0f%%",
-                v->pct_ok[5] ? pct_color(p, v->pct[5]) : p->mut);
+    set_num_lbl(c->txt_lbl[0], v->pct_ok[5], v->pct[5], "ACC %.0f%%",
+                v->pct_ok[5] ? pct_color_at(p, 5, v->pct[5]) : p->mut);
     set_num_lbl(c->txt_lbl[1], v->t_ok, v->temp, "T %.0fC",
                 v->t_ok ? temp_color(p, v->temp) : p->mut);
     set_num_lbl(c->txt_lbl[2], v->w_ok, v->power, "P %.0fW",
@@ -1623,7 +1660,7 @@ static void apply_arcade(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     set_num_lbl(c->txt_lbl[3], v->vram_ok, v->vram_pct, "VRAM %.0f%%",
                 v->vram_ok ? p->text : p->mut);
 
-    /* 底部三条：NPU / MEM / DISK */
+    /* 底部三条：KV / MEM / HIT */
     const int idx[3] = {2, 3, 4};
     for (int i = 0; i < 3; i++) {
         const int pi = idx[i];
@@ -1662,20 +1699,20 @@ static void apply_drone(ui_classic_t *c, const pal_t *p, const cvals_t *v)
                 v->vram_ok ? p->acc : p->mut);
     row_bar_set(c, 2, v->vram_ok ? v->vram_pct : 0.0, p->acc);
 
-    /* 右列：QUEUE / KV / DISK */
+    /* 右列：QUEUE / ACC / HIT */
     set_num_lbl(c->row_val[3], v->q_ok, v->queue, "%.0f",
                 v->q_ok ? p->acc2 : p->mut);
     row_bar_set(c, 3, v->q_ok ? clamp_pct(v->queue * 10.0) : 0.0, p->acc2);
     set_num_lbl(c->row_val[4], v->pct_ok[5], v->pct[5], "%.0f%%",
-                v->pct_ok[5] ? pct_color(p, v->pct[5]) : p->mut);
+                v->pct_ok[5] ? pct_color_at(p, 5, v->pct[5]) : p->mut);
     row_bar_set(c, 4, v->pct_ok[5] ? v->pct[5] : 0.0,
-                v->pct_ok[5] ? pct_color(p, v->pct[5]) : p->mut);
+                v->pct_ok[5] ? pct_color_at(p, 5, v->pct[5]) : p->mut);
     set_num_lbl(c->row_val[5], v->pct_ok[4], v->pct[4], "%.0f%%",
-                v->pct_ok[4] ? pct_color(p, v->pct[4]) : p->mut);
+                v->pct_ok[4] ? pct_color_at(p, 4, v->pct[4]) : p->mut);
     row_bar_set(c, 5, v->pct_ok[4] ? v->pct[4] : 0.0,
-                v->pct_ok[4] ? pct_color(p, v->pct[4]) : p->mut);
+                v->pct_ok[4] ? pct_color_at(p, 4, v->pct[4]) : p->mut);
 
-    /* 底部弹药条 = NPU */
+    /* 底部弹药条 = KV */
     row_seg_set(c, 0, v->pct_ok[2] ? v->pct[2] : 0.0,
                 v->pct_ok[2] ? pct_color(p, v->pct[2]) : p->mut);
 
@@ -1700,9 +1737,9 @@ static void apply_scope(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     apply_arc(c, p, c->arc_gpu, v->pct[1], v->pct_ok[1],
               v->pct_ok[1] ? (snprintf(buf, sizeof(buf), "%.0f%%",
                                        v->pct[1]), buf) : "--",
-              c->lbl_big[0], true);
+              c->lbl_big[0], true, false);
 
-    /* 四角：GPU / MEM / TEMP / PWR + NPU */
+    /* 四角：GPU / MEM / TEMP / PWR + KV */
     set_num_lbl(c->row_val[0], v->pct_ok[0], v->pct[0], "%.0f%%",
                 v->pct_ok[0] ? pct_color(p, v->pct[0]) : p->mut);
     set_text_if(c->row_val[1], v->ram_txt);
@@ -1741,7 +1778,7 @@ static void apply_heatsink(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     set_num_lbl(c->txt_lbl[3], v->pct_ok[0], v->pct[0], "GPU %.0f%%",
                 p->acc);
 
-    /* 三柱：GPU / VRAM / KV */
+    /* 三柱：GPU / VRAM / ACC */
     const uint32_t cols[3] = {p->acc, p->acc2, p->acc};
     const int pct_idx[3] = {0, -1, 5}; /* VRAM 用 vram_pct */
     const double vals[3] = {v->pct[0], v->vram_pct, v->pct[5]};
@@ -1760,10 +1797,14 @@ static void apply_heatsink(ui_classic_t *c, const pal_t *p, const cvals_t *v)
         snprintf(buf, sizeof(buf), "--");
     set_text_if(c->txt_lbl[4], buf);
     set_text_if(c->txt_lbl[5], v->ram_txt);
-    if (v->kv_text[3] != '\0' && v->kv_text[3] != '-')
-        snprintf(buf, sizeof(buf), "%s CTX", v->kv_text + 3);
-    else
-        snprintf(buf, sizeof(buf), "-- CTX");
+    /* 第三柱是 ACC（草稿接受率），柱底配草稿 token 总数，语义对齐 */
+    if (v->dt_ok) {
+        char tk[16];
+        fmt_tokens(v->draft_tokens, tk, sizeof(tk));
+        snprintf(buf, sizeof(buf), "DRAFT %s", tk);
+    } else {
+        snprintf(buf, sizeof(buf), "DRAFT --");
+    }
     set_text_if(c->txt_lbl[6], buf);
 }
 
@@ -1772,7 +1813,7 @@ static void apply_heatsink(ui_classic_t *c, const pal_t *p, const cvals_t *v)
 static void apply_loadout(ui_classic_t *c, const pal_t *p, const cvals_t *v)
 {
     char buf[40];
-    const int pct_idx[4] = {1, 0, 3, 4}; /* CPU GPU MEM DISK */
+    const int pct_idx[4] = {1, 0, 3, 4}; /* CPU GPU MEM HIT */
 
     for (int i = 0; i < 4; i++) {
         const int pi = pct_idx[i];
@@ -1792,9 +1833,7 @@ static void apply_loadout(ui_classic_t *c, const pal_t *p, const cvals_t *v)
         snprintf(buf, sizeof(buf), "--");
     set_text_if(c->txt_lbl[1], buf);
     set_text_if(c->txt_lbl[2], v->ram_txt);
-    if (v->vram_ok) snprintf(buf, sizeof(buf), "VRAM %.0f%%", v->vram_pct);
-    else snprintf(buf, sizeof(buf), "VRAM --");
-    set_text_if(c->txt_lbl[3], buf);
+    set_text_if(c->txt_lbl[3], v->cache_txt);
 
     if (v->t_ok && v->w_ok)
         snprintf(buf, sizeof(buf), "TEMP %.0fC • PWR %.0fW", v->temp,
@@ -1822,16 +1861,16 @@ static void apply_armor(ui_classic_t *c, const pal_t *p, const cvals_t *v)
     set_num_lbl(c->lbl_queue, v->q_ok, v->queue, "%.0f",
                 v->q_ok ? p->text : p->mut);
 
-    /* 核心：外环 GPU / 内环 KV / 中心 DECODE */
-    apply_arc(c, p, c->arc_gpu, v->pct[0], v->pct_ok[0], NULL, NULL, false);
-    apply_arc(c, p, c->arc_kv, v->pct[5], v->pct_ok[5], NULL, NULL, false);
+    /* 核心：外环 GPU / 内环 ACC / 中心 DECODE */
+    apply_arc(c, p, c->arc_gpu, v->pct[0], v->pct_ok[0], NULL, NULL, false, false);
+    apply_arc(c, p, c->arc_kv, v->pct[5], v->pct_ok[5], NULL, NULL, false, true);
     set_num_lbl(c->lbl_big[0], v->d_ok, v->decode, "%.1f", p->text);
 
-    /* 底部 KV 完整度条 */
+    /* 底部 ACC 完整度条 */
     row_bar_set(c, 0, v->pct_ok[5] ? v->pct[5] : 0.0,
-                v->pct_ok[5] ? pct_color(p, v->pct[5]) : p->mut);
+                v->pct_ok[5] ? pct_color_at(p, 5, v->pct[5]) : p->mut);
     set_text_if(c->lbl_kv_text, v->kv_text);
-    set_num_lbl(c->lbl_svc[0], v->pct_ok[5], v->pct[5], "INT %.0f%%",
+    set_num_lbl(c->lbl_svc[0], v->pct_ok[5], v->pct[5], "ACC %.0f%%",
                 v->pct_ok[5] ? p->acc2 : p->mut);
     (void)buf;
 }
@@ -1841,7 +1880,7 @@ static void apply_armor(ui_classic_t *c, const pal_t *p, const cvals_t *v)
 static void apply_sweep(ui_classic_t *c, const pal_t *p, const cvals_t *v)
 {
     char buf[48];
-    const int pct_idx[4] = {1, 3, 0, 4}; /* CPU MEM GPU DISK */
+    const int pct_idx[4] = {1, 3, 0, 4}; /* CPU MEM GPU HIT */
 
     for (int i = 0; i < 4; i++) {
         const int pi = pct_idx[i];
@@ -1851,10 +1890,13 @@ static void apply_sweep(ui_classic_t *c, const pal_t *p, const cvals_t *v)
                     v->pct_ok[pi] ? pct_color(p, v->pct[pi]) : p->mut);
     }
 
-    if (v->t_ok && v->w_ok)
-        snprintf(buf, sizeof(buf), "T %.0fC • P %.0fW • KV %.0f%%", v->temp,
-                 v->power, v->pct_ok[5] ? v->pct[5] : 0.0);
-    else
+    if (v->t_ok && v->w_ok) {
+        char acc[8];
+        if (v->pct_ok[5]) snprintf(acc, sizeof(acc), "%.0f%%", v->pct[5]);
+        else snprintf(acc, sizeof(acc), "--");
+        snprintf(buf, sizeof(buf), "T %.0fC • P %.0fW • ACC %s", v->temp,
+                 v->power, acc);
+    } else
         snprintf(buf, sizeof(buf), "T -- • P --");
     set_text_if(c->txt_lbl[0], buf);
     if (v->c_ok)

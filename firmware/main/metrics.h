@@ -3,7 +3,7 @@
  *
  * 支持 halogen / gufo（llama.cpp 系）、strata、LM Studio、Ollama、OpenAI 兼容。
  * halogen/gufo 的 TPS 用 /metrics 计数器做区间差分；
- * strata 直接读 /api/monitor；
+ * strata 读官方 /v1/status + /metrics（JSON，含 GPU/内存）；
  * 功耗/温度/uptime 可由可选的主机监控 agent 补齐。
  */
 #ifndef METRICS_H

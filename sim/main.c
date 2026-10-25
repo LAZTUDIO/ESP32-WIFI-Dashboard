@@ -40,16 +40,15 @@ static void seed_classic_metrics(void)
     dash_metric_store_set_bool("llm.online", true, true);
     dash_metric_store_set_bool("llm.busy", true, true);
     dash_metric_store_set_string("llm.phase", "DECODE", true);
-    dash_metric_store_set_bool("tts.loaded", true, true);
-    dash_metric_store_set_bool("embed.loaded", false, true);
+    dash_metric_store_set_bool("llm.cache_enabled", true, true);
+    dash_metric_store_set_bool("llm.drafter_loaded", true, true);
     dash_metric_store_set_number("host.gpu_util_pct", 78.0, true);
     dash_metric_store_set_number("host.cpu_pct", 34.0, true);
-    dash_metric_store_set_number("npu.util_pct", 52.0, true);
     dash_metric_store_set_number("host.ram_used_mb", 12.4 * 1024.0, true);
     dash_metric_store_set_number("host.ram_total_mb", 32.0 * 1024.0, true);
-    dash_metric_store_set_number("host.disk_free_gb", 512.0, true);
-    dash_metric_store_set_number("host.disk_total_gb", 2000.0, true);
     dash_metric_store_set_number("llm.kv_pct", 61.0, true);
+    dash_metric_store_set_number("llm.cache_token_hit_rate", 74.0, true);
+    dash_metric_store_set_number("llm.draft_accept_pct", 82.0, true);
     dash_metric_store_set_number("llm.kv_used_tokens", 148000.0, true);
     dash_metric_store_set_number("llm.kv_pool_positions", 245760.0, true);
     dash_metric_store_set_number("llm.slots", 4.0, true);
@@ -65,6 +64,10 @@ static void seed_classic_metrics(void)
     dash_metric_store_set_number("host.gpu_vram_total_mb", 24.0 * 1024.0,
                                  true);
     dash_metric_store_set_number("llm.context_len", 32768.0, true);
+    dash_metric_store_set_number("llm.cache_bytes", 110.0, true);
+    dash_metric_store_set_number("llm.cache_cap_mb", 110.0, true);
+    dash_metric_store_set_number("llm.cache_entries", 18.0, true);
+    dash_metric_store_set_number("llm.draft_tokens", 178333.0, true);
 }
 
 static int run_classic(const char *theme, const char *out)

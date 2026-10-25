@@ -36,12 +36,12 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         log.exception("layout migration failed: %s", exc)
     store = MetricStore(catalog)
-    aggregator = Aggregator(settings, store)
+    forward = ForwardConfig(DATA_DIR / "forward.json")
+    aggregator = Aggregator(settings, store, forward)
     connections = ConnectionManager()
     devices = DeviceRegistry(
         DATA_DIR / "devices.json", LAYOUT_DIR, SHARED_DIR / "presets"
     )
-    forward = ForwardConfig(DATA_DIR / "forward.json")
 
     app.state.settings = settings
     app.state.catalog = catalog
@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
     app.state.forward = forward
 
     await aggregator.start()
+    await aggregator.attach_forward()
     broadcast_task = asyncio.create_task(
         connections.run(store, 1.0), name="ws-broadcast"
     )

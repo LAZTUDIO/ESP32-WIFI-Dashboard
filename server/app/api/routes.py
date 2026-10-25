@@ -400,11 +400,13 @@ def get_forward(request: Request) -> dict[str, Any]:
 
 
 @router.put("/forward")
-def update_forward(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+async def update_forward(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     try:
         request.app.state.forward.update(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 上游变了，镜像到 store 的适配器要按新地址重新挂载
+    await request.app.state.aggregator.attach_forward()
     return {"ok": True, **_forward_payload(request)}
 
 
@@ -716,6 +718,24 @@ def list_layouts(request: Request) -> list[dict[str, Any]]:
     return result
 
 
+def _device_visible_ids(
+    store: Any, ids: set[str] | None, device_id: str | None
+) -> set[str] | None:
+    """设备连接只收 source=server 的指标；编辑器 viewer 收全部。
+
+    订阅那一刻的即时快照也必须走同一过滤，否则 a:false 的 api 指标会立刻
+    把设备本地刚采集到的值覆盖成 `--`（现场表现就是整屏数据闪成 0）。
+    """
+    if not device_id:
+        return ids
+    base = ids if ids is not None else set(store.values.keys())
+    return {
+        mid
+        for mid in base
+        if store.catalog.metrics.get(mid, {}).get("source") != "api"
+    }
+
+
 @ws_router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -772,11 +792,15 @@ async def websocket_endpoint(
                         ", ".join(sorted(ids)),
                     )
                     manager.set_subscription(websocket, ids or None)
-                    await websocket.send_json(store.snapshot(ids or None))
+                    await websocket.send_json(
+                        store.snapshot(_device_visible_ids(store, ids or None, device_id))
+                    )
                 else:
                     log.info("ws subscribe: all metrics")
                     manager.set_subscription(websocket, None)
-                    await websocket.send_json(store.snapshot())
+                    await websocket.send_json(
+                        store.snapshot(_device_visible_ids(store, None, device_id))
+                    )
             elif kind == "ping":
                 await websocket.send_json({"type": "pong"})
             elif kind == "status" and device_id:

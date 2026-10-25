@@ -126,6 +126,38 @@ def _normalize_alt(
             widget.pop("alt", None)
 
 
+def drop_unknown_bindings(layout: dict[str, Any], catalog: Catalog) -> int:
+    """摘掉目录里已不存在的测点绑定，返回摘除数量。
+
+    测点目录 v2 只收引擎 API 实测能交付的字段，旧布局里指向已删测点
+    （如 host.ssd_life_pct / tts.loaded）的绑定既不能静默失效，也不该
+    阻止布局保存：统一在建屏与保存前摘除，界面回退为 `--`。
+    """
+    removed = 0
+    for widget in iter_widgets(layout):
+        bindings = widget.get("bindings")
+        if isinstance(bindings, dict):
+            for key in [
+                k
+                for k, v in bindings.items()
+                if isinstance(v, str) and v and v not in catalog.metrics
+            ]:
+                bindings.pop(key)
+                removed += 1
+        options = widget.get("options")
+        rows = options.get("rows") if isinstance(options, dict) else None
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            metric_id = row.get("binding")
+            if isinstance(metric_id, str) and metric_id and metric_id not in catalog.metrics:
+                row["binding"] = ""
+                removed += 1
+    return removed
+
+
 def _as_v2(layout: dict[str, Any]) -> dict[str, Any]:
     if layout.get("v") == 2 and isinstance(layout.get("pages"), list):
         return layout
@@ -148,6 +180,7 @@ def normalize_layout(
 ) -> dict[str, Any] | None:
     """返回单页归一化后的新布局；放不下时返回 None。"""
     result = _as_v2(copy.deepcopy(layout))
+    drop_unknown_bindings(result, catalog)
     result.pop("page_animation", None)
     result["v"] = 2
     result["theme"] = catalog.resolve_theme(result.get("theme"))

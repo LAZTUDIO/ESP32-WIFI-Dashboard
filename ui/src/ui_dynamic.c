@@ -510,8 +510,8 @@ static bool parse_widget(cJSON *wj, dyn_widget_t *w)
         b = find_binding(w, "phase");
         if (b) w->phase_metric = b->metric;
     } else if (w->type == DYN_SERVER) {
-        static const char *keys[4] = {"cpu", "ram_used", "gpu_temp", "ip"};
-        static const char *labels_fallback[4] = {"CPU", "内存", "GPU", "IP"};
+        static const char *keys[4] = {"cpu", "ram_used", "gpu_temp", "text"};
+        static const char *labels_fallback[4] = {"CPU", "内存", "GPU", "版本"};
         for (int i = 0; i < 4; i++) {
             copy_str(w->server[i].key, sizeof(w->server[i].key), keys[i]);
             copy_str(w->server[i].label, sizeof(w->server[i].label),
@@ -1664,7 +1664,7 @@ static void apply_widget(dyn_widget_t *w)
                     snprintf(buf, sizeof(buf), "%s / %s", used, total);
                     text = buf;
                 }
-            } else if (strcmp(w->server[i].key, "ip") == 0) {
+            } else if (strcmp(w->server[i].key, "text") == 0) {
                 const dash_metric_t *m = w->server[i].metric;
                 text = (m && m->available) ? m->text : "--";
             } else {
