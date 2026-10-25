@@ -131,7 +131,17 @@ static void cmd_snapshot(void)
     }
 
     uint8_t *packed = NULL;
-    const uint8_t *rgba = (const uint8_t *)snap->data;
+    uint8_t *rgba = (uint8_t *)snap->data;
+    /* LVGL 的 ARGB8888 在小端机上按 B,G,R,A 存储，lodepng_encode32 需要 R,G,B,A；
+       不转换会让截图红蓝互换，误判面板颜色。 */
+    for (int y = 0; y < h; y++) {
+        uint8_t *row = rgba + (size_t)y * stride;
+        for (int x = 0; x < w; x++) {
+            uint8_t b = row[x * 4];
+            row[x * 4] = row[x * 4 + 2];
+            row[x * 4 + 2] = b;
+        }
+    }
     if (stride != (size_t)w * 4) {
         packed = heap_caps_malloc((size_t)w * h * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (packed) {
@@ -205,11 +215,9 @@ static void print_stats(const char *prefix)
     if (ui_dynamic_active()) {
         ui_dynamic_perf_t p;
         ui_dynamic_perf(&p);
-        printf("  ui: apply last/avg/max=%lld/%lld/%lld us n=%lu "
-               "page=%lld ms\n",
+        printf("  ui: apply last/avg/max=%lld/%lld/%lld us n=%lu\n",
                (long long)p.apply_last_us, (long long)p.apply_avg_us,
-               (long long)p.apply_max_us, (unsigned long)p.apply_count,
-               (long long)p.page_last_ms);
+               (long long)p.apply_max_us, (unsigned long)p.apply_count);
     }
     fflush(stdout);
 }
@@ -488,51 +496,6 @@ static bool ensure_perf_task(void)
     return true;
 }
 
-/* ============================ 合成滑动手势 ============================ */
-
-static lv_indev_t *s_test_indev;
-static int64_t s_test_t0;
-
-static void test_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
-{
-    (void)indev;
-    int64_t dt = (esp_timer_get_time() - s_test_t0) / 1000;
-    if (dt < 120) {
-        data->point.x = 270;
-        data->point.y = 240;
-        data->state = LV_INDEV_STATE_PRESSED;
-    } else if (dt < 520) {
-        data->point.x = 270 - (int32_t)((dt - 120) * 210 / 400);
-        data->point.y = 240;
-        data->state = LV_INDEV_STATE_PRESSED;
-    } else {
-        data->point.x = 60;
-        data->point.y = 240;
-        data->state = LV_INDEV_STATE_RELEASED;
-    }
-    data->continue_reading = false;
-}
-
-static void test_indev_del_cb(lv_timer_t *t)
-{
-    if (s_test_indev) {
-        lv_indev_delete(s_test_indev);
-        s_test_indev = NULL;
-    }
-    lv_timer_delete(t);
-}
-
-static void test_swipe_start(void)
-{
-    if (s_test_indev) return;
-    s_test_t0 = esp_timer_get_time();
-    s_test_indev = lv_indev_create();
-    lv_indev_set_type(s_test_indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(s_test_indev, test_read_cb);
-    lv_timer_create(test_indev_del_cb, 1000, NULL);
-    printf("[I] dbg: synthetic swipe started\n");
-}
-
 /* ============================ 命令解析 ============================ */
 
 static void handle_line(char *line)
@@ -569,92 +532,9 @@ static void handle_line(char *line)
         printf("[I] dbg: requesting provisioning mode\n");
         app_request_provisioning();
         break;
-    case 'p':
-        if (lvgl_port_lock(300)) {
-            ui_dynamic_set_page(atoi(line + 1));
-            lvgl_port_unlock();
-        }
-        break;
-    case 'T': {
-        int target = 1, delay_ms = 80;
-        sscanf(line + 1, "%d %d", &target, &delay_ms);
-        if (delay_ms < 20) delay_ms = 20;
-        if (delay_ms > 2000) delay_ms = 2000;
-        if (lvgl_port_lock(500)) {
-            ui_dynamic_set_page(target);
-            lvgl_port_unlock();
-        }
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
-        cmd_snapshot();
-        break;
-    }
-    case 'v':
-        if (lvgl_port_lock(300)) {
-            ui_dynamic_set_page_anim(atoi(line + 1));
-            lvgl_port_unlock();
-        }
-        printf("[I] dbg: page anim=%d (0 none/1 slide/2 fade/3 stack/4 zoom/5 flip/6 rotate)\n",
-               ui_dynamic_page_anim());
-        fflush(stdout);
-        break;
-    case 'S':
-        if (lvgl_port_lock(500)) {
-            test_swipe_start();
-            lvgl_port_unlock();
-        }
-        break;
-    case 'f': {
-        if (!ui_dynamic_active()) {
-            printf("[W] dbg: dynamic UI not active\n");
-            break;
-        }
-        int count = ui_dynamic_page_count();
-        if (count < 2) {
-            printf("[W] dbg: layout has only %d page\n", count);
-            break;
-        }
-        int target = 1;
-        const char *arg = line + 1;
-        while (*arg == ' ' || *arg == '\t' || *arg == '\r' || *arg == '\n') {
-            arg++;
-        }
-        if (*arg) target = atoi(arg);
-        if (target < 0 || target >= count) target = count - 1;
-
-        ui_dynamic_perf_t p0, p1;
-        int mode = ui_dynamic_page_anim();
-        ui_dynamic_perf(&p0);
-        uint32_t f0 = display_get_frame_count();
-        int64_t t0 = esp_timer_get_time();
-        if (lvgl_port_lock(500)) {
-            ui_dynamic_set_page(target);
-            lvgl_port_unlock();
-        }
-        do {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            ui_dynamic_perf(&p1);
-        } while (p1.page_swaps == p0.page_swaps &&
-                 esp_timer_get_time() - t0 < 1500000);
-        if (mode != 0 && mode != 1) {
-            vTaskDelay(pdMS_TO_TICKS(400));
-            ui_dynamic_perf(&p1);
-        }
-        int64_t dt = esp_timer_get_time() - t0;
-        uint32_t f1 = display_get_frame_count();
-        printf("[I] dbg: page->%d/%d fps=%.1f frames=%u dt=%lldms anim=%lldms"
-               " trans=%lldms\n",
-               target, count, (double)(f1 - f0) * 1e6 / (double)dt,
-               (unsigned)(f1 - f0),
-               (long long)(dt / 1000), (long long)p1.page_last_ms,
-               (long long)p1.trans_last_ms);
-        fflush(stdout);
-        break;
-    }
     case '?':
         printf("commands: s=snapshot  h=stats  b=bench refresh  B=render/transfer  "
-               "a=small anim fps  A=full anim fps  p <0-3>=page  "
-               "f <page>=page-flip fps  T <page> <ms>=mid-transition snapshot  "
-               "v <0-6>=page anim  S=synthetic swipe  "
+               "a=small anim fps  A=full anim fps  "
                "w <ssid>|<pass>=wifi  c <url>|<key>=api  o <url>=host  "
                "d <url>=dashboard  m=dump metrics  P=provision\n");
         break;

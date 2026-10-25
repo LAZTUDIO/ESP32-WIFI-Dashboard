@@ -15,6 +15,7 @@ from .core.catalog import load_catalog
 from .core.connections import ConnectionManager
 from .core.devices import DeviceRegistry
 from .core.forward import ForwardConfig
+from .core.migrate import migrate_layouts
 from .core.store import MetricStore
 
 logging.basicConfig(
@@ -30,6 +31,10 @@ async def lifespan(app: FastAPI):
     settings = load_settings()
     LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
     catalog = load_catalog()
+    try:
+        migrate_layouts(apply=True)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("layout migration failed: %s", exc)
     store = MetricStore(catalog)
     aggregator = Aggregator(settings, store)
     connections = ConnectionManager()

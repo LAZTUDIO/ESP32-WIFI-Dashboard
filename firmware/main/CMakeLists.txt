@@ -3,6 +3,8 @@ idf_component_register(
          "app_config.c" "wifi_mgr.c" "portal.c" "api_client.c" "metrics.c"
          "dashboard_client.c" "device_api.c"
          "../../ui/src/ui_widgets.c"
+         "../../ui/src/ui_pet.c"
+         "../../ui/src/ui_mini.c"
          "../../ui/src/font_cjk_16.c"
          "../../ui/src/dash_metric_store.c" "../../ui/src/ui_dynamic.c"
     INCLUDE_DIRS "." "../../ui/include"

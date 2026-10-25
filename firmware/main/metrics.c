@@ -1009,7 +1009,9 @@ void metrics_init(void)
 bool metrics_poll(const app_config_t *cfg, dash_metrics_t *out)
 {
     memset(out, 0, sizeof(*out));
-    s_last_ok = false;
+    /* 不要在轮询开始时清 s_last_ok：一次轮询要几百毫秒到 1.5 秒，
+     * WS status 会在这段时间读到 false，表现为 api_ok 每秒闪烁。
+     * 只有本次轮询真正失败时才在 failed 分支置 false。 */
 
     if (!s_buf || !s_small) return false;
 

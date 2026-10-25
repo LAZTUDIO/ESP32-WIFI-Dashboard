@@ -26,22 +26,22 @@ LV_FONT_DECLARE(lv_font_cjk_16);
 
 /* ============================== 设计 Token（默认值） ============================== */
 
-#define UI_BG        0x080B10u
-#define UI_SURFACE   0x121822u
-#define UI_SURFACE_2 0x18202Cu
-#define UI_BORDER    0x263242u
+#define UI_BG        0x070B14u
+#define UI_SURFACE   0x0B1424u
+#define UI_SURFACE_2 0x101B30u
+#define UI_BORDER    0x1B4A5Au
 
-#define UI_TEXT      0xEDF2F8u
-#define UI_TEXT_DIM  0x8C9BAEu
-#define UI_TEXT_MUT  0x5A6B80u
+#define UI_TEXT      0xC9E8F2u
+#define UI_TEXT_DIM  0x5F8296u
+#define UI_TEXT_MUT  0x3E5A6Bu
 
-#define UI_ACCENT    0x4D8DFFu
-#define UI_ACCENT_2  0x8B5CF6u
-#define UI_CYAN      0x22D3EEu
-#define UI_OK        0x34D399u
-#define UI_WARN      0xFB923Cu
-#define UI_ERR       0xF87171u
-#define UI_PINK      0xF472B6u
+#define UI_ACCENT    0x00E5FFu
+#define UI_ACCENT_2  0xFF3D8Bu
+#define UI_CYAN      0x00E5FFu
+#define UI_OK        0x9DFF00u
+#define UI_WARN      0xFFB300u
+#define UI_ERR       0xFF5347u
+#define UI_PINK      0xFF78A0u
 
 #define UI_SP_XS 4
 #define UI_SP_S  8
@@ -68,6 +68,32 @@ LV_FONT_DECLARE(lv_font_cjk_16);
 
 /* ============================== 运行时配色 ============================== */
 
+typedef enum {
+    UI_SKIN_NEON = 0,
+    UI_SKIN_MINIMAL,
+    UI_SKIN_VINTAGE,
+    UI_SKIN_VITAL,
+} ui_skin_t;
+
+typedef enum {
+    UI_FONT_SANS = 0,
+    UI_FONT_MONO,
+} ui_font_style_t;
+
+typedef enum {
+    UI_DECO_NONE = 0,
+    UI_DECO_CORNERS,
+    UI_DECO_TICKS,
+    UI_DECO_PULSE,
+} ui_deco_t;
+
+typedef enum {
+    UI_PET_CYBER = 0,
+    UI_PET_BLOB,
+    UI_PET_BRASS,
+    UI_PET_PULSE,
+} ui_pet_style_t;
+
 typedef struct {
     uint32_t bg;
     uint32_t surface;
@@ -84,6 +110,18 @@ typedef struct {
     uint32_t err;
     uint32_t pink;
     int radius;
+    /* 四套皮肤扩展字段 */
+    ui_skin_t skin;
+    uint32_t surface_grad_from;
+    uint32_t surface_grad_to;
+    uint32_t glow;
+    int glow_opa;
+    int border_width;
+    int corner_len;
+    ui_font_style_t font_style;
+    int tracking;
+    ui_deco_t deco;
+    ui_pet_style_t pet_style;
 } ui_theme_t;
 
 /** 把 t 填成经典配色（不依赖当前主题）。 */

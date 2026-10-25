@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>ESP32-WIFI-Dashboard 0.3 · 布局编辑器</title>
-  <link rel="stylesheet" href="style.css?v=0.3.1">
+  <title>ESP32-WIFI-Dashboard 0.6 · 布局编辑器</title>
+  <link rel="stylesheet" href="style.css?v=0.6.5">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-dot"></span> ESP32-WIFI-Dashboard <span class="brand-ver">0.3</span></div>
+    <div class="brand"><span class="brand-dot"></span> ESP32-WIFI-Dashboard <span class="brand-ver">0.6</span></div>
     <div class="toolbar">
       <a class="btn ghost" href="/console/">← 控制台</a>
       <span id="conn" class="conn">连接中…</span>
-      <label class="profile-label">画布
+      <label class="profile-label">方向
         <select id="profile-select"></select>
       </label>
       <label class="profile-label">配色
@@ -50,24 +50,10 @@
     <section class="stage">
       <div class="stage-head">
         <div><span id="canvas-title">320 × 480</span><span id="dirty" class="dirty hidden">未保存</span></div>
-        <span class="muted">拖动边框移动 · 右下角缩放</span>
+        <span class="muted">拖动移动 · 右下角缩放（吸附合法尺寸）</span>
       </div>
-      <div class="page-bar">
-        <div id="page-tabs" class="page-tabs"></div>
-        <div class="page-actions">
-          <select id="page-animation" title="翻页动画">
-            <option value="slide">滑动（跟手）</option>
-            <option value="fade">淡入</option>
-            <option value="stack">层叠</option>
-            <option value="zoom">缩放</option>
-            <option value="flip">翻转</option>
-            <option value="rotate">旋转</option>
-            <option value="none">无</option>
-          </select>
-          <button id="add-page" class="btn small" type="button">+ 页面</button>
-          <button id="copy-page" class="btn small" type="button">复制页</button>
-          <button id="delete-page" class="btn small" type="button">删除页</button>
-        </div>
+      <div class="stage-note">
+        <span class="muted">单页 12×18 / 18×12 · 组件尺寸 2/3/4/6 及整倍数</span>
       </div>
       <div class="canvas-scroll">
         <div class="canvas-wrap" id="canvas-wrap">
@@ -120,6 +106,6 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="app.js?v=0.3.3"></script>
+  <script src="app.js?v=0.6.5"></script>
 </body>
 </html>

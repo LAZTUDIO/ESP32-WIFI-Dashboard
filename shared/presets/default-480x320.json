@@ -1,12 +1,129 @@
 {
-  "v": 1,
+  "v": 2,
   "profile": "480x320",
-  "theme": "classic",
-  "widgets": [
-    {"id": "w-status", "type": "status_pill", "x": 0, "y": 0, "w": 16, "h": 2, "bindings": {"online": "llm.online", "model": "llm.model", "phase": "llm.phase"}, "options": {}},
-    {"id": "w-dec", "type": "kpi", "x": 0, "y": 2, "w": 5, "h": 4, "bindings": {"value": "llm.decode_tps"}, "options": {"title": "解码速度"}},
-    {"id": "w-spark", "type": "sparkline", "x": 5, "y": 2, "w": 6, "h": 4, "bindings": {"value": "llm.decode_tps"}, "options": {"title": "解码速度趋势"}},
-    {"id": "w-pre", "type": "kpi", "x": 11, "y": 2, "w": 5, "h": 4, "bindings": {"value": "llm.prefill_tps"}, "options": {"title": "预填充"}},
-    {"id": "w-server", "type": "server_card", "x": 0, "y": 6, "w": 16, "h": 4, "bindings": {"cpu": "host.cpu_pct", "ram_used": "host.ram_used_mb", "ram_total": "host.ram_total_mb", "gpu_temp": "host.gpu_temp_c", "ip": "host.lan_ip"}, "options": {"title": "服务器"}}
+  "theme": "neon-cyber",
+  "pages": [
+    {
+      "name": "主页",
+      "widgets": [
+        {
+          "id": "w-status",
+          "type": "status_pill",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 2,
+          "bindings": {
+            "online": "llm.online",
+            "model": "llm.model",
+            "phase": "llm.phase"
+          },
+          "options": {},
+          "alt": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "w-dec",
+          "type": "kpi",
+          "x": 0,
+          "y": 8,
+          "w": 6,
+          "h": 4,
+          "bindings": {
+            "value": "llm.decode_tps"
+          },
+          "options": {
+            "title": "解码速度"
+          },
+          "alt": {
+            "x": 0,
+            "y": 8
+          }
+        },
+        {
+          "id": "w-power",
+          "type": "kpi",
+          "x": 6,
+          "y": 8,
+          "w": 6,
+          "h": 4,
+          "bindings": {
+            "value": "host.gpu_power_w"
+          },
+          "options": {
+            "title": "GPU 功耗"
+          },
+          "alt": {
+            "x": 6,
+            "y": 8
+          }
+        },
+        {
+          "id": "w-spark",
+          "type": "sparkline",
+          "x": 12,
+          "y": 0,
+          "w": 6,
+          "h": 6,
+          "bindings": {
+            "value": "llm.decode_tps"
+          },
+          "options": {
+            "title": "解码趋势"
+          },
+          "alt": {
+            "x": 0,
+            "y": 12
+          }
+        },
+        {
+          "id": "w-server",
+          "type": "server_card",
+          "x": 0,
+          "y": 2,
+          "w": 12,
+          "h": 6,
+          "bindings": {
+            "cpu": "host.cpu_pct",
+            "ram_used": "host.ram_used_mb",
+            "ram_total": "host.ram_total_mb",
+            "gpu_temp": "host.gpu_temp_c",
+            "ip": "host.lan_ip"
+          },
+          "options": {
+            "title": "服务器",
+            "show_title": false
+          },
+          "alt": {
+            "x": 0,
+            "y": 2
+          }
+        },
+        {
+          "id": "w-pet",
+          "type": "desktop_pet",
+          "x": 12,
+          "y": 6,
+          "w": 6,
+          "h": 6,
+          "bindings": {
+            "value": "llm.decode_tps",
+            "busy": "llm.busy"
+          },
+          "options": {
+            "title": "桌宠",
+            "sleep_below": 20,
+            "idle_below": 60,
+            "happy_below": 85
+          },
+          "alt": {
+            "x": 6,
+            "y": 12
+          }
+        }
+      ]
+    }
   ]
 }

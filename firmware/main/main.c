@@ -53,6 +53,16 @@ static volatile bool s_network_visible;
 static volatile int64_t s_server_down_since;   /* 0 表示还没连过服务端 */
 static bool s_portal_wait_online;   /* 配网层是在"没网"时打开的，联网后自动退出 */
 static bool s_portal_active;
+static char s_net_last_ip[16];      /* 已显示的 IP，DHCP 晚到时就靠它刷新网络页 */
+
+/* 横屏用 90/270，竖屏用 0/180；rot180 表示在基础方向再翻 180° */
+static int screen_rotation(const app_config_t *cfg)
+{
+    if (cfg && strcmp(cfg->profile, "480x320") == 0) {
+        return cfg->rot180 ? 270 : 90;
+    }
+    return (cfg && cfg->rot180) ? 180 : 0;
+}
 
 /* 0.2 动态看板的 JSON 全部走 PSRAM，给内部 RAM 留出余量 */
 static void *json_psram_malloc(size_t size)
@@ -123,16 +133,17 @@ bool app_runtime_apply_config(const app_config_t *cfg)
 
     bool need_reload = strcmp(old.dashboard_url, cfg->dashboard_url) != 0 ||
                        strcmp(old.device_id, cfg->device_id) != 0 ||
+                       strcmp(old.profile, cfg->profile) != 0 ||
                        old.rot180 != cfg->rot180;
-    if (old.rot180 != cfg->rot180) {
+    if (old.rot180 != cfg->rot180 || strcmp(old.profile, cfg->profile) != 0) {
         if (lvgl_port_lock(2000)) {
-            display_set_rotation(cfg->rot180 ? 180 : 0);
+            display_set_rotation(screen_rotation(cfg));
             lvgl_port_unlock();
         }
     }
     if (need_reload) {
         dashboard_client_reconfigure(cfg->dashboard_url, cfg->device_id,
-                                     cfg->rot180);
+                                     cfg->profile, cfg->rot180);
     }
     if (s_network_visible && !s_server_connected) {
         app_runtime_show_network(true);
@@ -173,6 +184,8 @@ void app_runtime_show_network(bool show)
     wifi_mgr_sta_ip(ip, sizeof(ip));
     app_config_t cfg;
     app_runtime_snapshot(&cfg);
+    ESP_LOGI(TAG, "network overlay %s: ip=%s server=%d", show ? "show" : "hide",
+             ip[0] ? ip : "(none)", s_server_connected ? 1 : 0);
     if (lvgl_port_lock(1000)) {
         ui_dynamic_show_network(show, cfg.wifi_ssid, ip, cfg.device_id,
                                 cfg.device_name, s_server_connected);
@@ -222,8 +235,20 @@ static void portal_task(void *arg)
 {
     (void)arg;
     while (1) {
-        if (s_portal_wait_online && wifi_mgr_sta_connected()) {
+        char ip[16] = "";
+        bool has_ip = wifi_mgr_sta_ip(ip, sizeof(ip));
+
+        /* 必须以拿到 DHCP 地址为准：关联成功（STA_CONNECTED）时还没有 IP，
+         * 此时收配网浮层会显示 “IP: --” 且不会再刷新。 */
+        if (s_portal_wait_online && has_ip) {
             leave_portal();
+        }
+
+        /* 配网浮层已收起但 IP 晚到（或续租变化）时，刷新网络信息页。 */
+        if (s_network_visible && !s_server_connected && has_ip &&
+            strcmp(ip, s_net_last_ip) != 0) {
+            snprintf(s_net_last_ip, sizeof(s_net_last_ip), "%s", ip);
+            app_runtime_show_network(true);
         }
         /* 服务端掉线 10 秒后重新开放管理 HTTP，允许按 IP 重新接入；
          * 在线时 HTTP 保持关闭，配置由 WS 下发。 */
@@ -334,7 +359,7 @@ void app_main(void)
     (void)touch_init(disp);
 
     if (lvgl_port_lock(2000)) {
-        display_set_rotation(s_cfg.rot180 ? 180 : 0);
+        display_set_rotation(screen_rotation(&s_cfg));
         lvgl_port_unlock();
     }
     ESP_LOGI(TAG, "rotation applied");
@@ -342,7 +367,8 @@ void app_main(void)
     wifi_mgr_init();
     ESP_LOGI(TAG, "wifi manager ready");
 
-    dashboard_client_start(s_cfg.dashboard_url, s_cfg.device_id, s_cfg.rot180);
+    dashboard_client_start(s_cfg.dashboard_url, s_cfg.device_id, s_cfg.profile,
+                           s_cfg.rot180);
     ESP_LOGI(TAG, "dashboard client started%s",
              s_cfg.dashboard_url[0] ? "" : " (waiting for server config)");
 

@@ -48,6 +48,7 @@ static const int k_font_sizes[FONT_SIZE_COUNT] = {11, 13, 15};
 
 static char s_base[160];
 static char s_device_id[24];
+static char s_profile[16] = "320x480";
 static bool s_rot180;
 static SemaphoreHandle_t s_client_lock;
 static volatile bool s_reload_requested;
@@ -56,13 +57,21 @@ static bool s_client_started;
 #define CLIENT_RELOAD_TOKEN 0xFFFFFFFFu
 
 static void client_snapshot(char *base, size_t cap, char *device_id,
-                            size_t id_cap, bool *rot)
+                            size_t id_cap, char *profile, size_t profile_cap,
+                            bool *rot)
 {
     if (s_client_lock) xSemaphoreTake(s_client_lock, portMAX_DELAY);
     if (base) snprintf(base, cap, "%s", s_base);
     if (device_id) snprintf(device_id, id_cap, "%s", s_device_id);
+    if (profile) snprintf(profile, profile_cap, "%s", s_profile);
     if (rot) *rot = s_rot180;
     if (s_client_lock) xSemaphoreGive(s_client_lock);
+}
+
+static int rotation_degrees(const char *profile, bool rot)
+{
+    if (strcmp(profile, "480x320") == 0) return rot ? 270 : 90;
+    return rot ? 180 : 0;
 }
 static char s_subscribe[2048];
 static char s_ws_uri[256];
@@ -140,8 +149,9 @@ static char *cache_read(size_t *out_len)
 
 static void build_ws_uri(void)
 {
-    char base[160], device_id[24];
-    client_snapshot(base, sizeof(base), device_id, sizeof(device_id), NULL);
+    char base[160], device_id[24], profile[16];
+    client_snapshot(base, sizeof(base), device_id, sizeof(device_id),
+                    profile, sizeof(profile), NULL);
     s_ws_uri[0] = '\0';
     if (!base[0] || !device_id[0]) return;
     const char *rest = base;
@@ -154,8 +164,8 @@ static void build_ws_uri(void)
     }
     size_t len = strlen(rest);
     while (len > 0 && rest[len - 1] == '/') len--;
-    snprintf(s_ws_uri, sizeof(s_ws_uri), "%s%.*s/ws?device_id=%s", scheme,
-             (int)len, rest, device_id);
+    snprintf(s_ws_uri, sizeof(s_ws_uri), "%s%.*s/ws?device_id=%s&profile=%s",
+             scheme, (int)len, rest, device_id, profile);
 }
 
 static void send_subscribe(void)
@@ -206,6 +216,7 @@ static bool config_same(const app_config_t *a, const app_config_t *b)
            strcmp(a->api_key, b->api_key) == 0 &&
            strcmp(a->provider, b->provider) == 0 &&
            strcmp(a->host_agent, b->host_agent) == 0 &&
+           strcmp(a->profile, b->profile) == 0 &&
            a->rot180 == b->rot180;
 }
 
@@ -227,6 +238,11 @@ static void apply_ws_config(cJSON *node)
     }
     cJSON *rot = cJSON_GetObjectItemCaseSensitive(node, "rot180");
     if (cJSON_IsBool(rot)) next.rot180 = cJSON_IsTrue(rot);
+    const char *profile = json_str(node, "profile");
+    if (profile && (strcmp(profile, "320x480") == 0 ||
+                    strcmp(profile, "480x320") == 0)) {
+        snprintf(next.profile, sizeof(next.profile), "%s", profile);
+    }
     config_normalize(&next);
 
     app_config_t cur;
@@ -343,10 +359,11 @@ static void font_release_old(void)
     }
 }
 
-static void font_sync(void)
+static void font_sync_body(void)
 {
-    char base[160], device_id[24];
-    client_snapshot(base, sizeof(base), device_id, sizeof(device_id), NULL);
+    char base[160], device_id[24], profile[16];
+    client_snapshot(base, sizeof(base), device_id, sizeof(device_id),
+                    profile, sizeof(profile), NULL);
     if (!base[0] || !device_id[0]) return;
 
     char sha[FONT_SIZE_COUNT][80];
@@ -374,9 +391,9 @@ static void font_sync(void)
     }
 
     char meta[1536];
-    char meta_path[160];
+    char meta_path[192];
     snprintf(meta_path, sizeof(meta_path),
-             "/api/v1/devices/%s/font/meta?profile=320x480", device_id);
+             "/api/v1/devices/%s/font/meta?profile=%s", device_id, profile);
     int n = api_get_path(base, meta_path, NULL, meta, sizeof(meta), 3000);
     if (n <= 0) {
         ESP_LOGI(TAG, "font meta unavailable (%d), keep builtin font", n);
@@ -423,10 +440,10 @@ static void font_sync(void)
                 break;
             }
         }
-        char url[160];
+        char url[192];
         snprintf(url, sizeof(url),
-                 "/api/v1/devices/%s/font?profile=320x480&size=%d", device_id,
-                 px);
+                 "/api/v1/devices/%s/font?profile=%s&size=%d", device_id,
+                 profile, px);
         int len = api_get_path(base, url, NULL, buf, FONT_MAX_BYTES + 1,
                                10000);
         if (len <= 0) {
@@ -481,6 +498,16 @@ static void font_sync(void)
     cJSON_Delete(root);
 }
 
+/** binfont 由大量 <16KB 的小块组成，默认 malloc 会全部落内部 RAM
+ *  （三档合计约 50KB），把布局下载和 WebSocket 任务挤死。
+ *  加载期间把所有 malloc 引到 PSRAM，加载完恢复默认阈值。 */
+static void font_sync(void)
+{
+    heap_caps_malloc_extmem_enable(1);
+    font_sync_body();
+    heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+}
+
 static uint32_t layout_hash(const char *s, size_t n)
 {
     uint32_t h = 2166136261u;
@@ -493,9 +520,10 @@ static uint32_t layout_hash(const char *s, size_t n)
 
 static bool fetch_and_build(bool allow_cache)
 {
-    char base[160], device_id[24];
+    char base[160], device_id[24], profile[16];
     bool rot = false;
-    client_snapshot(base, sizeof(base), device_id, sizeof(device_id), &rot);
+    client_snapshot(base, sizeof(base), device_id, sizeof(device_id),
+                    profile, sizeof(profile), &rot);
     if (!base[0] || !device_id[0]) return false;
 
     int64_t t_start = esp_timer_get_time();
@@ -506,9 +534,10 @@ static bool fetch_and_build(bool allow_cache)
         return false;
     }
 
-    char layout_path[160];
+    char layout_path[192];
     snprintf(layout_path, sizeof(layout_path),
-             "/api/v1/devices/%s/layout?profile=320x480&resolved=1", device_id);
+             "/api/v1/devices/%s/layout?profile=%s&resolved=1", device_id,
+             profile);
     int len = api_get_path(base, layout_path, NULL, buf, LAYOUT_BUF_SIZE, 6000);
     bool from_cache = false;
     if (len <= 0 && allow_cache) {
@@ -541,7 +570,7 @@ static bool fetch_and_build(bool allow_cache)
     int next_widgets = ui_dynamic_json_widget_count(buf);
     bool ok = false;
     if (lvgl_port_lock(3000)) {
-        display_set_rotation(rot ? 180 : 0);
+        display_set_rotation(rotation_degrees(profile, rot));
         bool active = ui_dynamic_active();
         bool atomic = !active ||
                       (ui_dynamic_widget_count() <= ATOMIC_MAX_WIDGETS &&
@@ -723,9 +752,10 @@ static void dashboard_task(void *arg)
     bool built = false;
     bool ws_started = false;
     while (1) {
-        char base[160], device_id[24];
+        char base[160], device_id[24], profile[16];
         bool rot = false;
-        client_snapshot(base, sizeof(base), device_id, sizeof(device_id), &rot);
+        client_snapshot(base, sizeof(base), device_id, sizeof(device_id),
+                        profile, sizeof(profile), &rot);
 
         if (s_reload_requested) {
             s_reload_requested = false;
@@ -734,7 +764,8 @@ static void dashboard_task(void *arg)
             ws_started = false;
             s_layout_ready = false;
             s_layout_hash = 0;
-            ESP_LOGI(TAG, "dashboard reload: %s device=%s", base, device_id);
+            ESP_LOGI(TAG, "dashboard reload: %s device=%s profile=%s", base,
+                     device_id, profile);
             continue;
         }
 
@@ -810,16 +841,18 @@ static void dashboard_task(void *arg)
 }
 
 void dashboard_client_start(const char *dashboard_url, const char *device_id,
-                            bool rot180)
+                            const char *profile, bool rot180)
 {
     if (s_client_started) {
-        dashboard_client_reconfigure(dashboard_url, device_id, rot180);
+        dashboard_client_reconfigure(dashboard_url, device_id, profile, rot180);
         return;
     }
     if (!s_client_lock) s_client_lock = xSemaphoreCreateMutex();
     if (s_client_lock) xSemaphoreTake(s_client_lock, portMAX_DELAY);
     snprintf(s_base, sizeof(s_base), "%s", dashboard_url ? dashboard_url : "");
     snprintf(s_device_id, sizeof(s_device_id), "%s", device_id ? device_id : "");
+    snprintf(s_profile, sizeof(s_profile), "%s",
+             (profile && profile[0]) ? profile : "320x480");
     s_rot180 = rot180;
     if (s_client_lock) xSemaphoreGive(s_client_lock);
 
@@ -840,22 +873,28 @@ void dashboard_client_start(const char *dashboard_url, const char *device_id,
 }
 
 void dashboard_client_reconfigure(const char *dashboard_url,
-                                  const char *device_id, bool rot180)
+                                  const char *device_id, const char *profile,
+                                  bool rot180)
 {
     if (!s_client_started) {
-        dashboard_client_start(dashboard_url, device_id, rot180);
+        dashboard_client_start(dashboard_url, device_id, profile, rot180);
         return;
     }
     if (!s_client_lock) s_client_lock = xSemaphoreCreateMutex();
-    char old_base[160], old_id[24];
-    client_snapshot(old_base, sizeof(old_base), old_id, sizeof(old_id), NULL);
+    char old_base[160], old_id[24], old_profile[16];
+    client_snapshot(old_base, sizeof(old_base), old_id, sizeof(old_id),
+                    old_profile, sizeof(old_profile), NULL);
     const char *url = dashboard_url ? dashboard_url : "";
     const char *id = device_id ? device_id : "";
-    bool changed = strcmp(old_base, url) != 0 || strcmp(old_id, id) != 0;
+    const char *next_profile =
+        (profile && profile[0]) ? profile : "320x480";
+    bool changed = strcmp(old_base, url) != 0 || strcmp(old_id, id) != 0 ||
+                   strcmp(old_profile, next_profile) != 0;
 
     if (s_client_lock) xSemaphoreTake(s_client_lock, portMAX_DELAY);
     snprintf(s_base, sizeof(s_base), "%s", url);
     snprintf(s_device_id, sizeof(s_device_id), "%s", id);
+    snprintf(s_profile, sizeof(s_profile), "%s", next_profile);
     s_rot180 = rot180;
     if (s_client_lock) xSemaphoreGive(s_client_lock);
 

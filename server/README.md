@@ -80,7 +80,7 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 - 指标目录：`shared/catalog/metrics.json`
 - 组件目录：`shared/catalog/widgets.json`
 - 画布 profile：`shared/catalog/profiles.json`
-- 配色主题：`shared/catalog/themes.json`（经典 / STRIX / TUF；编辑器下拉与设备共用）
+- 配色主题：`shared/catalog/themes.json`（霓虹赛博 / 极简流光 / 复古机械 / 律动健身；每套带组件皮肤，编辑器下拉与设备共用）
 - 布局 schema：`shared/schema/layout.schema.json`
 - 协议说明：`shared/protocol.md`
 - 默认布局：`shared/presets/default-*.json`
@@ -118,5 +118,6 @@ Windows 第一次从手机访问时，防火墙可能会弹窗，需要允许专
 
 - 「专用服务端 · <分组>」只列服务端快照里当前有值的指标
 - 「设备直连 · <类型>」或「服务端转发 · <类型>」只列该类型 `providers` 包含的 API 测点
+- 设备 WS 连接只接收 `source=server` 的指标；`source=api` 的测点由设备直连/转发本地采集，服务端不再用 `a:false` 覆盖
 - 「设备主机监控 · <分组>」在该屏配置了主机监控地址（`host_agent`）时出现，列出设备由 host agent 轮询得到的硬件测点
 - 转发未启用、类型未识别、API 断开时在下拉里给出对应提示，不再把全部测点混在一起

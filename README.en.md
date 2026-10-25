@@ -2,15 +2,15 @@
 
 English | [简体中文](README.md)
 
-A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware supports two data paths at the same time: **direct legacy API polling** (halogen / gufo / strata / LM Studio / Ollama) and a **dedicated dashboard server** (layout/theme + WebSocket metrics). Widgets, multi-page layouts and **three colour themes (Classic / STRIX / TUF)** are all configured in the browser editor with WYSIWYG preview.
+A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware supports two data paths at the same time: **direct legacy API polling** (halogen / gufo / strata / LM Studio / Ollama) and a **dedicated dashboard server** (layout/theme + WebSocket metrics). Widgets, single-page layouts and **four colour themes (Neon Cyber / Minimal Air / Vintage Gauge / Vital Pulse)** are all configured in the browser editor with WYSIWYG preview.
 
 > Hardware: Waveshare **ESP32-S3-Touch-LCD-3.5-C** (ESP32-S3R8, 16 MB flash + 8 MB PSRAM, 320×480 ST7796 SPI panel + FT6336 touch)
 
 ## Features
 
 - **Dynamic layout** — the server pushes widget/grid layouts and the device hot-reloads them without rebooting
-- **Web visual editor** — widget palette, property inspector, multiple pages and page animations, live metric preview
-- **Web colour themes** — Classic / STRIX / TUF token sets (background, card, border, accents, radius); switch in the dropdown for instant preview, save to sync the device
+- **Web visual editor** — widget palette, property inspector, single-page 12×18 / 18×12 grid with snap-to-size resizing, live metric preview
+- **Web colour themes** — four token sets (background, card, border, accents, radius, skin and decoration); switch in the dropdown for instant preview, save to sync the device
 - **Dual data sources** — configure both a legacy API URL and a dashboard server URL; two machines can provide API and server metrics, or both can point at one machine
 - **Live metrics** — decode/prefill TPS, concurrency, queue depth, KV usage, MTP, token totals and host hardware; direct API and server WebSocket write into the same metric store
 - **Source-aware metric filtering** — editor dropdowns only list metrics the selected screen can actually receive: the API type reported by the device (halogen / gufo / strata / LM Studio / Ollama / OpenAI-compatible) drives direct metrics, and the server snapshot drives dedicated metrics; portrait and landscape widgets behave the same
@@ -19,7 +19,10 @@ A 3.5-inch touch screen dashboard for a local LLM inference server. The firmware
 - **Phone provisioning** — SoftAP + captive portal with Wi-Fi scan plus separate traditional API and dashboard server fields
 - **Self-healing Wi-Fi** — keeps retrying in the background after a failed boot connect, and hides the provisioning overlay once online
 - **Font subsets** — the server generates an LVGL binfont from the layout text; the device verifies SHA-256 before loading it
-- **Serial console** — frame capture, stats, page/animation benchmarks
+- **Square 12×18 / 18×12 grid** — portrait 12×18, landscape 18×12, gap 8, padding 4 (≈18.7px cells in both orientations); widget sizes are shared across orientations and chosen from fixed option lists
+- **Resizable widgets** — drag the bottom-right handle (snaps to legal 2/3/4/6 multiples) or pick a size in the inspector; saves validate both orientations
+- **Single page + partial refresh** — no paging; theme decoration is drawn as a watermark inside the server card (with reserved text space) and only small regions are invalidated
+- **Serial console** — frame capture, stats, local/full render benchmarks
 - **Performance** — ~50 ms full-screen redraw (~20 fps), 47 fps partial updates; see “Performance” below
 
 ## Supported data sources

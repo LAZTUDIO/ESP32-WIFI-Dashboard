@@ -37,7 +37,7 @@
 | GET/PATCH/DELETE | `/api/v1/devices/{id}` | 读取 / 修改并下发 / 移除 |
 | POST | `/api/v1/devices/{id}/push` | 重新下发配置 |
 | POST | `/api/v1/devices/{id}/reboot` | 重启屏幕 |
-| GET/PUT | `/api/v1/devices/{id}/layout` | 该屏布局；`resolved=1` 注入 `theme_tokens` |
+| GET/PUT | `/api/v1/devices/{id}/layout` | 该屏布局；`resolved=1` 注入 `theme_tokens`，`profile=` 指定投影方向 |
 | GET | `/api/v1/devices/{id}/font/meta` | 该屏 11/13/15 字体元信息 |
 | GET | `/api/v1/devices/{id}/font?size=11` | 该屏指定字号 binfont |
 | GET | `/api/v1/server-info` | 下发给设备的服务端地址（含转发地址） |
@@ -61,6 +61,7 @@
 ```
 
 - 订阅列表只影响该连接；固件只订阅布局里用到的指标。
+- 带 `device_id` 的设备连接**只下发 `source=server` 的指标**；`source=api` 的 LLM/主机指标由设备自己直连或走服务端转发采集，避免服务端快照里的 `a:false` 每秒覆盖设备本地值。
 - 保存某屏布局后，服务端向该设备 + 所有 viewer 发送
   `{"type":"layout_changed","device_id":"esp32-a1b2c3","profile":"320x480"}`；
   其他设备不会收到。设备重新拉取该设备的 `resolved=1` 布局并重载 UI，无需重启。
@@ -133,31 +134,104 @@ HTTP `/api/v1/config` body：
 ```
 
 - `x/y/w/h` 都是网格单位，范围由 profile 的 `cols/rows` 决定。
+- 网格：竖屏 `12×18`、横屏 `18×12`，`gap=8`、`padding=4`，两个方向的单元格都是 ≈18.7px 正方形。
+- 组件尺寸从 `widgets.json` 的 `size_options` 里选，横竖屏尺寸一致；编辑器可拖动位置，也可从右下角或属性面板调整尺寸，拖拽会吸附到合法尺寸。
 - `bindings` 的 key 由组件目录定义；value 是在指标目录里存在的指标 ID，类型必须匹配。
-- 通用 `options.show_title`（默认 true）：为 false 时设备不渲染标题栏，服务端允许最小高度减 1 格；编辑器的边框拖动只是编辑辅助，不占布局。
-- 服务端保存前会校验：组件类型、尺寸下限、越界、重叠、绑定指标类型、主题 id。
+- 通用 `options.show_title`（默认 true）：为 false 时设备不渲染标题栏；它不再改变组件尺寸。
+- 服务端保存前会校验：组件类型、尺寸必须在 `size_options` 内、越界、重叠、绑定指标类型、主题 id，并要求整页在两个方向都能排下。
 - 0.3 起布局按设备保存为 `server/data/layouts/<device_id>.json`；`<profile>.json` 与 preset 只作为新屏的初始模板。主题不参与几何计算。
-- `theme` 只能是 `shared/catalog/themes.json` 里的 id；缺省视为 `classic`。
-- 设备请求 `/api/v1/devices/{id}/layout?resolved=1` 时，服务端会写入 `theme_tokens`（见下）并把指标标签/单位/精度补全。
+- `theme` 只能是 `shared/catalog/themes.json` 里的 id 或 aliases；缺省为 `neon-cyber`。
+- 设备请求 `/api/v1/devices/{id}/layout?resolved=1` 时，服务端会写入 `theme_tokens`、`theme_skin`（见下）并把指标标签/单位/精度补全。
+- 旧布局（任意尺寸/旧主题/多页）在启动迁移时自动归一化并备份，多页会按优先级压缩成单页；也可以用 `python -m app.core.migrate --dry-run/--apply` 手动检查。
 
-## 多页布局（v2）
+允许尺寸（两个方向通用，单位：格）：
+
+### 基础组件
+
+| 类型 | 可选 w×h |
+|---|---|
+| status_pill | 12×2、12×3 |
+| kpi | 4×3、6×3、6×4、8×4、12×3、12×4、12×6 |
+| sparkline | 4×3、6×3、6×4、6×6、8×4、8×6、12×3、12×4、12×6 |
+| server_card | 6×4、6×6、8×4、8×6、12×4、12×6 |
+| desktop_pet | 4×4、6×4、6×6、8×6、8×8 |
+| metric_list | 4×3、6×4、6×6、8×4、8×6、12×4、12×6 |
+
+### 小组件 2.0（generation 2）
+
+| 类型 | 可选 w×h |
+|---|---|
+| gauge_ring | 2×2、3×3、4×3、4×4、5×5、6×4、6×6 |
+| led_dot | 2×2、3×3、4×4 |
+| led_matrix | 4×4、5×5、6×4、6×6、8×4、8×6、12×4、12×6 |
+| bar_strip | 4×2、6×2、8×2、12×2、4×3、6×3、8×3、12×3、12×4 |
+| vbar_gauge | 2×4、3×4、2×6、3×6、4×6、4×8 |
+| multi_bars | 4×4、6×3、6×4、4×6、6×6、8×4、8×6、12×4、12×6 |
+| dual_line | 4×4、6×4、6×6、8×4、8×6、12×4、12×6 |
+| big_stat | 4×4、6×4、6×6、8×4、8×6、12×4、12×6 |
+| spark_row | 4×2、6×2、8×2、12×2、4×3、6×3、8×3、12×3、6×4 |
+| text_badge | 2×4、4×2、6×2、8×2、12×2、4×3、6×3、8×3、12×3、2×6 |
+
+小组件共同遵守的渲染约定（固件 `ui/src/ui_mini.c` 与 Web 编辑器同规则）：
+
+- **标题栏自动省略**：卡片像素高度 < 60px（等价于 2 行高，如 12×2、2×2）时不画标题栏，
+  空间全部留给图形；组件内部若需要标题会在图形内自带一行。
+- **行内标签不重复**：卡片带标题栏时（高度 ≥ 60px），bar_strip 的行内标签显示
+  **指标名**而不是组件名，避免同一个标题出现两次；2 行内联形态没有标题栏，仍显示组件名。
+- **数值缩放**：优先用 `options.max_value`；未给时 `%` 与 `°C` 按 100 计；其余按
+  `v/(v+1)` 软缩放，保证任何量级都能落在 0–1 内不溢出。
+- **阈值着色**：`warn_above` / `danger_above` 为 0 表示关闭；越线时数值与填充同时转到
+  `warn` / `err` 色，bar_strip 与 vbar_gauge 还会在轨道上画出阈值刻线。
+- **行式组件**（led_matrix / multi_bars / spark_row）：数据来自 `options.rows`，每行
+  `{label, binding, kind, format}`，`kind` 取 `status`（布尔）/`number`/`text`/`auto`；
+  行数上限见 `widgets.json` 的 `rows.max`。
+- **可空绑定**：`led_dot` 的 `subtitle`、`dual_line` 的 `value2` 建议填上，缺省时
+  主指标照常显示，副信息位留空而不是报错。
+
+图鉴与示例：
+
+- `docs/design/widget-gallery-v2.html`：10 类 × 全部尺寸 × 四主题的实测图鉴（预览由
+  `server/web/app.js` 真实渲染后序列化，`node docs/design/build_widget_gallery.mjs` 重新生成）。
+- `examples/widgets-showcase-320x480.json`：一屏放下全部 10 类小组件的示例布局，
+  含横屏 `alt` 坐标。想直接看效果：拷到 `server/data/layouts/<device_id>.json`
+  （或作为新屏模板的 `320x480.json`），在编辑器点「重载」即可。
+
+## 单页布局（v2）
 
 ```json
 {
   "v": 2,
   "profile": "320x480",
-  "theme": "classic",
-  "page_animation": "slide",
+  "theme": "neon-cyber",
   "pages": [
-    {"name": "概览", "widgets": []},
-    {"name": "服务", "widgets": []}
+    {"name": "主页", "widgets": []}
   ]
 }
 ```
 
-- `pages` 1..4 页；每页组件 ≤40，总组件 ≤20（设备内部 RAM 实测上限）；页面内不得重叠，组件 id 全局唯一。
-- `page_animation`：`slide` / `fade` / `stack` / `zoom` / `flip` / `rotate` / `none`。
-- v1 布局仍兼容；编辑器加载 v1 后按单页 v2 处理，保存时升级为 v2。
+- `pages` 固定 1 页；总组件 ≤20（设备内部 RAM 实测上限），组件不得重叠，id 全局唯一。
+- 不再有 `page_animation`、翻页或滑动；省下的刷新预算用于组件局部动画与装饰。
+- v1 / 多页 v2 布局仍兼容；编辑器加载后合并为单页，保存时升级为单页 v2。
+- 放不下时按优先级保留：状态条 → 前 2 个 KPI → 服务器卡 → 桌宠 → 其余 KPI → 曲线 → 指标列表。
+
+## 横竖屏：一份组件数据
+
+同一块屏只保存一份组件列表；`profile` 是布局的主方向，组件可选 `alt` 记录另一方向的位置：
+
+```json
+{
+  "id": "w-dec", "type": "kpi", "x": 0, "y": 2, "w": 6, "h": 3,
+  "alt": {"x": 0, "y": 2},
+  "bindings": {"value": "llm.decode_tps"},
+  "options": {"title": "解码速度"}
+}
+```
+
+- 组件类型/绑定/选项/尺寸只有一份；切换方向只改 `x/y`（主方向）或写入 `alt` 的 `x/y`（另一方向），不复制组件。
+- `GET /api/v1/devices/{id}/layout?profile=480x320&resolved=1` 会按目标方向投影：有 `alt` 用 `alt`，没有则按像素比例映射位置并 first-fit；尺寸保持固定值，不会缩放。
+- 保存时校验整页在两个方向都能放下；放不下请减少组件或拆页。
+- 投影后的 resolved 布局带 `canvas`：`{profile,width,height,cols,rows,gap,padding}`，固件不再内置 320×480 常量。
+- 设备配置的 `profile` 决定物理旋转：`320x480` → 0°/180°，`480x320` → 90°/270°；`rot180` 在基础方向上再翻 180°。
 
 ## 指标列表组件（metric_list）
 
@@ -173,38 +247,48 @@ HTTP `/api/v1/config` body：
 - 行数 1..8，由组件目录定义。
 - 该组件没有固定 `bindings`，服务端逐行校验。
 
-## 配色主题（0.2.3，已实现）
+## 配色主题（v2，四套皮肤）
 
-配色只在 Web 编辑器里选择，设备不保存主题。主题目录：
+配色和组件皮肤只在 Web 编辑器里选择，设备不保存主题。主题目录：
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "default": "neon-cyber",
+  "aliases": {"classic": "neon-cyber", "strix": "vital-pulse", "tuf": "vintage-gauge"},
   "themes": [
     {
-      "id": "classic",
-      "label": "经典 · 石墨蓝",
+      "id": "neon-cyber",
+      "label": "霓虹赛博",
       "tokens": {
-        "bg": "#080B10", "surface": "#121822", "surface_2": "#18202C",
-        "border": "#263242", "text": "#EDF2F8", "text_dim": "#8C9BAE",
-        "text_mut": "#5A6B80", "accent": "#4D8DFF", "accent_2": "#8B5CF6",
-        "cyan": "#22D3EE", "ok": "#34D399", "warn": "#FB923C",
-        "err": "#F87171", "pink": "#F472B6", "radius": 12
+        "bg": "#070B14", "surface": "#0B1424", "surface_2": "#101B30",
+        "border": "#1B4A5A", "text": "#C9E8F2", "text_dim": "#5F8296",
+        "text_mut": "#3E5A6B", "accent": "#00E5FF", "accent_2": "#FF3D8B",
+        "cyan": "#00E5FF", "ok": "#9DFF00", "warn": "#FFB300",
+        "err": "#FF5347", "pink": "#FF78A0", "radius": 4,
+        "skin": "neon-cyber", "surface_grad_from": "#101B30",
+        "surface_grad_to": "#090F1C", "glow": "#00E5FF", "glow_opa": 70,
+        "border_width": 1, "corner_len": 8, "font_style": "mono",
+        "tracking": 1, "deco": "corners", "pet_variant": "cyber-cat"
       }
     }
   ]
 }
 ```
 
-- `GET /api/v1/themes` 返回同一份目录；`GET /api/v1/bootstrap` 的 `themes` 字段也包含它。
-- `GET /api/v1/layout?profile=...&resolved=1` 会注入：
+四套主题：`neon-cyber`（霓虹赛博）、`minimal-air`（极简流光）、`vintage-gauge`（复古机械）、`vital-pulse`（律动健身）。`skin` 决定固件组件皮肤，`surface_grad_from/to`、`glow`、`border_width`、`corner_len`、`font_style`、`tracking`、`deco`、`pet_variant` 为皮肤扩展字段；旧固件忽略未知字段。`aliases` 用于兼容旧布局里的 `classic/strix/tuf`。
+
+- `GET /api/v1/themes` 返回 `themes/default/aliases`；`GET /api/v1/bootstrap` 的 `themes` 字段相同。
+- `GET /api/v1/devices/{id}/layout?resolved=1` 会注入：
 
 ```json
-{"theme": "strix", "theme_tokens": {"bg": "#050608", "surface": "#0C0F14", "...": "..."}}
+{"theme": "vital-pulse", "theme_skin": "vital-pulse",
+ "theme_tokens": {"bg": "#0A0C13", "surface": "#1B2033", "...": "..."}}
 ```
 
-- 固件 `ui_dynamic_build()` 解析 `theme_tokens` 并调用 `ui_theme_set()`；缺字段回退经典配色。
+- 固件 `ui_dynamic_build()` 解析 `theme_tokens`，按 `skin` 渲染四套组件皮肤；缺字段回退霓虹赛博。
 - 颜色为 `#RRGGBB`，`radius` 为像素整数（卡片圆角）。
+- 固件面板为 ST7796 + BGR + `RGB565_SWAPPED`，实际固件里会把 R/B 通道换回，PC 模拟器不做该转换。
 
 ## 字体子集（0.2.2，已实现）
 
@@ -229,6 +313,6 @@ HTTP `/api/v1/config` body：
 ## 版本
 
 - 指标消息协议版本：`v = 1`
-- 布局版本：`v = 1`（旧单页）/ `v = 2`（多页）
+- 布局版本：`v = 1`（旧单页）/ `v = 2`（单页，`pages` 数组固定 1 项）
 - 指标/组件/配色目录版本：`version = 1`
 - 新增字段保持向后兼容；删除或改变语义时提升版本。

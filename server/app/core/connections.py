@@ -58,8 +58,18 @@ class ConnectionManager:
 
     async def broadcast(self, store: MetricStore) -> None:
         for client in list(self._clients.values()):
+            ids = client.subscriptions
+            if client.is_device:
+                # 设备自己的直连/转发数据由设备本地采集；服务端只下发 source=server
+                # 的指标，否则 snapshot 里的 a:false 会每秒把设备本地值覆盖成 "--"。
+                base = ids if ids is not None else set(store.values.keys())
+                ids = {
+                    mid
+                    for mid in base
+                    if store.catalog.metrics.get(mid, {}).get("source") != "api"
+                }
             try:
-                await client.websocket.send_json(store.snapshot(client.subscriptions))
+                await client.websocket.send_json(store.snapshot(ids))
             except Exception:
                 self.disconnect(client.websocket)
 

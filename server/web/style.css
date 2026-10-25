@@ -12,6 +12,13 @@
   --warn: #d97706;
   --err: #dc2626;
   --radius: 10px;
+  --surface-grad-from: var(--surface);
+  --surface-grad-to: var(--surface);
+  --bw: 1px;
+  --corner-len: 0px;
+  --glow: var(--accent);
+  --glow-opa: 0%;
+  --tracking: 0px;
   --topbar-h: 64px;
   --devicebar-h: 48px;
   --panel-w: 220px;
@@ -140,33 +147,14 @@ select:focus, input:focus { border-color: var(--accent); }
 .palette-item span { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .panel-note { color: var(--muted); font-size: 11px; margin-top: 12px; line-height: 1.5; }
 
-.stage { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+/* min-height:0 很关键：grid item 默认 min-height:auto，会被画布内容撑高，
+   canvas-scroll 的 clientHeight 随之变大，fitCanvas 就会一次次把画布放大。 */
+.stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .stage-head { display: flex; justify-content: space-between; align-items: center; color: var(--dim); font-size: 12px; }
 .dirty { color: var(--warn); margin-left: 10px; }
 .hidden { display: none !important; }
 
-.page-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.page-tabs { display: flex; gap: 6px; overflow-x: auto; max-width: 100%; padding-bottom: 2px; }
-.page-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--dim);
-  border-radius: 8px;
-  padding: 5px 10px;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 12px;
-  user-select: none;
-}
-.page-tab:hover { border-color: #3a4c66; }
-.page-tab.active { border-color: var(--accent); color: var(--text); background: var(--surface-2); }
-.page-count { color: var(--muted); font-size: 10px; border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
-.page-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.page-actions select { padding: 5px 8px; font-size: 12px; }
-.page-rename { width: 90px; padding: 2px 4px; font-size: 12px; }
+.stage-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 
 .canvas-scroll {
   flex: 1;
@@ -229,6 +217,22 @@ select:focus, input:focus { border-color: var(--accent); }
 .widget.selected:hover { border-color: var(--accent); }
 .widget.dragging { opacity: .88; z-index: 10; }
 .widget.invalid { border-color: var(--err); box-shadow: 0 0 0 1px var(--err); }
+.widget-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0 0 3px 0;
+  opacity: .35;
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 4;
+}
+.widget.selected .widget-resize,
+.widget:hover .widget-resize { opacity: .9; }
 .widget.title-hidden .widget-header { display: none; }
 .widget-header {
   height: 22px;
@@ -244,17 +248,6 @@ select:focus, input:focus { border-color: var(--accent); }
 }
 .widget-title { color: var(--dim); font-size: 11px; letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .widget-body { flex: 1; min-height: 0; padding: 5px 9px 7px; display: flex; flex-direction: column; justify-content: center; }
-.resize-handle { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; }
-.resize-handle::after {
-  content: "";
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
-}
 
 .kpi-value { font-size: 30px; font-weight: 600; line-height: 1; letter-spacing: -.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpi-unit { font-size: 12px; color: var(--muted); margin-left: 4px; font-weight: 400; }
@@ -377,10 +370,10 @@ select:focus, input:focus { border-color: var(--accent); }
     gap: 10px;
   }
   .stage { order: -1; }
-  .canvas-scroll { max-height: 70vh; }
-  .page-bar { align-items: flex-start; }
-  .page-tabs { width: 100%; }
-  .page-actions { width: 100%; }
+  /* 必须给固定高度：若只写 max-height，clientHeight 会随画布内容一起变高，
+     fitCanvas 每次重算都会把 scale 再放大一点。 */
+  .canvas-scroll { height: 70vh; max-height: 70vh; }
+  .stage-note { align-items: flex-start; }
   .palette { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .palette-item { min-width: 150px; }
   .side-panel { max-height: none; }
@@ -483,6 +476,521 @@ select:focus, input:focus { border-color: var(--accent); }
   50% { transform: translate(3px, -5px); opacity: 1; }
 }
 
+/* ================= generation 2 小组件（mini 系列预览） =================
+   颜色全部走主题变量，与固件 theme_tokens 同源；阈值色由 JS 内联覆盖。 */
+
+/* ---- gauge_ring 环形仪表 ---- */
+.gauge-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.gauge-track { fill: none; stroke: var(--border); stroke-width: 7; }
+.gauge-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transition: stroke .25s ease;
+}
+.gauge-tick { stroke: var(--border); stroke-width: 1; }
+.gauge-tick.major { stroke: var(--dim); stroke-width: 1.6; }
+.gauge-value {
+  fill: var(--accent);
+  font: 600 21px/1 "Segoe UI", system-ui, sans-serif;
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+}
+.gauge-unit {
+  fill: var(--muted);
+  font: 500 8px/1 "Segoe UI", system-ui, sans-serif;
+  text-anchor: middle;
+}
+/* 复古：表弧琥珀黄铜、指针与数值亮黄铜，二者拉开层次 */
+#canvas[data-theme="vintage-gauge"] .gauge-arc { stroke: var(--accent); }
+#canvas[data-theme="vintage-gauge"] .gauge-value { stroke: var(--accent-2); fill: var(--accent-2); }
+#canvas[data-theme="neon-cyber"] .gauge-arc {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 65%, transparent));
+}
+#canvas[data-theme="neon-cyber"] .gauge-value {
+  fill: var(--accent);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+#canvas[data-theme="vital-pulse"] .gauge-arc,
+#canvas[data-theme="vital-pulse"] .gauge-track { stroke-width: 9; }
+
+/* 复古机械表盘：46 格游丝刻度 + 内表圈 + 黄铜指针（超集 DOM，仅本主题显示） */
+.gauge-ticks-fine,
+.gauge-bezel,
+.gauge-needle { display: none; }
+#canvas[data-theme="vintage-gauge"] .gauge-tick { display: none; }
+#canvas[data-theme="vintage-gauge"] .gauge-ticks-fine,
+#canvas[data-theme="vintage-gauge"] .gauge-bezel,
+#canvas[data-theme="vintage-gauge"] .gauge-needle { display: inline; }
+#canvas[data-theme="vintage-gauge"] .gauge-tick-fine {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-opacity: .4;
+}
+#canvas[data-theme="vintage-gauge"] .gauge-tick-fine.major {
+  stroke: var(--accent-2);
+  stroke-width: 2;
+  stroke-opacity: .7;
+}
+#canvas[data-theme="vintage-gauge"] .gauge-bezel {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: .3;
+}
+#canvas[data-theme="vintage-gauge"] .gauge-needle {
+  transform-box: view-box;
+  transform-origin: 50px 52px;
+}
+#canvas[data-theme="vintage-gauge"] .gauge-needle-line {
+  stroke: var(--accent-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-opacity: .9;
+}
+#canvas[data-theme="vintage-gauge"] .gauge-needle-tip,
+#canvas[data-theme="vintage-gauge"] .gauge-hub { fill: var(--accent-2); }
+
+/* ---- led_dot 呼吸灯 ---- */
+.led-body { align-items: center; justify-content: center; gap: 7px; container-type: size; }
+.led-dot {
+  width: clamp(12px, 44cqmin, 40px);
+  height: clamp(12px, 44cqmin, 40px);
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.led-dot.on {
+  background: var(--ok);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent),
+    0 0 12px color-mix(in srgb, var(--ok) 55%, transparent);
+  animation: led-breath 1s ease-in-out infinite;
+}
+.led-dot.off {
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 16%, transparent);
+  animation: led-blink 1s steps(2, jump-none) infinite;
+}
+.led-text { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.led-text.on { color: var(--ok); }
+.led-text.off { color: var(--err); }
+.led-text.unknown { color: var(--muted); }
+.led-sub { font-size: 10px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#canvas[data-theme="vintage-gauge"] .led-dot {
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+}
+@keyframes led-breath {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.07); opacity: .82; }
+}
+@keyframes led-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+/* ---- led_matrix 点阵状态墙 ---- */
+.matrix-body { padding: 4px 6px; }
+.matrix-grid {
+  display: grid;
+  gap: 3px 8px;
+  width: 100%;
+  height: 100%;
+  align-content: center;
+}
+.matrix-cell { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 0; }
+.matrix-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
+.matrix-dot.on { background: var(--ok); box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 55%, transparent); }
+.matrix-dot.off { background: var(--err); animation: led-blink 1s steps(2, jump-none) infinite; }
+.matrix-label {
+  font-size: 10px;
+  color: var(--dim);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.matrix-grid.stack { gap: 2px 6px; }
+.matrix-grid.stack .matrix-cell { flex-direction: column; gap: 2px; text-align: center; }
+.matrix-grid.stack .matrix-label { width: 100%; text-align: center; }
+#canvas[data-theme="vintage-gauge"] .matrix-dot {
+  border-radius: 1px;
+  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+}
+
+/* ---- bar_strip 指标条形带 ---- */
+.bar-inline { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.bar-inline-label {
+  width: 28%;
+  max-width: 72px;
+  min-width: 26px;
+  flex: none;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-track {
+  position: relative;
+  flex: 1;
+  min-width: 16px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar-track.thick { height: 10px; }
+.bar-track.vertical { flex: none; width: clamp(18px, 20%, 30px); height: 100%; border-radius: 4px; }
+.bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width .25s ease;
+}
+.bar-fill.vertical {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: 4px;
+  transition: height .25s ease;
+}
+.bar-mark { position: absolute; top: 0; bottom: 0; width: 1.5px; }
+.bar-mark.warn { background: var(--warn); }
+.bar-mark.danger { background: var(--err); }
+.bar-track.vertical .bar-mark { top: auto; bottom: auto; left: 0; right: 0; width: auto; height: 1.5px; }
+.bar-value {
+  width: 56px;
+  flex: none;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bar-stack { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+.bar-stack-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.bar-stack-title { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-stack-value { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-hero { display: flex; gap: 10px; width: 100%; height: 100%; min-width: 0; container-type: size; }
+.bar-hero-left { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; }
+.bar-hero-title { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-hero-value {
+  font-size: clamp(18px, 11cqw, 34px);
+  font-weight: 680;
+  line-height: 1.08;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bar-hero-unit { font-size: 10px; color: var(--muted); }
+/* 复古主题下条带填充用深黄铜 accent（与圆表弧一致），数值文字才是亮黄铜 */
+#canvas[data-theme="vintage-gauge"] .bar-fill { background: var(--accent); }
+/* 竖柱：填充深黄铜，液面线留亮黄铜，避免同色糊成一片 */
+#canvas[data-theme="vintage-gauge"] .vbar-fill { background: var(--accent); }
+#canvas[data-theme="minimal-air"] .bar-track,
+#canvas[data-theme="minimal-air"] .vbar-track { background: var(--border); }
+
+/* 复古机械：轨道上沿 11 格刻度 + 内部每 10% 一条细分隔线；
+   轨道底色用 --bg，比卡片底色更深才像铣出来的凹槽（对齐固件 mini_track_color） */
+#canvas[data-theme="vintage-gauge"] .bar-track:not(.vertical) {
+  background-color: var(--bg);
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(10% - 1px),
+    color-mix(in srgb, var(--border) 20%, transparent) calc(10% - 1px) 10%
+  );
+}
+#canvas[data-theme="vintage-gauge"] .bar-track:not(.vertical)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 20%),
+    repeating-linear-gradient(90deg, transparent 0 10%, var(--border) 10% calc(10% + 1px), transparent calc(10% + 1px) 20%);
+  background-size: 1px 3px, 1px 3px, 1px 3px, 100% 3px, 100% 2px;
+  background-position: 0 0, 50% 0, 100% 0, 0 0, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat-x, repeat-x;
+}
+
+/* ---- vbar_gauge 垂直柱 ---- */
+.vbar-body { align-items: center; gap: 4px; }
+.vbar-track {
+  position: relative;
+  width: clamp(10px, 24%, 22px);
+  flex: 1;
+  min-height: 16px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+.vbar-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 2px;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: height .25s ease;
+}
+.vbar-mark { position: absolute; left: 0; right: 0; height: 1.5px; }
+.vbar-mark.warn { background: var(--warn); }
+.vbar-mark.danger { background: var(--err); }
+.vbar-value { font-size: 13px; font-weight: 650; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vbar-unit { font-size: 10px; color: var(--muted); text-align: center; white-space: nowrap; }
+#canvas[data-theme="vital-pulse"] .vbar-track,
+#canvas[data-theme="vital-pulse"] .vbar-fill { border-radius: 999px; }
+
+/* 复古机械：轨道内侧左缘 11 格刻度 + 当前值 2px 液面线；
+   轨道底色用 --bg，与横向条带一致，像铣出的凹槽 */
+#canvas[data-theme="vintage-gauge"] .vbar-track {
+  background: var(--bg);
+}
+#canvas[data-theme="vintage-gauge"] .vbar-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    repeating-linear-gradient(180deg, var(--text-mut) 0 1px, transparent 1px 10%);
+  background-size: 6px 1px, 6px 1px, 6px 1px, 3px 100%;
+  background-position: 0 0, 0 50%, 0 100%, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat-y;
+}
+#canvas[data-theme="vintage-gauge"] .vbar-fill::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-2);
+}
+
+/* ---- multi_bars 多柱状图 ---- */
+.mbars-body { justify-content: flex-start; }
+.mbars { display: flex; gap: 3px; width: 100%; flex: 1; min-width: 0; min-height: 0; }
+.mbar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mbar-cap {
+  height: 12px;
+  flex: none;
+  font-size: 10px;
+  text-align: center;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mbar-plot {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  background: repeating-linear-gradient(
+    to top,
+    transparent 0 calc(25% - 1px),
+    color-mix(in srgb, var(--border) 55%, transparent) calc(25% - 1px) 25%
+  );
+}
+.mbar-bar {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 62%;
+  min-width: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transition: height .25s ease;
+}
+.mbar-col.max .mbar-bar { background: var(--accent-2); }
+.mbar-label {
+  height: 12px;
+  flex: none;
+  font-size: 10px;
+  text-align: center;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#canvas[data-theme="vintage-gauge"] .mbar-bar { background: var(--accent-2); }
+#canvas[data-theme="vintage-gauge"] .mbar-col.max .mbar-bar { background: var(--accent); }
+/* 复古机械：3 条 30% 网格线 + 70% 基线 + 基线 11 格游标尺 */
+#canvas[data-theme="vintage-gauge"] .mbar-plot {
+  border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
+  background-image: repeating-linear-gradient(
+    to top,
+    color-mix(in srgb, var(--border) 30%, transparent) 0 1px,
+    transparent 1px 25%
+  );
+}
+#canvas[data-theme="vintage-gauge"] .mbar-plot::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    linear-gradient(var(--accent-2), var(--accent-2)),
+    repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px 10%);
+  background-size: 1px 4px, 1px 4px, 1px 4px, 100% 2px;
+  background-position: 0 100%, 50% 100%, 100% 100%, 0 100%;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat-x;
+}
+
+/* ---- dual_line 双折线 ---- */
+.dual-body { justify-content: flex-start; gap: 3px; }
+.dual-legend { display: flex; gap: 10px; flex: none; }
+.dual-item { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; font-size: 10px; color: var(--dim); }
+.dual-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.dual-dot.s1 { background: var(--accent); }
+.dual-dot.s2 { background: var(--accent-2); }
+.dual-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dual-item b { margin-left: auto; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dual-item.s1 b { color: var(--accent); }
+.dual-item.s2 b { color: var(--accent-2); }
+.dual-chart { width: 100%; flex: 1; min-height: 0; display: block; }
+.dual-line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.dual-line.s1 { stroke: var(--accent); }
+.dual-line.s2 { stroke: var(--accent-2); }
+.dual-fill { fill: color-mix(in srgb, var(--accent) 13%, transparent); stroke: none; }
+#canvas[data-theme="neon-cyber"] .dual-line,
+#canvas[data-theme="vital-pulse"] .dual-line {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+/* 复古机械：机械记录纸格线（3 横 + 4 竖，30%） */
+#canvas[data-theme="vintage-gauge"] .dual-chart {
+  background-image:
+    repeating-linear-gradient(
+      to top,
+      color-mix(in srgb, var(--border) 30%, transparent) 0 1px,
+      transparent 1px 25%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 25%,
+      color-mix(in srgb, var(--border) 30%, transparent) 25% calc(25% + 1px),
+      transparent calc(25% + 1px) 50%
+    );
+}
+
+/* ---- big_stat 主指标卡 ---- */
+.big-body { position: relative; justify-content: flex-start; overflow: hidden; }
+.big-spark { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .22; pointer-events: none; }
+.big-spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.big-spark-fill { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: none; }
+.big-value {
+  position: relative;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.big-unit { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 3px; }
+.big-trend { position: relative; margin-top: auto; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.big-trend.up { color: var(--ok); }
+.big-trend.down { color: var(--err); }
+#canvas[data-theme="vintage-gauge"] .big-value { color: var(--accent-2); }
+#canvas[data-theme="neon-cyber"] .big-value { text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* ---- spark_row 迷你曲线排 ---- */
+.srow-body { justify-content: flex-start; gap: 4px; }
+.srow { display: flex; gap: 4px; width: 100%; flex: 1; min-width: 0; min-height: 0; }
+.srow-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.srow-value {
+  height: 14px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.srow-svg { flex: 1; min-height: 0; width: 100%; display: block; }
+.srow-line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.srow-fill { fill: color-mix(in srgb, var(--accent) 13%, transparent); stroke: none; }
+.srow-label {
+  height: 12px;
+  flex: none;
+  font-size: 10px;
+  text-align: center;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#canvas[data-theme="neon-cyber"] .srow-line,
+#canvas[data-theme="vital-pulse"] .srow-line {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+/* 复古机械：凹陷表盘（顶/底细线 + 3 条极淡横格 + 列间分隔） */
+#canvas[data-theme="vintage-gauge"] .srow-svg {
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  background-image: repeating-linear-gradient(
+    to top,
+    color-mix(in srgb, var(--border) 15%, transparent) 0 1px,
+    transparent 1px 25%
+  );
+}
+#canvas[data-theme="vintage-gauge"] .srow-col + .srow-col .srow-svg {
+  border-left: 1px solid color-mix(in srgb, var(--border) 20%, transparent);
+}
+
+/* ---- text_badge 文本徽章 ---- */
+.tbadge-body { justify-content: center; }
+.tbadge { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; min-width: 0; }
+.tbadge-bar { width: 3px; align-self: stretch; border-radius: 1px; background: var(--accent); opacity: .6; flex: none; }
+.tbadge-text { flex: 1; min-width: 0; color: var(--text); line-height: 1.25; overflow: hidden; }
+.tbadge-text.center { text-align: center; }
+.tbadge-text.wrap {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#canvas[data-theme="neon-cyber"] .tbadge-text { color: var(--accent); }
+#canvas[data-theme="vintage-gauge"] .tbadge-bar { background: var(--accent-2); }
+
+/* 组件库分组标题 */
+.palette-group {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: .08em;
+  margin: 10px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.palette-group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
 /* ---------------- 连接 / 屏幕设置弹窗 ---------------- */
 
 .modal {
@@ -524,4 +1032,279 @@ select:focus, input:focus { border-color: var(--accent); }
   .devicebar-left { flex-wrap: wrap; }
   .devicebar-right { display: none; }
   .workspace { height: auto; min-height: calc(100vh - var(--topbar-h) - var(--devicebar-h)); grid-template-columns: 1fr; }
+}
+
+/* ================= 四套主题皮肤（固定尺寸共用） ================= */
+
+.widget {
+  background: linear-gradient(180deg, var(--surface-grad-from, var(--surface)), var(--surface-grad-to, var(--surface)));
+  border-width: var(--bw, 1px);
+}
+.widget-deco { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.widget-deco .dc { position: absolute; display: none; }
+.kpi-gauge { display: none; }
+
+/* --- 霓虹赛博 --- */
+#canvas[data-theme="neon-cyber"] .widget {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 16px color-mix(in srgb, var(--glow) var(--glow-opa), transparent);
+}
+#canvas[data-theme="neon-cyber"] .widget-header {
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 12%, transparent));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+#canvas[data-theme="neon-cyber"] .widget-title {
+  color: var(--accent);
+  letter-spacing: calc(1px + var(--tracking));
+  text-transform: uppercase;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+#canvas[data-theme="neon-cyber"] .dc.tl,
+#canvas[data-theme="neon-cyber"] .dc.tr,
+#canvas[data-theme="neon-cyber"] .dc.bl,
+#canvas[data-theme="neon-cyber"] .dc.br {
+  display: block;
+  width: var(--corner-len);
+  height: var(--corner-len);
+  border-color: var(--accent);
+  border-style: solid;
+  border-width: 0;
+}
+#canvas[data-theme="neon-cyber"] .dc.tl { left: 4px; top: 4px; border-left-width: 1px; border-top-width: 1px; }
+#canvas[data-theme="neon-cyber"] .dc.tr { right: 4px; top: 4px; border-right-width: 1px; border-top-width: 1px; }
+#canvas[data-theme="neon-cyber"] .dc.bl { left: 4px; bottom: 4px; border-left-width: 1px; border-bottom-width: 1px; }
+#canvas[data-theme="neon-cyber"] .dc.br { right: 4px; bottom: 4px; border-right-width: 1px; border-bottom-width: 1px; }
+#canvas[data-theme="neon-cyber"] .kpi-value {
+  color: var(--accent);
+  font-family: Consolas, "Cascadia Code", monospace;
+  letter-spacing: 1px;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+#canvas[data-theme="neon-cyber"] .kpi-gauge {
+  display: block;
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 7px;
+  height: 5px;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 9%, transparent 9% 12%);
+  opacity: .45;
+  transform-origin: left center;
+  animation: theme-scan 2.4s linear infinite;
+}
+#canvas[data-theme="neon-cyber"] .status-dot.on,
+#canvas[data-theme="neon-cyber"] .metric-dot.on {
+  animation: theme-blink 1.6s infinite;
+  box-shadow: 0 0 10px var(--ok);
+}
+#canvas[data-theme="neon-cyber"] .spark-line { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 70%, transparent)); }
+#canvas[data-theme="neon-cyber"] .server-grid .value { color: var(--accent); font-family: Consolas, monospace; }
+
+/* --- 极简流光 --- */
+#canvas[data-theme="minimal-air"] .widget {
+  box-shadow: 0 1px 2px rgba(20, 24, 50, .05), 0 8px 24px rgba(20, 24, 50, .04);
+}
+#canvas[data-theme="minimal-air"] .widget:hover {
+  box-shadow: 0 1px 3px rgba(20, 24, 50, .08), 0 10px 30px rgba(20, 24, 50, .07);
+}
+#canvas[data-theme="minimal-air"] .widget-header { background: transparent; border-bottom: 1px solid var(--border); }
+#canvas[data-theme="minimal-air"] .widget-title { color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+#canvas[data-theme="minimal-air"] .kpi-value { color: var(--text); font-weight: 650; }
+#canvas[data-theme="minimal-air"] .kpi-gauge {
+  display: block;
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 7px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) calc(var(--ratio) * 100%), var(--border) 0);
+  opacity: .9;
+}
+#canvas[data-theme="minimal-air"] .status-dot,
+#canvas[data-theme="minimal-air"] .metric-dot { box-shadow: none; }
+#canvas[data-theme="minimal-air"] .server-grid .label { color: var(--dim); }
+#canvas[data-theme="minimal-air"] .server-grid .value { color: var(--text); font-weight: 600; }
+#canvas[data-theme="minimal-air"] .metric-row + .metric-row { border-top: 1px solid var(--border); }
+
+/* --- 复古机械 --- */
+#canvas[data-theme="vintage-gauge"] .widget {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 205, 120, .22),
+    inset 0 0 0 1px rgba(255, 205, 120, .08),
+    0 14px 30px rgba(0, 0, 0, .35);
+}
+#canvas[data-theme="vintage-gauge"] .widget-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+}
+#canvas[data-theme="vintage-gauge"] .widget-title {
+  color: var(--dim);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  letter-spacing: calc(1px + var(--tracking));
+  text-transform: uppercase;
+}
+#canvas[data-theme="vintage-gauge"] .dc.tl,
+#canvas[data-theme="vintage-gauge"] .dc.tr,
+#canvas[data-theme="vintage-gauge"] .dc.bl,
+#canvas[data-theme="vintage-gauge"] .dc.br {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  opacity: .75;
+}
+#canvas[data-theme="vintage-gauge"] .dc.tl { left: 5px; top: 5px; }
+#canvas[data-theme="vintage-gauge"] .dc.tr { right: 5px; top: 5px; }
+#canvas[data-theme="vintage-gauge"] .dc.bl { left: 5px; bottom: 5px; }
+#canvas[data-theme="vintage-gauge"] .dc.br { right: 5px; bottom: 5px; }
+#canvas[data-theme="vintage-gauge"] .dc.ticks {
+  display: block;
+  left: 9px;
+  right: 9px;
+  bottom: 5px;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--dim) 0 1px, transparent 1px 7px);
+  opacity: .45;
+}
+#canvas[data-theme="vintage-gauge"] .kpi-value {
+  color: var(--text);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  letter-spacing: 2px;
+}
+#canvas[data-theme="vintage-gauge"] .kpi-gauge {
+  display: block;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, var(--accent) calc(var(--ratio) * 240deg), rgba(255, 205, 120, .12) 0);
+  -webkit-mask: radial-gradient(circle, transparent 56%, #000 57%);
+  mask: radial-gradient(circle, transparent 56%, #000 57%);
+}
+#canvas[data-theme="vintage-gauge"] .status-dot { border-radius: 1px; box-shadow: 0 0 0 2px rgba(255, 205, 120, .14); }
+#canvas[data-theme="vintage-gauge"] .metric-row + .metric-row { border-top: 1px dotted var(--border); }
+#canvas[data-theme="vintage-gauge"] .server-grid .value { font-family: Consolas, monospace; color: var(--text); }
+
+/* --- 律动健身 --- */
+#canvas[data-theme="vital-pulse"] .widget {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 0 22px color-mix(in srgb, var(--glow) var(--glow-opa), transparent);
+}
+#canvas[data-theme="vital-pulse"] .widget-header { background: transparent; }
+#canvas[data-theme="vital-pulse"] .widget-title { color: var(--dim); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+#canvas[data-theme="vital-pulse"] .dc.pulse {
+  display: block;
+  right: -18px;
+  top: -18px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent), transparent 70%);
+  animation: theme-pulse 2.6s ease-in-out infinite;
+}
+#canvas[data-theme="vital-pulse"] .kpi-value { color: var(--text); font-weight: 700; }
+#canvas[data-theme="vital-pulse"] .kpi-gauge {
+  display: block;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: conic-gradient(from -90deg, var(--accent) calc(var(--ratio) * 360deg), color-mix(in srgb, var(--accent-2) 20%, transparent) 0);
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%);
+  mask: radial-gradient(circle, transparent 58%, #000 59%);
+}
+#canvas[data-theme="vital-pulse"] .status-dot.on,
+#canvas[data-theme="vital-pulse"] .metric-dot.on {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-2) 18%, transparent);
+  animation: theme-pulse 2s ease-in-out infinite;
+}
+#canvas[data-theme="vital-pulse"] .spark-line { stroke: var(--accent); filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 65%, transparent)); }
+#canvas[data-theme="vital-pulse"] .spark-fill { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+#canvas[data-theme="vital-pulse"] .server-grid .value { color: var(--accent-2); font-weight: 700; }
+
+@keyframes theme-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+@keyframes theme-pulse {
+  0%, 100% { transform: scale(1); opacity: .55; }
+  50% { transform: scale(1.08); opacity: .95; }
+}
+@keyframes theme-scan {
+  from { background-position: 0 0; }
+  to { background-position: 24px 0; }
+}
+
+/* 桌宠四套造型 */
+.pet-variant-blob .pet-ear,
+.pet-variant-blob .pet-tail,
+.pet-variant-vital-pulse .pet-ear,
+.pet-variant-vital-pulse .pet-tail { display: none; }
+.pet-variant-neon-cyber .pet-head { fill: var(--accent); }
+.pet-variant-neon-cyber .pet-torso {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+.pet-antenna { stroke: var(--accent); stroke-width: 1.5; }
+.pet-antenna-dot { fill: var(--accent); animation: pet-pulse 1.6s ease-in-out infinite alternate; }
+.pet-visor { fill: var(--bg); opacity: .5; }
+.pet-variant-vintage-gauge .pet-head {
+  fill: var(--accent-2);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+}
+.pet-gauge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.1;
+  stroke-dasharray: 3 5;
+  opacity: .7;
+  animation: pet-spin 12s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pet-variant-vital-pulse .pet-aura {
+  fill: var(--accent-2);
+  opacity: .15;
+  animation: pet-breathe 2.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pet-variant-minimal-air .pet-head,
+.pet-variant-minimal-air .pet-torso { fill: var(--accent); }
+.pet-variant-minimal-air .pet-shadow { opacity: .16; }
+
+@keyframes pet-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes pet-pulse {
+  0%, 100% { opacity: .5; transform: scale(.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* 画布级主题底纹，与固件屏幕装饰对应 */
+#canvas[data-theme="neon-cyber"] {
+  background-image:
+    linear-gradient(rgba(0, 229, 255, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, .06) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+#canvas[data-theme="vintage-gauge"] {
+  background-image: radial-gradient(120% 80% at 50% 20%, #251b10 0%, #17120c 60%, #120c07 100%);
+  box-shadow: inset 0 0 0 6px #17120c, inset 0 0 0 7px rgba(255, 176, 0, .22);
+}
+#canvas[data-theme="vital-pulse"] {
+  background-image: radial-gradient(70% 60% at 75% 80%, rgba(0, 217, 163, .12) 0%, transparent 62%),
+    radial-gradient(60% 50% at 30% 20%, rgba(255, 122, 24, .10) 0%, transparent 60%);
+}
+#canvas[data-theme="minimal-air"] {
+  background-image: linear-gradient(180deg, #eef1f7 0%, #e6e9f1 100%);
 }

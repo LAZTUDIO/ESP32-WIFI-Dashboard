@@ -26,7 +26,8 @@ typedef struct {
     char provider[16];         /* auto / halogen / gufo / strata / lmstudio / ollama / openai / panel */
     char host_agent[160];      /* 可选主机监控，也可直接填 8800 面板 */
     char dashboard_url[160];   /* 看板服务端；由服务端按 IP 连接后下发 */
-    bool rot180;               /* 屏幕 180° 翻转 */
+    char profile[16];          /* 屏幕方向：320x480 竖屏 / 480x320 横屏 */
+    bool rot180;               /* 屏幕翻转（横屏时表示 270°） */
 } app_config_t;
 
 void config_defaults(app_config_t *cfg);

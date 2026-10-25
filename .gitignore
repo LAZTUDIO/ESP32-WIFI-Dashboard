@@ -23,6 +23,7 @@ local/
 .vscode/
 .idea/
 .trae/
+.workbuddy/
 *.swp
 __pycache__/
 *.pyc
@@ -32,6 +33,7 @@ server/.venv/
 server/.venv-mac/
 server/config.json
 server/data/layouts/
+server/data/backups/
 server/data/devices.json
 server/data/forward.json
 server/.launcher-server.log

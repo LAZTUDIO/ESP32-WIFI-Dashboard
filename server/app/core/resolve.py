@@ -1,27 +1,89 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+import logging
+from typing import Any
 
 from .catalog import Catalog
+from .layout_geom import iter_widgets, pack_from_scratch, pack_page
+
+log = logging.getLogger("esp32wifi.resolve")
 
 
-def _iter_widgets(layout: dict[str, Any]) -> Iterable[dict[str, Any]]:
+def canvas_info(profile: dict[str, Any], profile_name: str) -> dict[str, Any]:
+    """固件不需要内置网格参数，resolved 布局里直接带上画布尺寸。"""
+    return {
+        "profile": profile_name,
+        "width": int(profile["width"]),
+        "height": int(profile["height"]),
+        "cols": int(profile["cols"]),
+        "rows": int(profile["rows"]),
+        "gap": int(profile.get("gap", 0)),
+        "padding": int(profile.get("padding", 0)),
+    }
+
+
+def _apply_rect(widget: dict[str, Any], rect: dict[str, int]) -> None:
+    widget["x"] = int(rect["x"])
+    widget["y"] = int(rect["y"])
+    widget["w"] = int(rect["w"])
+    widget["h"] = int(rect["h"])
+
+
+def _pages(layout: dict[str, Any]) -> list[dict[str, Any]]:
     if layout.get("v") == 1:
-        yield from layout.get("widgets", [])
-        return
-    for page in layout.get("pages", []):
-        yield from page.get("widgets", [])
+        return [{"name": "第 1 页", "widgets": layout.get("widgets", [])}]
+    return list(layout.get("pages", []))
+
+
+def project_layout(
+    layout: dict[str, Any], profile_name: str, catalog: Catalog
+) -> dict[str, Any]:
+    """把同一份固定尺寸组件布局投影到指定方向。
+
+    组件的类型/绑定/选项/尺寸始终只有一份；位置以 layout.profile 为主方向，
+    每个组件可选 alt 覆盖另一方向。没有 alt 的组件按比例映射位置后 first-fit。
+    """
+    target = catalog.profiles.get(profile_name)
+    if target is None:
+        return layout
+    base_name = layout.get("profile")
+    base = catalog.profiles.get(base_name)
+    if base is not None and profile_name != base_name:
+        for page in _pages(layout):
+            widgets = list(page.get("widgets", []))
+            if not widgets:
+                continue
+            placed = pack_page(widgets, base, target, catalog)
+            if placed is None:
+                placed = pack_from_scratch(widgets, target, catalog)
+                if placed is None:
+                    log.warning(
+                        "layout page cannot fit %s -> %s, keep base positions",
+                        base_name,
+                        profile_name,
+                    )
+                    continue
+            for widget in widgets:
+                rect = placed.get(str(widget.get("id")))
+                if rect is not None:
+                    _apply_rect(widget, rect)
+                widget.pop("alt", None)
+        layout["profile"] = profile_name
+
+    layout["canvas"] = canvas_info(target, profile_name)
+    return layout
 
 
 def resolve_layout(layout: dict[str, Any], catalog: Catalog) -> dict[str, Any]:
     """把指标标签/单位/精度写进布局，供 MCU 直接渲染，避免固件再拉目录。"""
-    theme_id = layout.get("theme") or "classic"
-    theme = catalog.themes.get(theme_id) or catalog.themes.get("classic")
+    theme_id = catalog.resolve_theme(layout.get("theme"))
+    theme = catalog.themes.get(theme_id) or catalog.themes.get(catalog.theme_default)
     if theme:
         layout["theme"] = theme["id"]
-        layout["theme_tokens"] = theme["tokens"]
+        layout["theme_tokens"] = dict(theme.get("tokens") or {})
+        layout["theme_skin"] = layout["theme_tokens"].get("skin", theme["id"])
 
-    for widget in _iter_widgets(layout):
+    for widget in iter_widgets(layout):
         options = widget.setdefault("options", {})
         if not isinstance(options, dict):
             continue

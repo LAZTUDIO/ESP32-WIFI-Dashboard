@@ -1,0 +1,188 @@
+{
+  "v": 2,
+  "profile": "320x480",
+  "theme": "neon-cyber",
+  "pages": [
+    {
+      "name": "小组件总览",
+      "widgets": [
+        {
+          "id": "m-cpu",
+          "type": "bar_strip",
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 2,
+          "alt": { "x": 0, "y": 0 },
+          "bindings": { "value": "host.cpu_pct" },
+          "options": {
+            "title": "CPU 占用",
+            "unit": "%",
+            "max_value": 100,
+            "warn_above": 70,
+            "danger_above": 88
+          }
+        },
+        {
+          "id": "m-curves",
+          "type": "spark_row",
+          "x": 0,
+          "y": 2,
+          "w": 12,
+          "h": 2,
+          "alt": { "x": 0, "y": 2 },
+          "bindings": {},
+          "options": {
+            "title": "关键曲线",
+            "show_labels": true,
+            "rows": [
+              { "label": "解码", "binding": "llm.decode_tps", "kind": "number", "format": "" },
+              { "label": "预填", "binding": "llm.prefill_tps", "kind": "number", "format": "" },
+              { "label": "GPU", "binding": "host.gpu_util_pct", "kind": "number", "format": "" },
+              { "label": "CPU", "binding": "host.cpu_pct", "kind": "number", "format": "" }
+            ]
+          }
+        },
+        {
+          "id": "m-trend",
+          "type": "dual_line",
+          "x": 0,
+          "y": 4,
+          "w": 8,
+          "h": 4,
+          "alt": { "x": 0, "y": 4 },
+          "bindings": { "value": "llm.decode_tps", "value2": "llm.prefill_tps" },
+          "options": {
+            "title": "吞吐趋势",
+            "unit": "tok/s",
+            "unit2": "tok/s",
+            "show_area": true
+          }
+        },
+        {
+          "id": "m-wall",
+          "type": "led_matrix",
+          "x": 8,
+          "y": 4,
+          "w": 4,
+          "h": 4,
+          "alt": { "x": 8, "y": 4 },
+          "bindings": {},
+          "options": {
+            "title": "服务状态",
+            "show_labels": true,
+            "rows": [
+              { "label": "推理", "binding": "llm.online", "kind": "status", "format": "" },
+              { "label": "忙碌", "binding": "llm.busy", "kind": "status", "format": "" },
+              { "label": "缓存", "binding": "llm.cache_enabled", "kind": "status", "format": "" },
+              { "label": "草稿", "binding": "llm.drafter_loaded", "kind": "status", "format": "" }
+            ]
+          }
+        },
+        {
+          "id": "m-bars",
+          "type": "multi_bars",
+          "x": 0,
+          "y": 8,
+          "w": 6,
+          "h": 4,
+          "alt": { "x": 12, "y": 4 },
+          "bindings": {},
+          "options": {
+            "title": "吞吐对比",
+            "show_values": true,
+            "show_labels": true,
+            "rows": [
+              { "label": "解码", "binding": "llm.decode_tps", "kind": "number", "format": "" },
+              { "label": "预填", "binding": "llm.prefill_tps", "kind": "number", "format": "" },
+              { "label": "解均", "binding": "llm.decode_avg", "kind": "number", "format": "" },
+              { "label": "预均", "binding": "llm.prefill_avg", "kind": "number", "format": "" }
+            ]
+          }
+        },
+        {
+          "id": "m-hero",
+          "type": "big_stat",
+          "x": 6,
+          "y": 8,
+          "w": 6,
+          "h": 4,
+          "alt": { "x": 0, "y": 8 },
+          "bindings": { "value": "llm.decode_tps" },
+          "options": {
+            "title": "解码速度",
+            "unit": "tok/s",
+            "warn_above": 60,
+            "danger_above": 100,
+            "show_trend": true
+          }
+        },
+        {
+          "id": "m-gauge",
+          "type": "gauge_ring",
+          "x": 0,
+          "y": 12,
+          "w": 4,
+          "h": 4,
+          "alt": { "x": 6, "y": 8 },
+          "bindings": { "value": "host.cpu_pct" },
+          "options": {
+            "title": "CPU",
+            "unit": "%",
+            "max_value": 100,
+            "warn_above": 70,
+            "danger_above": 88,
+            "show_ticks": true
+          }
+        },
+        {
+          "id": "m-gpu",
+          "type": "vbar_gauge",
+          "x": 4,
+          "y": 12,
+          "w": 2,
+          "h": 4,
+          "alt": { "x": 10, "y": 8 },
+          "bindings": { "value": "host.gpu_util_pct" },
+          "options": {
+            "title": "GPU",
+            "unit": "%",
+            "max_value": 100,
+            "warn_above": 80,
+            "danger_above": 95
+          }
+        },
+        {
+          "id": "m-led",
+          "type": "led_dot",
+          "x": 6,
+          "y": 12,
+          "w": 4,
+          "h": 4,
+          "alt": { "x": 12, "y": 8 },
+          "bindings": { "value": "llm.online", "subtitle": "llm.phase" },
+          "options": {
+            "title": "推理服务",
+            "on_text": "在线",
+            "off_text": "离线"
+          }
+        },
+        {
+          "id": "m-phase",
+          "type": "text_badge",
+          "x": 10,
+          "y": 12,
+          "w": 2,
+          "h": 4,
+          "alt": { "x": 16, "y": 8 },
+          "bindings": { "value": "llm.phase" },
+          "options": {
+            "title": "阶段",
+            "font_size": "S",
+            "align": "center"
+          }
+        }
+      ]
+    }
+  ]
+}

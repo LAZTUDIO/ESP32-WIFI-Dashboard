@@ -63,7 +63,8 @@ static esp_err_t handle_info(httpd_req_t *req)
     if (!root) return httpd_resp_send_500(req);
     cJSON_AddStringToObject(root, "id", cfg.device_id);
     cJSON_AddStringToObject(root, "name", cfg.device_name);
-    cJSON_AddStringToObject(root, "profile", "320x480");
+    cJSON_AddStringToObject(root, "profile",
+                            cfg.profile[0] ? cfg.profile : "320x480");
     cJSON_AddStringToObject(root, "fw", DASH_FW_VERSION);
     cJSON_AddStringToObject(root, "ip", ip);
     cJSON_AddStringToObject(root, "ssid", cfg.wifi_ssid);
@@ -113,6 +114,11 @@ static esp_err_t handle_config(httpd_req_t *req)
     }
     cJSON *rot = cJSON_GetObjectItemCaseSensitive(root, "rot180");
     if (cJSON_IsBool(rot)) cfg.rot180 = cJSON_IsTrue(rot);
+    if ((v = json_str(root, "profile"))) {
+        if (strcmp(v, "320x480") == 0 || strcmp(v, "480x320") == 0) {
+            copy_str(cfg.profile, sizeof(cfg.profile), v);
+        }
+    }
 
     cJSON *api = cJSON_GetObjectItemCaseSensitive(root, "api");
     if (cJSON_IsObject(api)) {
@@ -132,11 +138,11 @@ static esp_err_t handle_config(httpd_req_t *req)
     config_normalize(&cfg);
     cJSON_Delete(root);
 
-    ESP_LOGI(TAG, "config push: server=%s name=%s api=%s provider=%s rot=%d",
+    ESP_LOGI(TAG, "config push: server=%s name=%s api=%s provider=%s profile=%s rot=%d",
              cfg.dashboard_url[0] ? cfg.dashboard_url : "(none)",
              cfg.device_name[0] ? cfg.device_name : "(none)",
              cfg.server_url[0] ? cfg.server_url : "(none)",
-             cfg.provider, cfg.rot180 ? 1 : 0);
+             cfg.provider, cfg.profile, cfg.rot180 ? 1 : 0);
 
     if (!app_runtime_apply_config(&cfg)) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,

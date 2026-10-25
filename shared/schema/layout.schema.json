@@ -10,6 +10,7 @@
       "type": "object",
       "required": ["id", "type", "x", "y", "w", "h", "bindings"],
       "additionalProperties": false,
+      "description": "w/h 必须来自 widgets.json 的 size_options，两个方向通用；alt 只记录另一方向的位置。",
       "properties": {
         "id": {"type": "string", "minLength": 1, "maxLength": 48},
         "type": {"type": "string"},
@@ -17,6 +18,15 @@
         "y": {"type": "integer", "minimum": 0},
         "w": {"type": "integer", "minimum": 1},
         "h": {"type": "integer", "minimum": 1},
+        "alt": {
+          "type": "object",
+          "required": ["x", "y"],
+          "additionalProperties": false,
+          "properties": {
+            "x": {"type": "integer", "minimum": 0},
+            "y": {"type": "integer", "minimum": 0}
+          }
+        },
         "bindings": {
           "type": "object",
           "additionalProperties": {"type": "string"}
@@ -48,14 +58,10 @@
         "v": {"type": "integer", "const": 2},
         "profile": {"type": "string"},
         "theme": {"type": "string"},
-        "page_animation": {
-          "type": "string",
-          "enum": ["slide", "fade", "none", "stack", "zoom", "flip", "rotate"]
-        },
         "pages": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 4,
+          "maxItems": 1,
           "items": {
             "type": "object",
             "required": ["name", "widgets"],

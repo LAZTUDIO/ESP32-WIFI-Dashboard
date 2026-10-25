@@ -15,6 +15,7 @@ void config_defaults(app_config_t *cfg)
     /* 开源版本不带任何服务器地址和密钥：首次上电一律进配网模式，由用户填写 */
     memset(cfg, 0, sizeof(*cfg));
     snprintf(cfg->provider, sizeof(cfg->provider), "auto");
+    snprintf(cfg->profile, sizeof(cfg->profile), "320x480");
 }
 
 void config_normalize(app_config_t *cfg)
@@ -56,6 +57,11 @@ void config_load(app_config_t *cfg)
     nvs_get_str(h, "host", cfg->host_agent, &len);
     len = sizeof(cfg->dashboard_url);
     nvs_get_str(h, "dashboard", cfg->dashboard_url, &len);
+    len = sizeof(cfg->profile);
+    nvs_get_str(h, "profile", cfg->profile, &len);
+    if (cfg->profile[0] == '\0') {
+        snprintf(cfg->profile, sizeof(cfg->profile), "320x480");
+    }
     uint8_t rot = 0;
     if (nvs_get_u8(h, "rot180", &rot) == ESP_OK) cfg->rot180 = (rot != 0);
     nvs_close(h);
@@ -88,6 +94,7 @@ bool config_save(const app_config_t *cfg)
     ok &= nvs_set_str(h, "provider", cfg->provider) == ESP_OK;
     ok &= nvs_set_str(h, "host", cfg->host_agent) == ESP_OK;
     ok &= nvs_set_str(h, "dashboard", cfg->dashboard_url) == ESP_OK;
+    ok &= nvs_set_str(h, "profile", cfg->profile) == ESP_OK;
     ok &= nvs_set_u8(h, "rot180", cfg->rot180 ? 1 : 0) == ESP_OK;
     ok &= nvs_commit(h) == ESP_OK;
     nvs_close(h);

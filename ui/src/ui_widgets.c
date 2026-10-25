@@ -17,7 +17,18 @@ static ui_theme_t s_theme = {
     .warn = UI_WARN,
     .err = UI_ERR,
     .pink = UI_PINK,
-    .radius = UI_R_M,
+    .radius = 4,
+    .skin = UI_SKIN_NEON,
+    .surface_grad_from = 0x101B30u,
+    .surface_grad_to = 0x090F1Cu,
+    .glow = UI_ACCENT,
+    .glow_opa = 70,
+    .border_width = 1,
+    .corner_len = 8,
+    .font_style = UI_FONT_MONO,
+    .tracking = 1,
+    .deco = UI_DECO_CORNERS,
+    .pet_style = UI_PET_CYBER,
 };
 
 void ui_theme_default(ui_theme_t *t)
@@ -38,7 +49,18 @@ void ui_theme_default(ui_theme_t *t)
         .warn = UI_WARN,
         .err = UI_ERR,
         .pink = UI_PINK,
-        .radius = UI_R_M,
+        .radius = 4,
+        .skin = UI_SKIN_NEON,
+        .surface_grad_from = 0x101B30u,
+        .surface_grad_to = 0x090F1Cu,
+        .glow = UI_ACCENT,
+        .glow_opa = 70,
+        .border_width = 1,
+        .corner_len = 8,
+        .font_style = UI_FONT_MONO,
+        .tracking = 1,
+        .deco = UI_DECO_CORNERS,
+        .pet_style = UI_PET_CYBER,
     };
 }
 
@@ -74,10 +96,14 @@ lv_obj_t * ui_card_create(lv_obj_t * parent)
     lv_obj_remove_style_all(o);
     lv_obj_set_style_bg_color(o, lv_color_hex(th->surface), 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    if (th->skin != UI_SKIN_MINIMAL) {
+        lv_obj_set_style_bg_grad_color(o, lv_color_hex(th->surface_grad_to), 0);
+        lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_VER, 0);
+    }
     lv_obj_set_style_radius(o, th->radius, 0);
-    lv_obj_set_style_border_width(o, 1, 0);
+    lv_obj_set_style_border_width(o, th->border_width > 0 ? th->border_width : 1, 0);
     lv_obj_set_style_border_color(o, lv_color_hex(th->border), 0);
-    lv_obj_set_style_pad_all(o, 10, 0);
+    lv_obj_set_style_pad_all(o, th->skin == UI_SKIN_MINIMAL ? 14 : 10, 0);
     lv_obj_set_style_pad_row(o, 2, 0);
     lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(o, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
@@ -88,10 +114,14 @@ lv_obj_t * ui_card_create(lv_obj_t * parent)
 
 lv_obj_t * ui_pill_create(lv_obj_t * parent, const char * text, uint32_t color)
 {
+    const ui_theme_t * th = ui_theme();
     lv_obj_t * pill = ui_group_create(parent);
     lv_obj_set_style_bg_color(pill, lv_color_hex(color), 0);
     lv_obj_set_style_bg_opa(pill, LV_OPA_20, 0);
-    lv_obj_set_style_radius(pill, UI_R_PILL, 0);
+    int radius = (th->skin == UI_SKIN_NEON || th->skin == UI_SKIN_VINTAGE)
+                     ? 2
+                     : UI_R_PILL;
+    lv_obj_set_style_radius(pill, radius, 0);
     lv_obj_set_style_pad_hor(pill, 8, 0);
     lv_obj_set_style_pad_ver(pill, 3, 0);
     lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);

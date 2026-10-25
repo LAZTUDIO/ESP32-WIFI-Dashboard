@@ -15,7 +15,9 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebS
 from ..config import LAYOUT_DIR, SHARED_DIR
 from ..core.devices import Device, DeviceRegistry
 from ..core.fonts import FONT_SIZES, find_font_path, font_bytes
-from ..core.resolve import resolve_layout
+from ..core.forward import ForwardConfig
+from ..core.normalize import normalize_layout
+from ..core.resolve import project_layout, resolve_layout
 from ..core.validate import LayoutError, validate_layout
 
 log = logging.getLogger("esp32wifi.api")
@@ -274,7 +276,12 @@ def bootstrap(request: Request) -> dict[str, Any]:
         "catalog": {"version": catalog.version, "metrics": catalog.metric_list},
         "widgets": {"version": catalog.version, "widgets": catalog.widget_list},
         "profiles": {"version": catalog.version, "profiles": catalog.profiles},
-        "themes": {"version": catalog.version, "themes": catalog.theme_list},
+        "themes": {
+            "version": catalog.version,
+            "themes": catalog.theme_list,
+            "default": catalog.theme_default,
+            "aliases": catalog.theme_aliases,
+        },
     }
 
 
@@ -299,7 +306,12 @@ def profiles(request: Request) -> dict[str, Any]:
 @router.get("/themes")
 def themes(request: Request) -> dict[str, Any]:
     data = request.app.state.catalog
-    return {"version": data.version, "themes": data.theme_list}
+    return {
+        "version": data.version,
+        "themes": data.theme_list,
+        "default": data.theme_default,
+        "aliases": data.theme_aliases,
+    }
 
 
 @router.get("/snapshot")
@@ -535,6 +547,11 @@ async def update_device(
         updates["api"] = _clean_api(payload.get("api"))
     if "rot180" in payload:
         updates["rot180"] = bool(payload.get("rot180"))
+    if "profile" in payload:
+        profile = str(payload.get("profile") or "")
+        if profile not in request.app.state.catalog.profiles:
+            raise HTTPException(status_code=400, detail=f"未知画布 profile: {profile}")
+        updates["profile"] = profile
     device = _devices(request).update(device_id, **updates) or device
 
     via, server_base = await _apply_device_config(request, device)
@@ -563,12 +580,15 @@ def delete_device(device_id: str, request: Request) -> dict[str, Any]:
 
 @router.get("/devices/{device_id}/layout")
 def device_layout(
-    device_id: str, request: Request, resolved: int = 0
+    device_id: str, request: Request, resolved: int = 0, profile: str = ""
 ) -> dict[str, Any]:
     device = _device_or_404(request, device_id)
+    catalog = request.app.state.catalog
     layout = _device_layout(request, device)
     if resolved:
-        layout = resolve_layout(layout, request.app.state.catalog)
+        target = profile if profile in catalog.profiles else device.profile
+        layout = project_layout(layout, target, catalog)
+        layout = resolve_layout(layout, catalog)
     return layout
 
 
@@ -578,15 +598,20 @@ async def save_device_layout(
 ) -> dict[str, Any]:
     device = _device_or_404(request, device_id)
     catalog = request.app.state.catalog
+    normalized = normalize_layout(layout, catalog)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="布局无法在固定尺寸下排布")
+    layout = normalized
     try:
         validate_layout(layout, catalog)
     except LayoutError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if layout.get("profile") != device.profile:
+    if layout.get("profile") not in (device.profile, catalog.profiles.get(device.profile, {}).get("alt")):
         raise HTTPException(
             status_code=400,
-            detail=f"布局 profile {layout.get('profile')} 与设备 {device.profile} 不一致",
+            detail=f"布局 profile {layout.get('profile')} 与设备 {device.profile} 不是同一块屏的方向",
         )
+    # 每块屏只存一份布局：布局 profile 是主方向，alt 记录另一方向的位置
     _devices(request).write_layout(device, layout)
     log.info("device layout saved: %s", device.id)
     await request.app.state.connections.broadcast_event(
@@ -654,6 +679,10 @@ async def reboot_device(device_id: str, request: Request) -> dict[str, Any]:
 @router.put("/layout")
 async def save_layout(layout: dict[str, Any], request: Request) -> dict[str, Any]:
     catalog = request.app.state.catalog
+    normalized = normalize_layout(layout, catalog)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="布局无法在固定尺寸下排布")
+    layout = normalized
     try:
         validate_layout(layout, catalog)
     except LayoutError as exc:

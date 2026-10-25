@@ -7,7 +7,8 @@
       "category": "基础",
       "description": "在线状态、模型名和引擎阶段",
       "default_size": [12, 2],
-      "min_size": [6, 2],
+      "size_options": [[12, 2], [12, 3]],
+      "resizable": true,
       "bindings": [
         {"key": "online", "label": "在线状态", "types": ["bool"], "required": true, "default": "llm.online"},
         {"key": "model", "label": "模型", "types": ["string"], "required": true, "default": "llm.model"},
@@ -20,8 +21,9 @@
       "label": "大数字",
       "category": "基础",
       "description": "单个指标的大号数值卡片",
-      "default_size": [6, 3],
-      "min_size": [3, 3],
+      "default_size": [6, 4],
+      "size_options": [[4, 3], [6, 3], [6, 4], [8, 4], [12, 3], [12, 4], [12, 6]],
+      "resizable": true,
       "bindings": [
         {"key": "value", "label": "数值", "types": ["number"], "required": true}
       ],
@@ -34,8 +36,9 @@
       "label": "迷你曲线",
       "category": "图表",
       "description": "单个指标的实时趋势",
-      "default_size": [12, 4],
-      "min_size": [6, 4],
+      "default_size": [6, 4],
+      "size_options": [[4, 3], [6, 3], [6, 4], [6, 6], [8, 4], [8, 6], [12, 3], [12, 4], [12, 6]],
+      "resizable": true,
       "bindings": [
         {"key": "value", "label": "数值", "types": ["number"], "required": true}
       ],
@@ -48,8 +51,9 @@
       "label": "服务器卡",
       "category": "系统",
       "description": "CPU、内存、GPU 温度和主机 IP",
-      "default_size": [12, 4],
-      "min_size": [8, 4],
+      "default_size": [12, 6],
+      "size_options": [[6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
       "bindings": [
         {"key": "cpu", "label": "CPU", "types": ["number"], "required": true, "default": "host.cpu_pct"},
         {"key": "ram_used", "label": "内存已用", "types": ["number"], "required": true, "default": "host.ram_used_mb"},
@@ -66,8 +70,9 @@
       "label": "桌宠",
       "category": "趣味",
       "description": "随选定指标切换 睡眠/待机/开心/忙碌/警戒/离线 动画",
-      "default_size": [4, 5],
-      "min_size": [3, 4],
+      "default_size": [6, 6],
+      "size_options": [[4, 4], [6, 4], [6, 6], [8, 6], [8, 8]],
+      "resizable": true,
       "bindings": [
         {"key": "value", "label": "驱动指标", "types": ["number", "bool"], "required": true, "default": "llm.decode_tps"},
         {"key": "busy", "label": "忙碌状态（可选）", "types": ["bool"], "required": false, "default": "llm.busy"}
@@ -84,8 +89,9 @@
       "label": "指标列表",
       "category": "基础",
       "description": "可增删行的状态/指标列表，支持多组在线状态、多模型和自定义标签",
-      "default_size": [12, 4],
-      "min_size": [6, 3],
+      "default_size": [6, 4],
+      "size_options": [[4, 3], [6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
       "bindings": [],
       "rows": {
         "min": 1,
@@ -102,6 +108,221 @@
         {"key": "font_size", "label": "字号档位", "type": "select", "options": ["S", "M", "L"], "default": "M"},
         {"key": "row_height", "label": "行高(px)", "type": "number", "default": 22, "min": 14, "max": 40},
         {"key": "label_width", "label": "标签宽度(px)", "type": "number", "default": 60, "min": 30, "max": 120}
+      ]
+    },
+
+    {
+      "type": "gauge_ring",
+      "label": "环形仪表",
+      "category": "仪表",
+      "generation": 2,
+      "description": "270° 圆弧仪表，正方形 2x2 到 6x6 全规格；尺寸越大刻度、量程和阈值标记越完整",
+      "default_size": [4, 4],
+      "size_options": [[2, 2], [3, 3], [4, 3], [4, 4], [5, 5], [6, 4], [6, 6]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true, "default": "host.cpu_pct"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "仪表"},
+        {"key": "unit", "label": "单位覆盖", "type": "string", "default": ""},
+        {"key": "max_value", "label": "量程上限(0=自动)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "warn_above", "label": "警告阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "danger_above", "label": "危险阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "show_ticks", "label": "显示刻度", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "led_dot",
+      "label": "LED 状态灯",
+      "category": "仪表",
+      "generation": 2,
+      "description": "单布尔指标的呼吸灯；2x2 纯净版、4x4 带副文本，最小格的正方形组件",
+      "default_size": [2, 2],
+      "size_options": [[2, 2], [3, 3], [4, 4]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "状态", "types": ["bool"], "required": true, "default": "llm.online"},
+        {"key": "subtitle", "label": "副文本(可选)", "types": ["string"], "required": false, "default": "llm.phase"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "状态"},
+        {"key": "on_text", "label": "在线文案", "type": "string", "default": "在线"},
+        {"key": "off_text", "label": "离线文案", "type": "string", "default": "离线"}
+      ]
+    },
+    {
+      "type": "led_matrix",
+      "label": "点阵状态墙",
+      "category": "状态",
+      "generation": 2,
+      "description": "多个布尔指标的 LED 点阵，按宽高比自动排布；离线呼吸闪烁，服务健康一屏总览",
+      "default_size": [6, 4],
+      "size_options": [[4, 4], [5, 5], [6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
+      "bindings": [],
+      "rows": {
+        "min": 1,
+        "max": 16,
+        "default": [
+          {"label": "推理服务", "binding": "llm.online", "kind": "status", "format": ""},
+          {"label": "正在推理", "binding": "llm.busy", "kind": "status", "format": ""},
+          {"label": "前缀缓存", "binding": "llm.cache_enabled", "kind": "status", "format": ""},
+          {"label": "草稿器", "binding": "llm.drafter_loaded", "kind": "status", "format": ""}
+        ]
+      },
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "状态墙"},
+        {"key": "show_labels", "label": "显示标签", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "bar_strip",
+      "label": "指标条形带",
+      "category": "仪表",
+      "generation": 2,
+      "description": "单指标水平条：2 格Inline行、3 格堆叠大数、4 格主数值+阈值刻度，长条规格专用",
+      "default_size": [12, 2],
+      "size_options": [[4, 2], [6, 2], [8, 2], [12, 2], [4, 3], [6, 3], [8, 3], [12, 3], [12, 4]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true, "default": "host.cpu_pct"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "占用"},
+        {"key": "unit", "label": "单位覆盖", "type": "string", "default": ""},
+        {"key": "max_value", "label": "量程上限(0=自动)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "warn_above", "label": "警告阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "danger_above", "label": "危险阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000}
+      ]
+    },
+    {
+      "type": "vbar_gauge",
+      "label": "垂直柱",
+      "category": "仪表",
+      "generation": 2,
+      "description": "竖条矩形专用：2x4/2x6 温度计式窄条，4x8 大量程带刻度与目标线",
+      "default_size": [3, 6],
+      "size_options": [[2, 4], [3, 4], [2, 6], [3, 6], [4, 6], [4, 8]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true, "default": "host.gpu_util_pct"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "垂直柱"},
+        {"key": "unit", "label": "单位覆盖", "type": "string", "default": ""},
+        {"key": "max_value", "label": "量程上限(0=自动)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "warn_above", "label": "警告阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "danger_above", "label": "危险阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000}
+      ]
+    },
+    {
+      "type": "multi_bars",
+      "label": "多柱状图",
+      "category": "图表",
+      "generation": 2,
+      "description": "1-8 个数值指标的柱状图，自动刻度与网格线；宽矩形 12x6 带数值顶帽",
+      "default_size": [6, 4],
+      "size_options": [[4, 4], [6, 3], [6, 4], [4, 6], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
+      "bindings": [],
+      "rows": {
+        "min": 1,
+        "max": 8,
+        "default": [
+          {"label": "解码", "binding": "llm.decode_tps", "kind": "number", "format": ""},
+          {"label": "预填", "binding": "llm.prefill_tps", "kind": "number", "format": ""},
+          {"label": "解码均值", "binding": "llm.decode_avg", "kind": "number", "format": ""},
+          {"label": "预填均值", "binding": "llm.prefill_avg", "kind": "number", "format": ""}
+        ]
+      },
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "柱状图"},
+        {"key": "show_values", "label": "柱顶显示数值", "type": "bool", "default": true},
+        {"key": "show_labels", "label": "柱底显示标签", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "dual_line",
+      "label": "双折线",
+      "category": "图表",
+      "generation": 2,
+      "description": "双指标折线对比，图例+实时值+面积填充；宽矩形图表面专用",
+      "default_size": [6, 4],
+      "size_options": [[4, 4], [6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "主线", "types": ["number"], "required": true, "default": "llm.decode_tps"},
+        {"key": "value2", "label": "副线", "types": ["number"], "required": true, "default": "llm.prefill_tps"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "双折线"},
+        {"key": "unit", "label": "主线单位覆盖", "type": "string", "default": ""},
+        {"key": "unit2", "label": "副线单位覆盖", "type": "string", "default": ""},
+        {"key": "show_area", "label": "面积填充", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "big_stat",
+      "label": "主指标卡",
+      "category": "仪表",
+      "generation": 2,
+      "description": "hero 大数字+趋势箭头+60s 涨跌幅+背景曲线；6x6 全屏唯一视觉焦点",
+      "default_size": [6, 4],
+      "size_options": [[4, 4], [6, 4], [6, 6], [8, 4], [8, 6], [12, 4], [12, 6]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "数值", "types": ["number"], "required": true, "default": "llm.decode_tps"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "解码速度"},
+        {"key": "unit", "label": "单位覆盖", "type": "string", "default": ""},
+        {"key": "warn_above", "label": "警告阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "danger_above", "label": "危险阈值(0=关)", "type": "number", "default": 0, "min": 0, "max": 1000000},
+        {"key": "show_trend", "label": "显示趋势", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "spark_row",
+      "label": "迷你曲线排",
+      "category": "图表",
+      "generation": 2,
+      "description": "1-4 个指标横排迷你曲线，长条规格；每列独立纵轴、数值置顶",
+      "default_size": [12, 2],
+      "size_options": [[4, 2], [6, 2], [8, 2], [12, 2], [4, 3], [6, 3], [8, 3], [12, 3], [6, 4]],
+      "resizable": true,
+      "bindings": [],
+      "rows": {
+        "min": 1,
+        "max": 4,
+        "default": [
+          {"label": "解码", "binding": "llm.decode_tps", "kind": "number", "format": ""},
+          {"label": "预填", "binding": "llm.prefill_tps", "kind": "number", "format": ""},
+          {"label": "GPU", "binding": "host.gpu_util_pct", "kind": "number", "format": ""},
+          {"label": "CPU", "binding": "host.cpu_pct", "kind": "number", "format": ""}
+        ]
+      },
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "曲线排"},
+        {"key": "show_labels", "label": "显示标签", "type": "bool", "default": true}
+      ]
+    },
+    {
+      "type": "text_badge",
+      "label": "文本徽章",
+      "category": "基础",
+      "generation": 2,
+      "description": "字符串/布尔/数值指标的文本卡，自动缩字号防溢出；2x4/2x6 竖排长文本",
+      "default_size": [6, 2],
+      "size_options": [[2, 4], [4, 2], [6, 2], [8, 2], [12, 2], [4, 3], [6, 3], [8, 3], [12, 3], [2, 6]],
+      "resizable": true,
+      "bindings": [
+        {"key": "value", "label": "文本", "types": ["string", "bool", "number"], "required": true, "default": "llm.model"}
+      ],
+      "options": [
+        {"key": "title", "label": "标题", "type": "string", "default": "文本"},
+        {"key": "font_size", "label": "字号档位", "type": "select", "options": ["S", "M", "L"], "default": "M"},
+        {"key": "align", "label": "对齐", "type": "select", "options": ["left", "center"], "default": "left"}
       ]
     }
   ]

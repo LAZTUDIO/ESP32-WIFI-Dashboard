@@ -6,8 +6,10 @@
     widgets: { list: [], byType: new Map() },
     profiles: {},
     themes: { list: [], byId: new Map() },
+    themeDefault: 'neon-cyber',
+    themeAliases: {},
     profile: '320x480',
-    activePage: 0,
+    baseProfile: '320x480',
     layout: null,
     selectedId: null,
     values: {},
@@ -94,20 +96,21 @@
     return state.widgets.byType.get(type) || null;
   }
   function activeProfile() {
-    return state.layout ? state.profiles[state.layout.profile] : null;
+    return state.profiles[state.profile] || null;
   }
-  function currentPage() {
-    if (!state.layout || !Array.isArray(state.layout.pages)) return null;
-    return state.layout.pages[state.activePage] || state.layout.pages[0] || null;
-  }
+  /* 单页模型：代理仍保留 pages[0] 以兼容协议，编辑器不再有多页概念。 */
   function currentWidgets() {
-    const page = currentPage();
-    return page && Array.isArray(page.widgets) ? page.widgets : [];
+    const pages = state.layout && state.layout.pages;
+    return Array.isArray(pages) && pages[0] && Array.isArray(pages[0].widgets)
+      ? pages[0].widgets
+      : [];
   }
   const THEME_VARS = {
     bg: '--bg',
     surface: '--surface',
     surface_2: '--surface-2',
+    surface_grad_from: '--surface-grad-from',
+    surface_grad_to: '--surface-grad-to',
     border: '--border',
     text: '--text',
     text_dim: '--dim',
@@ -119,12 +122,14 @@
     warn: '--warn',
     err: '--err',
     pink: '--pink',
+    glow: '--glow',
   };
   function applyTheme() {
     if (!state.layout) return;
     const theme =
       state.themes.byId.get(state.layout.theme) ||
-      state.themes.byId.get('classic');
+      state.themes.byId.get(state.themeDefault) ||
+      state.themes.byId.get('neon-cyber');
     if (theme && state.layout.theme !== theme.id) state.layout.theme = theme.id;
     const tokens = (theme && theme.tokens) || {};
     for (const [token, cssVar] of Object.entries(THEME_VARS)) {
@@ -132,16 +137,29 @@
     }
     const radius = Number(tokens.radius);
     canvas.style.setProperty('--radius', `${Number.isFinite(radius) ? radius : 12}px`);
+    const borderWidth = Number(tokens.border_width);
+    canvas.style.setProperty('--bw', `${Number.isFinite(borderWidth) ? borderWidth : 1}px`);
+    const cornerLen = Number(tokens.corner_len);
+    canvas.style.setProperty('--corner-len', `${Number.isFinite(cornerLen) ? cornerLen : 0}px`);
+    const glowOpa = Number(tokens.glow_opa);
+    canvas.style.setProperty(
+      '--glow-opa',
+      `${Number.isFinite(glowOpa) ? Math.max(0, Math.min(100, glowOpa)) : 0}%`
+    );
+    const tracking = Number(tokens.tracking);
+    canvas.style.setProperty(
+      '--tracking',
+      `${Number.isFinite(tracking) ? tracking : 0}px`
+    );
+    const skin = tokens.skin || (theme && theme.id) || 'neon-cyber';
+    canvas.dataset.theme = (theme && theme.id) || 'neon-cyber';
+    canvas.dataset.skin = skin;
     if (themeSelect.value !== state.layout.theme) {
       themeSelect.value = state.layout.theme;
     }
   }
   function totalWidgets() {
-    if (!state.layout || !Array.isArray(state.layout.pages)) return 0;
-    return state.layout.pages.reduce(
-      (total, page) => total + (Array.isArray(page.widgets) ? page.widgets.length : 0),
-      0
-    );
+    return currentWidgets().length;
   }
   function normalizeLayout(layout) {
     if (layout.v === 2 && Array.isArray(layout.pages)) {
@@ -156,24 +174,28 @@
         }
       });
       if (!layout.pages.length) {
-        layout.pages = [{ name: '第 1 页', widgets: [] }];
+        layout.pages = [{ name: '主页', widgets: [] }];
       }
-      if (!['slide', 'fade', 'none', 'stack', 'zoom', 'flip', 'rotate'].includes(layout.page_animation)) {
-        layout.page_animation = 'slide';
+      if (layout.pages.length > 1) {
+        const merged = layout.pages.flatMap((page) =>
+          Array.isArray(page.widgets) ? page.widgets : []
+        );
+        layout.pages = [{ name: '主页', widgets: merged }];
       }
+      delete layout.page_animation;
       if (typeof layout.theme !== 'string' || !layout.theme) {
-        layout.theme = 'classic';
+        layout.theme = state.themeDefault || 'neon-cyber';
       }
+      layout.theme = state.themeAliases[layout.theme] || layout.theme;
       return layout;
     }
     return {
       v: 2,
       profile: layout.profile,
-      theme: layout.theme || 'classic',
-      page_animation: layout.page_animation || 'slide',
+      theme: state.themeAliases[layout.theme] || layout.theme || state.themeDefault,
       pages: [
         {
-          name: '第 1 页',
+          name: '主页',
           widgets: Array.isArray(layout.widgets) ? layout.widgets : [],
         },
       ],
@@ -205,12 +227,33 @@
       b.y < a.y + a.h
     );
   }
-  function effectiveMinSize(widget, def) {
-    const minSize = (def && def.min_size) || [1, 1];
-    const minW = Number(minSize[0]) || 1;
-    const minH = Number(minSize[1]) || 1;
-    const titleHidden = widget.options && widget.options.show_title === false;
-    return [minW, Math.max(1, minH - (titleHidden ? 1 : 0))];
+  function sizeOptions(def) {
+    const list = (def && def.size_options) || [];
+    if (list.length) return list;
+    const size = (def && def.default_size) || [1, 1];
+    return [size];
+  }
+  function widgetSize(def, widget) {
+    const options = sizeOptions(def);
+    if (widget && Number.isInteger(widget.w) && Number.isInteger(widget.h)) {
+      const hit = options.find(([w, h]) => w === widget.w && h === widget.h);
+      if (hit) return [hit[0], hit[1]];
+    }
+    const fallback = (def && def.default_size) || options[0] || [1, 1];
+    return [Number(fallback[0]) || 1, Number(fallback[1]) || 1];
+  }
+  function nearestSize(def, w, h) {
+    const options = sizeOptions(def);
+    let best = null;
+    let bestScore = Infinity;
+    for (const option of options) {
+      const score = Math.abs(option[0] - w) + Math.abs(option[1] - h);
+      if (score < bestScore) {
+        best = option;
+        bestScore = score;
+      }
+    }
+    return best || [w, h];
   }
 
   function isValidPlacement(candidate, ignoreId = null) {
@@ -229,12 +272,144 @@
     );
   }
   function findFreeSpot(def, profile) {
-    const [width, height] = def.default_size;
+    const [width, height] = widgetSize(def);
     for (let y = 0; y <= profile.rows - height; y += 1) {
       for (let x = 0; x <= profile.cols - width; x += 1) {
         if (isValidPlacement({ x, y, w: width, h: height })) {
           return { x, y };
         }
+      }
+    }
+    return null;
+  }
+
+  // 一份组件数据 + 另一方向的位置覆盖：布局只在主方向存一份组件，
+  // 切换方向时用 alt 覆盖或按比例自动映射，不复制组件定义。
+  function baseRectOf(widget) {
+    return widget._base || { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
+  }
+
+  function captureOrientation() {
+    if (!state.layout) return;
+    if (state.profile !== state.baseProfile) return;
+    for (const widget of currentWidgets()) {
+      widget._base = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
+    }
+  }
+
+  function mapPositionToProfile(rect, base, target, w, h) {
+    const b = cellSize(base);
+    const t = cellSize(target);
+    const left = base.padding + rect.x * (b.cw + base.gap);
+    const top = base.padding + rect.y * (b.ch + base.gap);
+    return {
+      x: clamp(
+        Math.round(((left / base.width) * target.width - target.padding) / (t.cw + target.gap)),
+        0,
+        target.cols - w
+      ),
+      y: clamp(
+        Math.round(((top / base.height) * target.height - target.padding) / (t.ch + target.gap)),
+        0,
+        target.rows - h
+      ),
+      w,
+      h,
+    };
+  }
+
+  function placeFreeRect(rect, target, occupied) {
+    if (!occupied.some((other) => intersects(rect, other))) return rect;
+    let best = null;
+    let bestScore = 0;
+    for (let y = 0; y <= target.rows - rect.h; y += 1) {
+      for (let x = 0; x <= target.cols - rect.w; x += 1) {
+        const candidate = { x, y, w: rect.w, h: rect.h };
+        if (occupied.some((other) => intersects(candidate, other))) continue;
+        const score = Math.abs(x - rect.x) + Math.abs(y - rect.y);
+        if (!best || score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+    }
+    return best || rect;
+  }
+
+  function applyOrientationView() {
+    if (!state.layout) return;
+    const base = state.profiles[state.baseProfile];
+    const target = state.profiles[state.profile];
+    if (!base || !target) return;
+    const widgets = currentWidgets();
+    for (const widget of widgets) {
+      if (!widget._base) {
+        widget._base = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
+      }
+    }
+    if (state.profile === state.baseProfile) {
+      for (const widget of widgets) {
+        const [w, h] = widgetSize(widgetDef(widget.type), widget);
+        widget.w = w;
+        widget.h = h;
+        widget.x = clamp(widget._base.x, 0, base.cols - w);
+        widget.y = clamp(widget._base.y, 0, base.rows - h);
+        widget._base.w = w;
+        widget._base.h = h;
+      }
+      return;
+    }
+    const explicit = new Set();
+    const occupied = [];
+    const pending = [];
+    for (const widget of widgets) {
+      const alt = widget.alt;
+      if (!alt || !Number.isInteger(alt.x) || !Number.isInteger(alt.y)) continue;
+      const [w, h] = widgetSize(widgetDef(widget.type), widget);
+      const rect = {
+        x: clamp(alt.x, 0, target.cols - w),
+        y: clamp(alt.y, 0, target.rows - h),
+        w,
+        h,
+      };
+      widget._altRect = rect;
+      explicit.add(widget);
+      occupied.push(rect);
+    }
+    for (const widget of widgets) {
+      if (explicit.has(widget)) continue;
+      const [w, h] = widgetSize(widgetDef(widget.type), widget);
+      pending.push({
+        widget,
+        rect: mapPositionToProfile(baseRectOf(widget), base, target, w, h),
+      });
+    }
+    pending.sort((a, b) => b.rect.w * b.rect.h - a.rect.w * a.rect.h);
+    for (const item of pending) {
+      const rect = placeFreeRect(item.rect, target, occupied);
+      occupied.push(rect);
+      item.widget._altRect = rect;
+    }
+    for (const widget of widgets) {
+      const rect = widget._altRect;
+      delete widget._altRect;
+      if (!rect) continue;
+      widget.x = rect.x;
+      widget.y = rect.y;
+      widget.w = rect.w;
+      widget.h = rect.h;
+    }
+  }
+
+  function findFreeBaseSpot(def) {
+    const base = state.profiles[state.baseProfile];
+    if (!base) return null;
+    const [width, height] = widgetSize(def);
+    const occupied = currentWidgets().map((widget) => baseRectOf(widget));
+    for (let y = 0; y <= base.rows - height; y += 1) {
+      for (let x = 0; x <= base.cols - width; x += 1) {
+        const rect = { x, y, w: width, h: height };
+        if (!occupied.some((other) => intersects(rect, other))) return rect;
       }
     }
     return null;
@@ -343,40 +518,50 @@
     canvas.style.setProperty('--grid-y', `${ch + profile.gap}px`);
     canvas.style.setProperty('--grid-offset-x', `${profile.padding}px`);
     canvas.style.setProperty('--grid-offset-y', `${profile.padding}px`);
-    const page = currentPage();
-    $('canvas-title').textContent = `${profile.label}${
-      page ? ` · ${page.name}` : ''
-    } · ${profile.cols}×${profile.rows} 网格`;
+    $('canvas-title').textContent =
+      `${profile.label} · ${profile.cols}×${profile.rows} 网格`;
   }
 
   function renderPalette() {
     paletteEl.innerHTML = '';
+    const groups = new Map();
     for (const def of state.widgets.list) {
-      const item = document.createElement('div');
-      item.className = 'palette-item';
-      item.draggable = true;
-      item.dataset.type = def.type;
+      const key = def.category || '其他';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(def);
+    }
+    for (const [category, defs] of groups) {
+      const head = document.createElement('div');
+      head.className = 'palette-group';
+      head.textContent = category;
+      paletteEl.appendChild(head);
+      for (const def of defs) {
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.draggable = true;
+        item.dataset.type = def.type;
 
-      const title = document.createElement('strong');
-      title.textContent = def.label;
-      const desc = document.createElement('span');
-      desc.textContent = def.description || def.category || '';
-      item.append(title, desc);
+        const title = document.createElement('strong');
+        title.textContent = def.label;
+        const desc = document.createElement('span');
+        desc.textContent = def.description || def.category || '';
+        item.append(title, desc);
 
-      item.addEventListener('dragstart', (event) => {
-        state.paletteDragging = true;
-        event.dataTransfer.setData('text/plain', def.type);
-        event.dataTransfer.effectAllowed = 'copy';
-      });
-      item.addEventListener('dragend', () => {
-        setTimeout(() => {
-          state.paletteDragging = false;
-        }, 0);
-      });
-      item.addEventListener('click', () => {
-        if (!state.paletteDragging) addWidget(def.type);
-      });
-      paletteEl.appendChild(item);
+        item.addEventListener('dragstart', (event) => {
+          state.paletteDragging = true;
+          event.dataTransfer.setData('text/plain', def.type);
+          event.dataTransfer.effectAllowed = 'copy';
+        });
+        item.addEventListener('dragend', () => {
+          setTimeout(() => {
+            state.paletteDragging = false;
+          }, 0);
+        });
+        item.addEventListener('click', () => {
+          if (!state.paletteDragging) addWidget(def.type);
+        });
+        paletteEl.appendChild(item);
+      }
     }
   }
 
@@ -417,7 +602,12 @@
     const label = document.createElement('div');
     label.className = 'kpi-metric';
     label.textContent = metric ? metric.label : '未绑定指标';
-    body.append(main, label);
+    const gauge = document.createElement('div');
+    gauge.className = 'kpi-gauge';
+    const ratio =
+      typeof value === 'number' ? Math.max(0, Math.min(1, value / 100)) : 0.62;
+    gauge.style.setProperty('--ratio', String(ratio));
+    body.append(gauge, main, label);
   }
 
   function renderSparkline(widget, body) {
@@ -642,13 +832,37 @@
     return `${formatNumber(value, metric)}${metric && metric.unit ? ` ${metric.unit}` : ''}`;
   }
   function petSvg(widget, state) {
-    return `<svg class="pet-svg pet-state-${state}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    const tokens =
+      (state.layout && state.themes.byId.get(state.layout.theme)?.tokens) || {};
+    const skin = tokens.skin || 'neon-cyber';
+    const head =
+      skin === 'neon-cyber'
+        ? '<rect class="pet-head" x="21" y="21" width="58" height="48" rx="6"></rect>'
+        : skin === 'vital-pulse'
+          ? '<rect class="pet-head" x="22" y="23" width="56" height="44" rx="20"></rect>'
+          : '<ellipse class="pet-head" cx="50" cy="45" rx="29" ry="24"></ellipse>';
+    const torso =
+      skin === 'minimal-air'
+        ? '<circle class="pet-torso" cx="50" cy="73" r="25"></circle>'
+        : skin === 'vital-pulse'
+          ? '<rect class="pet-torso" x="21" y="56" width="58" height="34" rx="17"></rect>'
+          : '<ellipse class="pet-torso" cx="50" cy="73" rx="30" ry="18"></ellipse>';
+    const deco =
+      skin === 'neon-cyber'
+        ? '<line class="pet-antenna" x1="50" y1="21" x2="50" y2="12"></line><circle class="pet-antenna-dot" cx="50" cy="10" r="2.4"></circle><rect class="pet-visor" x="35" y="38" width="30" height="10" rx="3"></rect>'
+        : skin === 'vintage-gauge'
+          ? '<circle class="pet-gauge" cx="50" cy="45" r="26"></circle>'
+          : skin === 'vital-pulse'
+            ? '<circle class="pet-aura" cx="50" cy="52" r="38"></circle>'
+            : '';
+    return `<svg class="pet-svg pet-state-${state} pet-variant-${skin}" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <ellipse class="pet-shadow" cx="50" cy="91" rx="24" ry="5"></ellipse>
+      ${deco}
       <g class="pet-actor">
         <circle class="pet-ear" cx="29" cy="18" r="9"></circle>
         <circle class="pet-ear" cx="71" cy="18" r="9"></circle>
-        <ellipse class="pet-torso" cx="50" cy="73" rx="30" ry="18"></ellipse>
-        <ellipse class="pet-head" cx="50" cy="45" rx="29" ry="24"></ellipse>
+        ${torso}
+        ${head}
         <ellipse class="pet-cheek" cx="31" cy="55" rx="5" ry="3"></ellipse>
         <ellipse class="pet-cheek" cx="69" cy="55" rx="5" ry="3"></ellipse>
         <ellipse class="pet-eye" cx="40" cy="43" rx="3.6" ry="4.8"></ellipse>
@@ -672,15 +886,769 @@
       renderPet(widget, body);
       return;
     }
-    const state = petState(widget);
-    const cls = `pet-svg pet-state-${state}`;
+    const tokens =
+      (state.layout && state.themes.byId.get(state.layout.theme)?.tokens) || {};
+    const skin = tokens.skin || 'neon-cyber';
+    const stateName = petState(widget);
+    const cls = `pet-svg pet-state-${stateName} pet-variant-${skin}`;
     if (svg.getAttribute('class') !== cls) svg.setAttribute('class', cls);
     const fx = svg.querySelector('.pet-fx');
-    if (fx) fx.textContent = PET_FX[state];
+    if (fx) fx.textContent = PET_FX[stateName];
     const badge = body.querySelector('.pet-badge');
-    if (badge) badge.textContent = PET_LABELS[state];
+    if (badge) badge.textContent = PET_LABELS[stateName];
     const valueEl = body.querySelector('.pet-value');
     if (valueEl) valueEl.textContent = petValueText(widget);
+  }
+
+  /* ================= generation 2 小组件（mini 系列） =================
+   * 预览视觉与固件 ui/src/ui_mini.c 对齐：同一套数值缩放（mini_ratio）、
+   * 阈值着色（mini_value_color）与布局分层（compact/stack/hero）。 */
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(name, attrs) {
+    const el = document.createElementNS(SVG_NS, name);
+    if (attrs) {
+      for (const [key, value] of Object.entries(attrs)) {
+        el.setAttribute(key, String(value));
+      }
+    }
+    return el;
+  }
+  function miniHistory(id) {
+    return (state.history.get(id) || []).slice(-60);
+  }
+  /** 单位：options.unit 覆盖优先，否则指标自身单位（对齐固件 spec.unit） */
+  function miniUnit(options, metric) {
+    const override =
+      options && typeof options.unit === 'string' ? options.unit.trim() : '';
+    return override || (metric && metric.unit) || '';
+  }
+  /** 量程：显式 max_value > %/°C 归 100 > 0（软缩放） */
+  function miniMaxOf(options, unit) {
+    const explicit = Number(options && options.max_value);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    if (unit === '%' || (unit && unit.indexOf('°C') >= 0)) return 100;
+    return 0;
+  }
+  /** 填充比例：对齐固件 mini_ratio（无显式量程时 v/(v+1) 软缩放） */
+  function miniRatio(value, options, unit) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+    const v = Math.max(0, value);
+    const maxv = miniMaxOf(options, unit);
+    if (maxv > 0) return Math.min(1, v / maxv);
+    return Math.min(1, v / (v + 1));
+  }
+  /** 阈值着色：越危险线 err、越警告线 warn，否则 null（交给 CSS 主题主色） */
+  function miniValueColor(value, options) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    const danger = Number(options && options.danger_above);
+    const warn = Number(options && options.warn_above);
+    if (Number.isFinite(danger) && danger > 0 && value >= danger) return 'var(--err)';
+    if (Number.isFinite(warn) && warn > 0 && value >= warn) return 'var(--warn)';
+    return null;
+  }
+  /** 百分比字面量：两位小数，避免序列化出 15 位浮点尾巴 */
+  function pctOf(ratio) {
+    const v = Math.max(0, Math.min(1, Number(ratio) || 0));
+    return `${(v * 100).toFixed(2)}%`;
+  }
+  /** 迷你数值文本：与固件一致的 k 缩写 */
+  function miniCompactNumber(value, precision) {
+    if (!Number.isFinite(value)) return '--';
+    if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+    const prec = Math.max(0, Math.min(2, Number.isFinite(precision) ? precision : 0));
+    return value.toFixed(prec);
+  }
+
+  /* ---- gauge_ring：270° 圆弧 + 刻度 + 阈值标记 + 中心数值 ---- */
+  function renderGaugeRing(widget, body) {
+    const metric = metricDef(widget.bindings.value);
+    const value = numberValue(widget.bindings.value);
+    const options = widget.options || {};
+    const unit = miniUnit(options, metric);
+    const ratio = miniRatio(value, options, unit);
+    const color = miniValueColor(value, options);
+    const compact = widget.w <= 2 || widget.h <= 2;
+    const showTicks = options.show_ticks !== false && !compact;
+
+    const cx = 50;
+    const cy = 50;
+    const r = 33.5;
+    const a0 = 135;
+    const sweep = 270;
+    const polar = (rad, deg) => {
+      const a = (deg * Math.PI) / 180;
+      return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
+    };
+    const arcPath = (rad, from, to) => {
+      const [x1, y1] = polar(rad, from);
+      const [x2, y2] = polar(rad, to);
+      const large = to - from > 180 ? 1 : 0;
+      return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${rad} ${rad} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+    };
+
+    const svg = svgEl('svg', {
+      // 紧凑模式裁掉留白，让弧形填满小格子（对齐固件 compact 无刻度/无单位）
+      viewBox: compact ? '10 10 80 70' : '0 0 100 104',
+      preserveAspectRatio: 'xMidYMid meet',
+      class: 'gauge-svg',
+    });
+    svg.appendChild(
+      svgEl('path', { d: arcPath(r, a0, a0 + sweep), class: 'gauge-track' })
+    );
+
+    // 刻度环画在弧带外侧（与固件 gauge_tick_cb 的 r_out = 弧半径 + 3 一致）
+    if (showTicks) {
+      for (let i = 0; i <= 12; i += 1) {
+        const ang = a0 + (sweep * i) / 12;
+        const major = i % 3 === 0;
+        const [x1, y1] = polar(38, ang);
+        const [x2, y2] = polar(major ? 43.5 : 41, ang);
+        svg.appendChild(
+          svgEl('line', {
+            x1: x1.toFixed(2),
+            y1: y1.toFixed(2),
+            x2: x2.toFixed(2),
+            y2: y2.toFixed(2),
+            class: `gauge-tick${major ? ' major' : ''}`,
+          })
+        );
+      }
+    }
+
+    // 复古机械：46 格游丝刻度 + 内表圈（超集 DOM，默认由 CSS 隐藏）
+    if (showTicks) {
+      const fine = svgEl('g', { class: 'gauge-ticks-fine' });
+      for (let i = 0; i <= 45; i += 1) {
+        const ang = a0 + (sweep * i) / 45;
+        const major = i % 5 === 0;
+        const [x1, y1] = polar(major ? 37.5 : 40.5, ang);
+        const [x2, y2] = polar(43.5, ang);
+        fine.appendChild(
+          svgEl('line', {
+            x1: x1.toFixed(2),
+            y1: y1.toFixed(2),
+            x2: x2.toFixed(2),
+            y2: y2.toFixed(2),
+            class: `gauge-tick-fine${major ? ' major' : ''}`,
+          })
+        );
+      }
+      svg.appendChild(fine);
+      svg.appendChild(
+        svgEl('circle', { cx: cx, cy, r: 34.5, class: 'gauge-bezel' })
+      );
+    }
+
+    const valueArc = svgEl('path', {
+      d: arcPath(r, a0, a0 + sweep * Math.max(ratio, 0.02)),
+      class: 'gauge-arc',
+    });
+    if (color) valueArc.style.stroke = color;
+    svg.appendChild(valueArc);
+
+    // 复古机械：黄铜指针（45% → 82% 半径）；紧凑/无刻度模式跳过，避免 viewBox 变化错位
+    if (showTicks) {
+      const pct = Math.max(0, Math.min(1, Number(ratio) || 0));
+      const nx1 = cx + r * 0.45;
+      const nx2 = cx + r * 0.82;
+      const needle = svgEl('g', { class: 'gauge-needle' });
+      needle.style.transform = `rotate(${(a0 + sweep * pct).toFixed(2)}deg)`;
+      needle.appendChild(
+        svgEl('line', {
+          x1: nx1.toFixed(2),
+          y1: 52,
+          x2: nx2.toFixed(2),
+          y2: 52,
+          class: 'gauge-needle-line',
+        })
+      );
+      needle.appendChild(
+        svgEl('circle', {
+          cx: nx2.toFixed(2),
+          cy: 52,
+          r: 2,
+          class: 'gauge-needle-tip',
+        })
+      );
+      // 中心轴帽：与固件一致，机械表的转轴
+      needle.appendChild(
+        svgEl('circle', { cx, cy: 52, r: 1.6, class: 'gauge-hub' })
+      );
+      svg.appendChild(needle);
+    }
+
+    const valueText = svgEl('text', {
+      x: cx,
+      y: compact ? cy + 4 : cy + 1,
+      class: 'gauge-value',
+    });
+    valueText.textContent = value === null ? '--' : formatNumber(value, metric);
+    if (color) valueText.style.fill = color;
+    svg.appendChild(valueText);
+
+    if (!compact && unit) {
+      const unitText = svgEl('text', { x: cx, y: cy + 14, class: 'gauge-unit' });
+      unitText.textContent = unit;
+      svg.appendChild(unitText);
+    }
+    body.appendChild(svg);
+  }
+
+  /* ---- led_dot：呼吸灯，2x2 纯净 / 大方差带副文本 ---- */
+  function renderLedDot(widget, body) {
+    const on = boolValue(widget.bindings.value);
+    const sub = textValue(widget.bindings.subtitle);
+    const options = widget.options || {};
+    body.classList.add('led-body');
+    const tiny = widget.w <= 2 && widget.h <= 2;
+    const hasSub = !tiny && widget.h >= 4 && sub !== null;
+
+    const dot = document.createElement('span');
+    dot.className =
+      'led-dot' + (on === true ? ' on' : on === false ? ' off' : ' unknown');
+    body.appendChild(dot);
+
+    if (!tiny) {
+      const text = document.createElement('span');
+      text.className =
+        'led-text' + (on === true ? ' on' : on === false ? ' off' : ' unknown');
+      text.textContent =
+        on === true
+          ? options.on_text || '在线'
+          : on === false
+            ? options.off_text || '离线'
+            : '—';
+      body.appendChild(text);
+    }
+    if (hasSub) {
+      const subEl = document.createElement('span');
+      subEl.className = 'led-sub';
+      subEl.textContent = sub || '—';
+      body.appendChild(subEl);
+    }
+  }
+
+  /* ---- led_matrix：点阵状态墙，按宽高比自动排布 ---- */
+  function renderLedMatrix(widget, body) {
+    const options = widget.options || {};
+    const rows = Array.isArray(options.rows) ? options.rows : [];
+    const showLabels = options.show_labels !== false;
+    body.classList.add('matrix-body');
+    const grid = document.createElement('div');
+    grid.className = 'matrix-grid';
+
+    const n = Math.max(1, rows.length);
+    const aspect = widget.w / Math.max(1, widget.h);
+    // 取最接近正方形的列数（与固件 lround 一致）：向上取整会让 4 个灯排成 3+1
+    const cols = Math.max(1, Math.min(n, Math.round(Math.sqrt(n * aspect))));
+    const gridRows = Math.ceil(n / cols);
+    // 单元格偏高 → 点上文下；偏宽 → 点左文右（对齐固件 build_matrix）
+    const cellAspect = widget.h / gridRows / (widget.w / cols);
+    if (cellAspect >= 0.8) grid.classList.add('stack');
+    grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    grid.style.gridTemplateRows = `repeat(${gridRows}, minmax(0, 1fr))`;
+
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'list-empty';
+      empty.textContent = '在属性面板添加行';
+      grid.appendChild(empty);
+    }
+    for (const row of rows) {
+      const value = metricValue(row.binding);
+      const cell = document.createElement('div');
+      cell.className = 'matrix-cell';
+      const dot = document.createElement('span');
+      dot.className =
+        'matrix-dot' +
+        (typeof value === 'boolean' ? (value ? ' on' : ' off') : ' unknown');
+      cell.appendChild(dot);
+      if (showLabels) {
+        const label = document.createElement('span');
+        label.className = 'matrix-label';
+        label.textContent = row.label || '—';
+        cell.appendChild(label);
+      }
+      grid.appendChild(cell);
+    }
+    body.appendChild(grid);
+  }
+
+  /* ---- bar_strip：inline / 堆叠 / hero 三种高度分层 ---- */
+  function renderBarStrip(widget, body) {
+    const metric = metricDef(widget.bindings.value);
+    const value = numberValue(widget.bindings.value);
+    const options = widget.options || {};
+    const unit = miniUnit(options, metric);
+    const ratio = miniRatio(value, options, unit);
+    const color = miniValueColor(value, options);
+    const maxv = miniMaxOf(options, unit) || 100;
+    const valueText =
+      value === null
+        ? '--'
+        : `${formatNumber(value, metric)}${unit ? ` ${unit}` : ''}`;
+
+    // 卡片高度 ≥ 60px 时标题栏在，内联标签改显示指标名，避免同一标题出现两次
+    const inlineTitle =
+      widget.h >= 3 && metric && metric.label
+        ? metric.label
+        : widgetTitle(widget);
+    const attachMarks = (track, vertical) => {
+      for (const [key, cls] of [
+        ['warn_above', 'warn'],
+        ['danger_above', 'danger'],
+      ]) {
+        const t = Number(options[key]);
+        if (!Number.isFinite(t) || t <= 0) continue;
+        const el = document.createElement('span');
+        el.className = `bar-mark ${cls}`;
+        const pct = pctOf(t / maxv);
+        if (vertical) el.style.bottom = pct;
+        else el.style.left = pct;
+        track.appendChild(el);
+      }
+    };
+
+    if (widget.h <= 2) {
+      body.classList.add('bar-inline-body');
+      const row = document.createElement('div');
+      row.className = 'bar-inline';
+      const label = document.createElement('span');
+      label.className = 'bar-inline-label';
+      label.textContent = widgetTitle(widget);
+      const track = document.createElement('span');
+      track.className = 'bar-track';
+      const fill = document.createElement('span');
+      fill.className = 'bar-fill';
+      fill.style.width = pctOf(Math.max(ratio, 0.02));
+      if (color) fill.style.background = color;
+      track.appendChild(fill);
+      attachMarks(track, false);
+      const valueEl = document.createElement('span');
+      valueEl.className = 'bar-value';
+      valueEl.textContent = valueText;
+      if (color) valueEl.style.color = color;
+      row.append(label, track, valueEl);
+      body.appendChild(row);
+    } else if (widget.h === 3) {
+      body.classList.add('bar-stack-body');
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-stack';
+      const top = document.createElement('div');
+      top.className = 'bar-stack-top';
+      const label = document.createElement('span');
+      label.className = 'bar-stack-title';
+      label.textContent = inlineTitle;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'bar-stack-value';
+      valueEl.textContent = valueText;
+      if (color) valueEl.style.color = color;
+      top.append(label, valueEl);
+      const track = document.createElement('span');
+      track.className = 'bar-track thick';
+      const fill = document.createElement('span');
+      fill.className = 'bar-fill';
+      fill.style.width = pctOf(Math.max(ratio, 0.02));
+      if (color) fill.style.background = color;
+      track.appendChild(fill);
+      attachMarks(track, false);
+      wrap.append(top, track);
+      body.appendChild(wrap);
+    } else {
+      body.classList.add('bar-hero-body');
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-hero';
+      const left = document.createElement('div');
+      left.className = 'bar-hero-left';
+      const label = document.createElement('div');
+      label.className = 'bar-hero-title';
+      label.textContent = inlineTitle;
+      const valueEl = document.createElement('div');
+      valueEl.className = 'bar-hero-value';
+      valueEl.textContent = value === null ? '--' : formatNumber(value, metric);
+      if (color) valueEl.style.color = color;
+      left.append(label, valueEl);
+      if (unit) {
+        const unitEl = document.createElement('div');
+        unitEl.className = 'bar-hero-unit';
+        unitEl.textContent = unit;
+        left.appendChild(unitEl);
+      }
+      const track = document.createElement('div');
+      track.className = 'bar-track vertical';
+      const fill = document.createElement('div');
+      fill.className = 'bar-fill vertical';
+      fill.style.height = pctOf(Math.max(ratio, 0.02));
+      if (color) fill.style.background = color;
+      track.appendChild(fill);
+      attachMarks(track, true);
+      wrap.append(left, track);
+      body.appendChild(wrap);
+    }
+  }
+
+  /* ---- vbar_gauge：温度计式垂直柱 ---- */
+  function renderVbarGauge(widget, body) {
+    const metric = metricDef(widget.bindings.value);
+    const value = numberValue(widget.bindings.value);
+    const options = widget.options || {};
+    const unit = miniUnit(options, metric);
+    const ratio = miniRatio(value, options, unit);
+    const color = miniValueColor(value, options);
+    const maxv = miniMaxOf(options, unit) || 100;
+
+    body.classList.add('vbar-body');
+    const track = document.createElement('div');
+    track.className = 'vbar-track';
+    const fill = document.createElement('div');
+    fill.className = 'vbar-fill';
+    fill.style.height = pctOf(Math.max(ratio, 0.02));
+    if (color) fill.style.background = color;
+    track.appendChild(fill);
+    for (const [key, cls] of [
+      ['warn_above', 'warn'],
+      ['danger_above', 'danger'],
+    ]) {
+      const t = Number(options[key]);
+      if (!Number.isFinite(t) || t <= 0) continue;
+      const el = document.createElement('span');
+      el.className = `vbar-mark ${cls}`;
+      el.style.bottom = pctOf(t / maxv);
+      track.appendChild(el);
+    }
+    body.appendChild(track);
+
+    const valueEl = document.createElement('div');
+    valueEl.className = 'vbar-value';
+    valueEl.textContent = value === null ? '--' : formatNumber(value, metric);
+    if (color) valueEl.style.color = color;
+    body.appendChild(valueEl);
+    if (unit) {
+      const unitEl = document.createElement('div');
+      unitEl.className = 'vbar-unit';
+      unitEl.textContent = unit;
+      body.appendChild(unitEl);
+    }
+  }
+
+  /* ---- multi_bars：柱状图 + 网格 + 柱顶数值 + 最大值高亮 ---- */
+  function renderMultiBars(widget, body) {
+    const options = widget.options || {};
+    const rows = Array.isArray(options.rows) ? options.rows : [];
+    const showValues = options.show_values !== false && widget.w >= 3;
+    const showLabels = options.show_labels !== false;
+    body.classList.add('mbars-body');
+
+    const values = rows.map((row) => {
+      const v = numberValue(row.binding);
+      return typeof v === 'number' && v > 0 ? v : 0;
+    });
+    let maxv = 1;
+    let argmax = 0;
+    values.forEach((v, i) => {
+      if (v > maxv) maxv = v;
+      if (v >= values[argmax]) argmax = i;
+    });
+    maxv *= 1.15;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'mbars';
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'list-empty';
+      empty.textContent = '在属性面板添加行';
+      wrap.appendChild(empty);
+    }
+    rows.forEach((row, i) => {
+      const col = document.createElement('div');
+      col.className =
+        'mbar-col' + (i === argmax && rows.length > 1 ? ' max' : '');
+      if (showValues) {
+        const cap = document.createElement('div');
+        cap.className = 'mbar-cap';
+        cap.textContent = miniCompactNumber(values[i], 1);
+        col.appendChild(cap);
+      }
+      const plot = document.createElement('div');
+      plot.className = 'mbar-plot';
+      const bar = document.createElement('div');
+      bar.className = 'mbar-bar';
+      bar.style.height = pctOf(values[i] / maxv);
+      plot.appendChild(bar);
+      col.appendChild(plot);
+      if (showLabels) {
+        const label = document.createElement('div');
+        label.className = 'mbar-label';
+        label.textContent = row.label || '—';
+        col.appendChild(label);
+      }
+      wrap.appendChild(col);
+    });
+    body.appendChild(wrap);
+  }
+
+  /* ---- dual_line：双折线 + 主线面积填充 + 图例 ---- */
+  function renderDualLine(widget, body) {
+    const options = widget.options || {};
+    const showArea = options.show_area !== false;
+    body.classList.add('dual-body');
+
+    const legend = document.createElement('div');
+    legend.className = 'dual-legend';
+    const series = [
+      { key: 'value', cls: 's1', unitKey: 'unit' },
+      { key: 'value2', cls: 's2', unitKey: 'unit2' },
+    ];
+    for (const s of series) {
+      const metric = metricDef(widget.bindings[s.key]);
+      const value = numberValue(widget.bindings[s.key]);
+      const unit = miniUnit({ unit: options[s.unitKey] }, metric);
+      const item = document.createElement('div');
+      item.className = `dual-item ${s.cls}`;
+      const dot = document.createElement('span');
+      dot.className = `dual-dot ${s.cls}`;
+      const name = document.createElement('span');
+      name.className = 'dual-name';
+      name.textContent = metric ? metric.label : '未绑定';
+      const valueEl = document.createElement('b');
+      valueEl.textContent =
+        value === null
+          ? '--'
+          : `${formatNumber(value, metric)}${unit ? ` ${unit}` : ''}`;
+      item.append(dot, name, valueEl);
+      legend.appendChild(item);
+    }
+    body.appendChild(legend);
+
+    const svg = svgEl('svg', {
+      viewBox: '0 0 100 40',
+      preserveAspectRatio: 'none',
+      class: 'dual-chart',
+    });
+    const drawSeries = (id, cls) => {
+      const history = miniHistory(id);
+      if (history.length < 2) {
+        svg.appendChild(
+          svgEl('line', { x1: 0, y1: 39, x2: 100, y2: 39, class: `dual-line ${cls}` })
+        );
+        return;
+      }
+      let lo = Math.min(...history);
+      let hi = Math.max(...history);
+      if (hi - lo < 1) hi = lo + 1;
+      const pts = history.map((sample, index) => {
+        const x = (index / (history.length - 1)) * 100;
+        const y = 38 - ((sample - lo) / (hi - lo)) * 36;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      });
+      if (showArea && cls === 's1') {
+        svg.appendChild(
+          svgEl('polygon', {
+            points: `0,40 ${pts.join(' ')} 100,40`,
+            class: 'dual-fill',
+          })
+        );
+      }
+      svg.appendChild(
+        svgEl('polyline', { points: pts.join(' '), class: `dual-line ${cls}` })
+      );
+    };
+    drawSeries(widget.bindings.value, 's1');
+    drawSeries(widget.bindings.value2, 's2');
+    body.appendChild(svg);
+  }
+
+  /* ---- big_stat：hero 大数字 + 趋势 + 背景曲线 ---- */
+  function renderBigStat(widget, body) {
+    const metric = metricDef(widget.bindings.value);
+    const value = numberValue(widget.bindings.value);
+    const options = widget.options || {};
+    const unit = miniUnit(options, metric);
+    const color = miniValueColor(value, options);
+    body.classList.add('big-body');
+
+    const history = miniHistory(widget.bindings.value);
+    const spark = svgEl('svg', {
+      viewBox: '0 0 100 40',
+      preserveAspectRatio: 'none',
+      class: 'big-spark',
+    });
+    if (history.length >= 2) {
+      const max = Math.max(...history, 1);
+      const pts = history.map((sample, index) => {
+        const x = (index / (history.length - 1)) * 100;
+        const y = 38 - (Math.max(0, sample) / max) * 36;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      });
+      spark.appendChild(
+        svgEl('polygon', { points: `0,40 ${pts.join(' ')} 100,40`, class: 'big-spark-fill' })
+      );
+      spark.appendChild(
+        svgEl('polyline', { points: pts.join(' '), class: 'big-spark-line' })
+      );
+    }
+    body.appendChild(spark);
+
+    const valueEl = document.createElement('div');
+    valueEl.className = 'big-value';
+    // 字号阶梯：对齐固件 build_big（大卡 48 / 中卡 28 / 小卡 20）
+    const bodyW = widget.w * 26.7 - 26;
+    const bodyH = widget.h * 26.7 - 34;
+    const heroFont =
+      bodyW >= 110 && bodyH >= 90 ? 48 : bodyW >= 80 ? 28 : 20;
+    valueEl.style.fontSize = `${heroFont}px`;
+    const number = document.createElement('span');
+    number.textContent = value === null ? '--' : formatNumber(value, metric);
+    if (color) number.style.color = color;
+    valueEl.appendChild(number);
+    if (unit) {
+      const unitEl = document.createElement('span');
+      unitEl.className = 'big-unit';
+      unitEl.textContent = unit;
+      valueEl.appendChild(unitEl);
+    }
+    body.appendChild(valueEl);
+    if (options.show_trend !== false) {
+      const trend = document.createElement('div');
+      trend.className = 'big-trend';
+      const oldest = history.length >= 2 ? history[0] : null;
+      if (oldest !== null && value !== null && oldest > 0.05) {
+        const pct = ((value - oldest) / oldest) * 100;
+        const up = pct >= 0;
+        trend.classList.add(up ? 'up' : 'down');
+        trend.textContent = `${up ? '▲' : '▼'} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% / 60s`;
+      } else {
+        trend.textContent = '◆ 采样中';
+      }
+      body.appendChild(trend);
+    }
+  }
+
+  /* ---- spark_row：横排迷你曲线，每列独立纵轴 ---- */
+  function renderSparkRow(widget, body) {
+    const options = widget.options || {};
+    const rows = Array.isArray(options.rows) ? options.rows : [];
+    const showLabels = options.show_labels !== false;
+    body.classList.add('srow-body');
+    const wrap = document.createElement('div');
+    wrap.className = 'srow';
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'list-empty';
+      empty.textContent = '在属性面板添加行';
+      wrap.appendChild(empty);
+    }
+    for (const row of rows) {
+      const metric = metricDef(row.binding);
+      const value = numberValue(row.binding);
+      const col = document.createElement('div');
+      col.className = 'srow-col';
+
+      const valueEl = document.createElement('div');
+      valueEl.className = 'srow-value';
+      const unit = metric && metric.unit;
+      valueEl.textContent =
+        value === null ? '--' : `${formatNumber(value, metric)}${unit ? ` ${unit}` : ''}`;
+      col.appendChild(valueEl);
+
+      const svg = svgEl('svg', {
+        viewBox: '0 0 100 30',
+        preserveAspectRatio: 'none',
+        class: 'srow-svg',
+      });
+      const history = miniHistory(row.binding);
+      if (history.length >= 2) {
+        const max = Math.max(...history, 1);
+        const pts = history.map((sample, index) => {
+          const x = (index / (history.length - 1)) * 100;
+          const y = 28 - (Math.max(0, sample) / max) * 26;
+          return `${x.toFixed(2)},${y.toFixed(2)}`;
+        });
+        svg.appendChild(
+          svgEl('polygon', { points: `0,30 ${pts.join(' ')} 100,30`, class: 'srow-fill' })
+        );
+        svg.appendChild(
+          svgEl('polyline', { points: pts.join(' '), class: 'srow-line' })
+        );
+      } else {
+        svg.appendChild(
+          svgEl('line', { x1: 0, y1: 29, x2: 100, y2: 29, class: 'srow-line' })
+        );
+      }
+      col.appendChild(svg);
+
+      if (showLabels) {
+        const label = document.createElement('div');
+        label.className = 'srow-label';
+        label.textContent = row.label || '—';
+        col.appendChild(label);
+      }
+      wrap.appendChild(col);
+    }
+    body.appendChild(wrap);
+  }
+
+  /* ---- text_badge：左侧装饰条 + 自动降档字号 ---- */
+  function renderTextBadge(widget, body) {
+    const metric = metricDef(widget.bindings.value);
+    const raw = metricValue(widget.bindings.value);
+    const options = widget.options || {};
+    body.classList.add('tbadge-body');
+
+    let text = '--';
+    let color = null;
+    if (raw === null || raw === undefined) {
+      text = '--';
+    } else if (typeof raw === 'boolean') {
+      text = raw ? '在线' : '离线';
+      color = raw ? 'var(--ok)' : 'var(--err)';
+    } else if (typeof raw === 'number') {
+      const unit = miniUnit(options, metric);
+      // 窄卡（2 格）只放数字：单位会把 4 位数字挤成两行，与固件一致
+      const narrow = widget.w < 3;
+      text = `${formatNumber(raw, metric)}${unit && !narrow ? ` ${unit}` : ''}`;
+      color = miniValueColor(raw, options);
+    } else {
+      text = String(raw);
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'tbadge';
+    if (widget.h >= 2) {
+      const bar = document.createElement('span');
+      bar.className = 'tbadge-bar';
+      wrap.appendChild(bar);
+    }
+    const valueEl = document.createElement('div');
+    valueEl.className =
+      'tbadge-text' + (options.align === 'center' ? ' center' : '');
+    valueEl.textContent = text;
+    if (color) valueEl.style.color = color;
+
+    // 字号阶梯：对齐固件 badge_font，按文本长度与尺寸档位自动降档防溢出
+    const tier = options.font_size || 'M';
+    const start = tier === 'S' ? 2 : tier === 'L' ? 0 : 1;
+    const cjk = /[^\x00-\x7F]/.test(text);
+    const ladder = cjk ? [22, 17, 14, 12, 11] : [26, 20, 15, 13, 11];
+    const len = Math.min(text.length, 24);
+    const lines =
+      widget.h >= 3
+        ? Math.max(1, Math.floor((widget.h * 26.7 - 34) / 18))
+        : 1;
+    const widthPx = Math.max(40, widget.w * 26.7 - 30);
+    let font = ladder[ladder.length - 1];
+    for (let i = start; i < ladder.length; i += 1) {
+      const cw = cjk ? ladder[i] : ladder[i] * 0.62;
+      if (len * cw <= widthPx * lines) {
+        font = ladder[i];
+        break;
+      }
+    }
+    valueEl.style.fontSize = `${font}px`;
+    if (widget.h >= 3) valueEl.classList.add('wrap');
+    wrap.appendChild(valueEl);
+    body.appendChild(wrap);
   }
 
   function renderWidgetBody(widget, body) {
@@ -697,20 +1665,34 @@
     else if (widget.type === 'server_card') renderServerCard(widget, body);
     else if (widget.type === 'metric_list') renderMetricList(widget, body);
     else if (widget.type === 'desktop_pet') renderPet(widget, body);
+    else if (widget.type === 'gauge_ring') renderGaugeRing(widget, body);
+    else if (widget.type === 'led_dot') renderLedDot(widget, body);
+    else if (widget.type === 'led_matrix') renderLedMatrix(widget, body);
+    else if (widget.type === 'bar_strip') renderBarStrip(widget, body);
+    else if (widget.type === 'vbar_gauge') renderVbarGauge(widget, body);
+    else if (widget.type === 'multi_bars') renderMultiBars(widget, body);
+    else if (widget.type === 'dual_line') renderDualLine(widget, body);
+    else if (widget.type === 'big_stat') renderBigStat(widget, body);
+    else if (widget.type === 'spark_row') renderSparkRow(widget, body);
+    else if (widget.type === 'text_badge') renderTextBadge(widget, body);
     else body.textContent = def.label;
   }
 
   function buildWidget(widget, profile) {
     const def = widgetDef(widget.type);
+    const rect = rectPx(widget, profile);
     const el = document.createElement('div');
     const classes = ['widget'];
     if (widget.id === state.selectedId) classes.push('selected');
     if (widget.options && widget.options.show_title === false) {
       classes.push('title-hidden');
     }
+    // 与固件一致：mini 卡片高度不足 60px 时不画标题栏，空间全留给图形
+    if (def && def.generation === 2 && rect.height < 60) {
+      classes.push('title-hidden');
+    }
     el.className = classes.join(' ');
     el.dataset.id = widget.id;
-    const rect = rectPx(widget, profile);
     el.style.left = `${rect.left}px`;
     el.style.top = `${rect.top}px`;
     el.style.width = `${rect.width}px`;
@@ -727,20 +1709,20 @@
     body.className = 'widget-body';
     renderWidgetBody(widget, body);
 
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
+    const deco = document.createElement('div');
+    deco.className = 'widget-deco';
+    deco.innerHTML =
+      '<i class="dc tl"></i><i class="dc tr"></i><i class="dc bl"></i><i class="dc br"></i>' +
+      '<i class="dc ticks"></i><i class="dc pulse"></i>';
 
-    el.append(header, body, handle);
+    el.append(header, body, deco);
     el.addEventListener('pointerdown', (event) => {
-      if (event.target === handle) return;
       selectWidget(widget.id);
-      if (isNearBorder(event, el)) {
-        startMove(event, widget, el);
-      }
+      startMove(event, widget, el);
     });
     el.addEventListener('pointermove', (event) => {
       if (event.buttons) return;
-      el.style.cursor = isNearBorder(event, el) ? 'move' : '';
+      el.style.cursor = 'move';
     });
     el.addEventListener('pointerleave', () => {
       el.style.cursor = '';
@@ -748,9 +1730,16 @@
     header.addEventListener('pointerdown', (event) =>
       startMove(event, widget, el)
     );
-    handle.addEventListener('pointerdown', (event) =>
-      startResize(event, widget, el)
-    );
+
+    if (def && def.resizable) {
+      const handle = document.createElement('div');
+      handle.className = 'widget-resize';
+      handle.title = '拖动调整尺寸';
+      handle.addEventListener('pointerdown', (event) =>
+        startResize(event, widget, el)
+      );
+      el.appendChild(handle);
+    }
 
     if (!def) {
       body.textContent = `未知组件 ${widget.type}`;
@@ -981,32 +1970,44 @@
     inspectorEl.appendChild(note);
   }
 
-  function appendMetricListEditor(widget, def) {
+  /** 行配置编辑器：metric_list / led_matrix / multi_bars / spark_row 共用。
+   *  新行默认类型按组件语义给：led_matrix→status，图表类→number。 */
+  function appendRowEditor(widget, def) {
     const options = widget.options || (widget.options = {});
     if (!Array.isArray(options.rows)) options.rows = [];
     const rows = options.rows;
     const spec = def.rows || {};
     const minRows = Number(spec.min) || 1;
     const maxRows = Number(spec.max) || 8;
+    const newRowKind =
+      widget.type === 'led_matrix'
+        ? 'status'
+        : widget.type === 'metric_list'
+          ? 'auto'
+          : 'number';
 
     const head = document.createElement('div');
     head.className = 'row-editor-head';
     const heading = document.createElement('div');
     heading.className = 'row-editor-title';
-    heading.textContent = '行配置';
+    heading.textContent = widget.type === 'led_matrix' ? '点阵配置' : '行配置';
     const addButton = document.createElement('button');
     addButton.type = 'button';
     addButton.className = 'btn small';
     addButton.textContent = '添加行';
     addButton.disabled = rows.length >= maxRows;
     addButton.addEventListener('click', () => {
-      const fallback =
-        state.catalog.list.find((metric) => metric.type === 'number') ||
-        state.catalog.list[0];
+      const pool =
+        newRowKind === 'status'
+          ? state.catalog.list.filter((metric) => metric.type === 'bool')
+          : newRowKind === 'number'
+            ? state.catalog.list.filter((metric) => metric.type === 'number')
+            : state.catalog.list;
+      const fallback = pool[0] || state.catalog.list[0];
       rows.push({
-        label: '指标',
+        label: newRowKind === 'status' ? '状态' : '指标',
         binding: fallback ? fallback.id : '',
-        kind: 'auto',
+        kind: newRowKind,
         format: '',
       });
       markDirty();
@@ -1127,6 +2128,12 @@
       card.append(top, kindSelect, metricSelect, formatInput);
       inspectorEl.appendChild(card);
     });
+  }
+
+  /** metric_list 专属行选项：显示标签 / 字号档位 / 行高 / 标签宽度 */
+  function appendMetricListEditor(widget, def) {
+    appendRowEditor(widget, def);
+    const options = widget.options || (widget.options = {});
 
     const showLabelsField = document.createElement('div');
     showLabelsField.className = 'field';
@@ -1199,6 +2206,70 @@
     inspectorEl.appendChild(labelWidthField);
   }
 
+  /** 通用选项编辑器：按 widgets.json 里 def.options 的类型自动生成控件。
+   *  string→文本框 number→数字框 bool→复选 select→下拉；title 由上方单独处理。 */
+  function appendOptionsEditor(widget, def) {
+    const options = widget.options || (widget.options = {});
+    for (const opt of def.options || []) {
+      if (opt.key === 'title') continue;
+      const field = makeField(opt.label || opt.key);
+      const commit = (value) => {
+        options[opt.key] = value;
+        markDirty();
+        refreshWidgetBodies();
+      };
+      if (opt.type === 'bool') {
+        const label = document.createElement('label');
+        label.className = 'checkbox-row';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = options[opt.key] !== false;
+        checkbox.addEventListener('change', () => commit(checkbox.checked));
+        label.append(checkbox, document.createTextNode('启用'));
+        field.appendChild(label);
+      } else if (opt.type === 'number') {
+        const input = document.createElement('input');
+        input.type = 'number';
+        if (opt.min !== undefined) input.min = String(opt.min);
+        if (opt.max !== undefined) input.max = String(opt.max);
+        input.value = String(
+          Number.isFinite(Number(options[opt.key]))
+            ? options[opt.key]
+            : opt.default ?? 0
+        );
+        input.addEventListener('input', () => {
+          const value = Number(input.value);
+          if (!Number.isFinite(value)) return;
+          let next = value;
+          if (opt.min !== undefined) next = Math.max(opt.min, next);
+          if (opt.max !== undefined) next = Math.min(opt.max, next);
+          commit(next);
+        });
+        field.appendChild(input);
+      } else if (opt.type === 'select') {
+        const select = document.createElement('select');
+        for (const choice of opt.options || []) {
+          const option = document.createElement('option');
+          option.value = choice;
+          option.textContent = choice;
+          select.appendChild(option);
+        }
+        select.value = String(options[opt.key] ?? opt.default ?? '');
+        select.addEventListener('change', () => commit(select.value));
+        field.appendChild(select);
+      } else {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value =
+          typeof options[opt.key] === 'string' ? options[opt.key] : '';
+        input.placeholder = opt.default ? String(opt.default) : '';
+        input.addEventListener('input', () => commit(input.value));
+        field.appendChild(input);
+      }
+      inspectorEl.appendChild(field);
+    }
+  }
+
   function closeSelect() {
     state.selectOpen = false;
     if (!state.inspectorPending) return;
@@ -1243,6 +2314,32 @@
     titleField.appendChild(titleInput);
     inspectorEl.appendChild(titleField);
 
+    if (def.resizable && sizeOptions(def).length > 1) {
+      const sizeField = makeField('尺寸（网格）');
+      const sizeSelect = document.createElement('select');
+      for (const [w, h] of sizeOptions(def)) {
+        const option = document.createElement('option');
+        option.value = `${w}x${h}`;
+        option.textContent = `${w} × ${h}`;
+        sizeSelect.appendChild(option);
+      }
+      sizeSelect.value = `${widget.w}x${widget.h}`;
+      sizeSelect.addEventListener('change', () => {
+        const [w, h] = sizeSelect.value.split('x').map(Number);
+        if (!fitsInBothOrientations(widget, w, h)) {
+          toast('这个尺寸在当前布局里放不下');
+          sizeSelect.value = `${widget.w}x${widget.h}`;
+          return;
+        }
+        applyWidgetSize(widget, w, h);
+        markDirty();
+        renderCanvas();
+        renderInspector();
+      });
+      sizeField.appendChild(sizeSelect);
+      inspectorEl.appendChild(sizeField);
+    }
+
     const toggleField = document.createElement('div');
     toggleField.className = 'field';
     const toggleLabel = document.createElement('label');
@@ -1256,7 +2353,7 @@
       markDirty();
       renderCanvas();
       if (!toggle.checked) {
-        toast('已隐藏标题，可拖动底边向上收紧 1 格');
+        toast('已隐藏标题，可拖右下角缩小高度');
       }
     });
     toggleLabel.append(toggle, document.createTextNode('显示标题栏'));
@@ -1336,16 +2433,23 @@
         '服务器卡按字段限定 CPU/内存/GPU/IP 测点；LLM/TTS/NPU 等任意指标请使用大数字或指标列表。';
       inspectorEl.appendChild(note);
     }
-    if (widget.type === 'metric_list') {
-      appendMetricListEditor(widget, def);
+    if (def.rows) {
+      if (widget.type === 'metric_list') appendMetricListEditor(widget, def);
+      else appendRowEditor(widget, def);
     }
     if (widget.type === 'desktop_pet') {
       appendPetEditor(widget);
+    } else if (widget.type !== 'metric_list') {
+      appendOptionsEditor(widget, def);
     }
 
     const meta = document.createElement('p');
     meta.className = 'meta';
-    meta.textContent = `${def.label} · ${def.description || ''}。拖动边框移动；隐藏标题后可把底边向上拖 1 格收紧高度。`;
+    const miniNote =
+      def.generation === 2
+        ? '卡片高度不足 60px 时自动隐藏标题栏（与固件同规则），把这格留给图形。'
+        : '';
+    meta.textContent = `${def.label} · ${def.description || ''}。${miniNote}拖动边框移动；隐藏标题后可把底边向上拖 1 格收紧高度。`;
     inspectorEl.appendChild(meta);
 
     const del = document.createElement('button');
@@ -1358,7 +2462,6 @@
       if (index >= 0) widgets.splice(index, 1);
       state.selectedId = null;
       markDirty();
-      renderPageTabs();
       renderCanvas();
       renderInspector();
     });
@@ -1404,7 +2507,26 @@
       return;
     }
     const profile = activeProfile();
-    const [width, height] = def.default_size;
+    const [width, height] = widgetSize(def);
+    const capacity = Math.min(
+      ...Object.values(state.profiles).map((item) => item.cols * item.rows)
+    );
+    const area =
+      currentWidgets().reduce((sum, item) => sum + item.w * item.h, 0) +
+      width * height;
+    if (area > capacity) {
+      toast('单页放不下，请先删减组件');
+      return;
+    }
+    const editingAlt = state.profile !== state.baseProfile;
+    let baseRect = null;
+    if (editingAlt) {
+      baseRect = findFreeBaseSpot(def);
+      if (!baseRect) {
+        toast('主方向画布没有空位了，先删掉一些组件');
+        return;
+      }
+    }
     let position;
 
     if (cell) {
@@ -1433,24 +2555,13 @@
       h: height,
       bindings: defaultBindings(def),
       options: defaultOptions(def),
+      _base: editingAlt ? baseRect : { x: position.x, y: position.y, w: width, h: height },
     };
     currentWidgets().push(widget);
     state.selectedId = widget.id;
     markDirty();
-    renderPageTabs();
     renderCanvas();
     renderInspector();
-  }
-
-  function isNearBorder(event, el) {
-    const rect = el.getBoundingClientRect();
-    const hit = 10;
-    return (
-      event.clientX - rect.left <= hit ||
-      rect.right - event.clientX <= hit ||
-      event.clientY - rect.top <= hit ||
-      rect.bottom - event.clientY <= hit
-    );
   }
 
   function startMove(event, widget, el) {
@@ -1510,23 +2621,51 @@
     document.addEventListener('pointercancel', finish);
   }
 
+  function fitsInBothOrientations(widget, w, h) {
+    if (!isValidPlacement({ ...widget, w, h }, widget.id)) return false;
+    const base = state.profiles[state.baseProfile];
+    if (!base) return true;
+    const self = baseRectOf(widget);
+    if (self.x + w > base.cols || self.y + h > base.rows) return false;
+    const rect = { x: self.x, y: self.y, w, h };
+    return !currentWidgets().some((other) => {
+      if (other.id === widget.id) return false;
+      const otherRect = baseRectOf(other);
+      return intersects(rect, {
+        x: otherRect.x,
+        y: otherRect.y,
+        w: otherRect.w,
+        h: otherRect.h,
+      });
+    });
+  }
+
+  function applyWidgetSize(widget, w, h) {
+    widget.w = w;
+    widget.h = h;
+    if (widget._base) {
+      widget._base.w = w;
+      widget._base.h = h;
+    }
+  }
+
   function startResize(event, widget, el) {
     if (event.button !== undefined && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     selectWidget(widget.id);
-
+    const def = widgetDef(widget.type);
+    if (!def || !def.resizable) return;
     const profile = activeProfile();
     const { cw, ch } = cellSize(profile);
     const scale = canvas.getBoundingClientRect().width / profile.width;
     const startX = event.clientX;
     const startY = event.clientY;
-    const original = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
-    const def = widgetDef(widget.type);
-    const [minW, minH] = effectiveMinSize(widget, def);
-    let resized = false;
+    const original = { w: widget.w, h: widget.h };
+    let changed = false;
 
     state.interacting = true;
+    el.classList.add('resizing');
 
     const move = (moveEvent) => {
       const dw = Math.round(
@@ -1535,32 +2674,27 @@
       const dh = Math.round(
         (moveEvent.clientY - startY) / ((ch + profile.gap) * scale)
       );
-      widget.w = clamp(original.w + dw, minW, profile.cols - widget.x);
-      widget.h = clamp(original.h + dh, minH, profile.rows - widget.y);
-      const rect = rectPx(widget, profile);
-      el.style.width = `${rect.width}px`;
-      el.style.height = `${rect.height}px`;
-      el.classList.toggle(
-        'invalid',
-        !isValidPlacement(widget, widget.id)
-      );
-      resized = resized || dw !== 0 || dh !== 0;
+      const [w, h] = nearestSize(def, original.w + dw, original.h + dh);
+      if (w === widget.w && h === widget.h) return;
+      if (!fitsInBothOrientations(widget, w, h)) return;
+      applyWidgetSize(widget, w, h);
+      changed = true;
+      renderCanvas();
+      const next = canvas.querySelector(`[data-id="${esc(widget.id)}"]`);
+      if (next) next.classList.add('resizing');
     };
 
     const finish = () => {
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', finish);
       document.removeEventListener('pointercancel', finish);
-      el.classList.remove('invalid');
       state.interacting = false;
-      if (!isValidPlacement(widget, widget.id)) {
-        widget.w = original.w;
-        widget.h = original.h;
-        toast('缩放后会和别的组件重叠');
-      } else if (resized) {
-        markDirty();
-      }
+      document.querySelectorAll('.widget.resizing').forEach((node) => {
+        node.classList.remove('resizing');
+      });
+      if (changed) markDirty();
       renderCanvas();
+      renderInspector();
     };
 
     document.addEventListener('pointermove', move);
@@ -1569,12 +2703,23 @@
   }
 
   function collectHistory() {
-    if (!state.layout || !Array.isArray(state.layout.pages)) return;
+    if (!state.layout) return;
     const ids = new Set();
-    for (const page of state.layout.pages) {
-      for (const widget of page.widgets) {
-        if (widget.type === 'sparkline' && widget.bindings.value) {
-          ids.add(widget.bindings.value);
+    for (const widget of currentWidgets()) {
+      if (widget.type === 'sparkline' && widget.bindings.value) {
+        ids.add(widget.bindings.value);
+      } else if (widget.type === 'dual_line') {
+        if (widget.bindings.value) ids.add(widget.bindings.value);
+        if (widget.bindings.value2) ids.add(widget.bindings.value2);
+      } else if (widget.type === 'big_stat' && widget.bindings.value) {
+        ids.add(widget.bindings.value);
+      } else if (
+        widget.type === 'spark_row' &&
+        widget.options &&
+        Array.isArray(widget.options.rows)
+      ) {
+        for (const row of widget.options.rows) {
+          if (row.binding) ids.add(row.binding);
         }
       }
     }
@@ -1589,162 +2734,6 @@
       history.push(item.v);
       if (history.length > 60) history.shift();
     }
-  }
-
-  function renderPageTabs() {
-    const pageTabs = $('page-tabs');
-    pageTabs.innerHTML = '';
-    if (!state.layout) return;
-    state.layout.pages.forEach((page, index) => {
-      const tab = document.createElement('div');
-      tab.className = `page-tab${index === state.activePage ? ' active' : ''}`;
-      tab.setAttribute('role', 'button');
-      tab.tabIndex = 0;
-      tab.title = '单击切换，双击重命名';
-      const name = document.createElement('span');
-      name.className = 'page-name';
-      name.textContent = page.name;
-      const count = document.createElement('span');
-      count.className = 'page-count';
-      count.textContent = String(page.widgets.length);
-      tab.append(name, count);
-      tab.addEventListener('click', () => {
-        if (state.activePage !== index) switchPage(index);
-      });
-      tab.addEventListener('dblclick', (event) => {
-        event.preventDefault();
-        beginRenamePage(index);
-      });
-      pageTabs.appendChild(tab);
-    });
-    const animationSelect = $('page-animation');
-    if (animationSelect) {
-      animationSelect.value = state.layout.page_animation || 'slide';
-    }
-    $('add-page').disabled = state.layout.pages.length >= 4;
-    $('copy-page').disabled = state.layout.pages.length >= 4;
-    $('delete-page').disabled = state.layout.pages.length <= 1;
-  }
-
-  function switchPage(index) {
-    if (!state.layout || index < 0 || index >= state.layout.pages.length) {
-      return;
-    }
-    state.activePage = index;
-    state.selectedId = null;
-    renderPageTabs();
-    renderCanvas();
-    renderInspector();
-  }
-
-  function beginRenamePage(index) {
-    if (!state.layout) return;
-    const page = state.layout.pages[index];
-    if (!page) return;
-    const tab = $('page-tabs').children[index];
-    if (!tab) return;
-    tab.innerHTML = '';
-    const input = document.createElement('input');
-    input.className = 'page-rename';
-    input.value = page.name;
-    tab.appendChild(input);
-    let done = false;
-    const commit = () => {
-      if (done) return;
-      done = true;
-      const name = input.value.trim();
-      if (name) page.name = name;
-      markDirty();
-      renderPageTabs();
-      renderCanvas();
-    };
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        commit();
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        done = true;
-        renderPageTabs();
-      }
-    });
-    input.addEventListener('blur', commit);
-    input.addEventListener('click', (event) => event.stopPropagation());
-    input.addEventListener('dblclick', (event) => event.stopPropagation());
-    input.focus();
-    input.select();
-  }
-
-  function cloneWidget(widget) {
-    const clone = JSON.parse(JSON.stringify(widget));
-    clone.id = `w-${Date.now().toString(36)}-${Math.random()
-      .toString(36)
-      .slice(2, 7)}`;
-    return clone;
-  }
-
-  function addPage() {
-    if (!state.layout) return;
-    if (state.layout.pages.length >= 4) {
-      toast('最多 4 页');
-      return;
-    }
-    state.layout.pages.push({
-      name: `第 ${state.layout.pages.length + 1} 页`,
-      widgets: [],
-    });
-    state.activePage = state.layout.pages.length - 1;
-    state.selectedId = null;
-    markDirty();
-    renderPageTabs();
-    renderCanvas();
-    renderInspector();
-  }
-
-  function copyPage() {
-    if (!state.layout) return;
-    if (state.layout.pages.length >= 4) {
-      toast('最多 4 页');
-      return;
-    }
-    const page = currentPage();
-    if (!page) return;
-    const copiedWidgets = page.widgets.map((widget) => cloneWidget(widget));
-    if (totalWidgets() + copiedWidgets.length > 20) {
-      toast('总组件数量超过 20（设备内存限制）');
-      return;
-    }
-    const insertAt = state.activePage + 1;
-    state.layout.pages.splice(insertAt, 0, {
-      name: `${page.name} 副本`,
-      widgets: copiedWidgets,
-    });
-    state.activePage = insertAt;
-    state.selectedId = null;
-    markDirty();
-    renderPageTabs();
-    renderCanvas();
-    renderInspector();
-  }
-
-  function deletePage() {
-    if (!state.layout) return;
-    if (state.layout.pages.length <= 1) {
-      toast('至少保留 1 页');
-      return;
-    }
-    const page = currentPage();
-    if (!page) return;
-    if (!confirm(`删除「${page.name}」？`)) return;
-    state.layout.pages.splice(state.activePage, 1);
-    if (state.activePage >= state.layout.pages.length) {
-      state.activePage = state.layout.pages.length - 1;
-    }
-    state.selectedId = null;
-    markDirty();
-    renderPageTabs();
-    renderCanvas();
-    renderInspector();
   }
 
   function currentDevice() {
@@ -1775,6 +2764,7 @@
       return;
     }
     const parts = [device.online ? '在线' : '离线', deviceAddr(device)];
+    parts.push(device.profile === '480x320' ? '横屏' : '竖屏');
     if (device.api && device.api.url) {
       if (deviceUsesForward(device)) {
         parts.push(state.forward.enabled ? '转发' : '转发未启用');
@@ -2077,18 +3067,39 @@
       ? await api(`/api/v1/devices/${encodeURIComponent(device.id)}/layout`)
       : await api(`/api/v1/layout?profile=${encodeURIComponent(state.profile)}`);
     state.layout = normalizeLayout(saved);
-    state.profile = state.layout.profile;
+    state.baseProfile = state.layout.profile;
+    state.profile =
+      device && state.profiles[device.profile] ? device.profile : state.layout.profile;
+    applyOrientationView();
     profileSelect.value = state.profile;
-    profileSelect.disabled = !!device;
-    state.activePage = 0;
+    profileSelect.disabled = false;
     state.selectedId = null;
     state.dirty = false;
     updateDirty();
-    renderPageTabs();
     applyTheme();
     renderCanvas();
     renderInspector();
     updateDeviceBar();
+  }
+
+  function layoutPayload() {
+    captureOrientation();
+    const raw = JSON.parse(JSON.stringify(state.layout));
+    raw.profile = state.baseProfile;
+    raw.pages = (raw.pages || []).slice(0, 1);
+    const editingAlt = state.profile !== state.baseProfile;
+    const liveWidgets = currentWidgets();
+    (raw.pages[0].widgets || []).forEach((widget, index) => {
+      const live = liveWidgets[index];
+      const base = baseRectOf(live);
+      if (editingAlt) {
+        widget.alt = { x: live.x, y: live.y };
+        widget.x = base.x;
+        widget.y = base.y;
+      }
+      delete widget._base;
+    });
+    return raw;
   }
 
   async function saveLayout() {
@@ -2102,11 +3113,12 @@
     button.disabled = true;
     button.textContent = '保存中…';
     try {
-      state.layout.v = 2;
+      const payload = layoutPayload();
+      payload.v = 2;
       state.lastSaveAt = Date.now();
       await api(`/api/v1/devices/${encodeURIComponent(device.id)}/layout`, {
         method: 'PUT',
-        body: JSON.stringify(state.layout),
+        body: JSON.stringify(payload),
       });
       state.dirty = false;
       updateDirty();
@@ -2146,32 +3158,40 @@
       }
     });
 
-    profileSelect.addEventListener('change', () => {
-      if (state.deviceId) {
+    profileSelect.addEventListener('change', async () => {
+      const next = profileSelect.value;
+      if (next === state.profile) return;
+      if (state.dirty && !confirm('切换方向会放弃未保存的修改，继续？')) {
         profileSelect.value = state.profile;
         return;
       }
-      if (state.dirty && !confirm('切换画布会放弃未保存的修改，继续？')) {
-        profileSelect.value = state.profile;
+      const device = currentDevice();
+      if (!device) {
+        state.profile = next;
+        loadLayout().catch((error) => toast(error.message));
         return;
       }
-      state.profile = profileSelect.value;
-      loadLayout().catch((error) => toast(error.message));
+      try {
+        await api(`/api/v1/devices/${encodeURIComponent(device.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ profile: next }),
+        });
+        state.devices = state.devices.map((item) =>
+          item.id === device.id ? { ...item, profile: next } : item
+        );
+        await loadLayout();
+        toast(next === '480x320' ? '已切换为横屏' : '已切换为竖屏');
+      } catch (error) {
+        profileSelect.value = state.profile;
+        toast(`切换方向失败：${error.message}`);
+      }
     });
 
     themeSelect.addEventListener('change', () => {
       if (!state.layout) return;
       state.layout.theme = themeSelect.value;
       applyTheme();
-      markDirty();
-    });
-
-    $('add-page').addEventListener('click', addPage);
-    $('copy-page').addEventListener('click', copyPage);
-    $('delete-page').addEventListener('click', deletePage);
-    $('page-animation').addEventListener('change', () => {
-      if (!state.layout) return;
-      state.layout.page_animation = $('page-animation').value;
+      renderCanvas();
       markDirty();
     });
 
@@ -2235,6 +3255,8 @@
       state.themes.byId = new Map(
         state.themes.list.map((theme) => [theme.id, theme])
       );
+      state.themeDefault = themesDoc.default || state.themes.list[0]?.id || 'neon-cyber';
+      state.themeAliases = themesDoc.aliases || {};
 
       themeSelect.innerHTML = '';
       for (const theme of state.themes.list) {
