@@ -145,6 +145,10 @@ typedef struct {
 typedef struct {
     lv_obj_t *screen;
     lv_obj_t *deco;
+    /* 装饰动画预渲染帧序列（手表式 blit 播放）：36 帧 ARGB8888 常驻 PSRAM */
+    lv_draw_buf_t *deco_bufs;
+    uint8_t *deco_data;
+    uint8_t deco_idx;
     dyn_widget_t *widgets;
     int widget_count;
     /* 传统框架：非 NULL 时整屏由 ui_classic 渲染，widgets 为空 */
@@ -173,7 +177,6 @@ static int64_t s_apply_last_us;
 static int64_t s_apply_max_us;
 static lv_timer_t *s_pet_timer;
 static lv_timer_t *s_deco_timer;
-static uint32_t s_deco_phase;
 
 /* ---------------- JSON helpers ---------------- */
 
@@ -898,36 +901,40 @@ static void draw_gear(lv_layer_t *layer, int cx, int cy, int r_out, int r_in,
     draw_ring(layer, cx, cy, 3, color, 3, opa);
 }
 
-/* 右下角的主题动态装饰：只失效自身 60×60 区域，不整屏重绘。 */
-static void deco_draw_cb(lv_event_t *e)
+/*
+ * 装饰动画预渲染帧序列（抄华强北手表作业）：
+ * 主题装载时把 36 帧动画一次性矢量渲染进 PSRAM 的 ARGB8888 缓冲，
+ * 运行时定时器只做 canvas 换源 blit，CPU 从每帧矢量绘制降为一次位图拷贝。
+ * 帧几何按"每循环整齿距旋转"参数化，保证无缝循环。
+ */
+#define DECO_W 44
+#define DECO_H 44
+#define DECO_FRAMES 36
+
+/* 在 buffer 局部坐标（0..DECO_W-1）绘制第 idx 帧 */
+static void deco_draw_into(lv_layer_t *layer, int cx, int cy, int idx,
+                           const ui_theme_t *th)
 {
-    lv_obj_t *obj = lv_event_get_target(e);
-    lv_layer_t *layer = lv_event_get_layer(e);
-    if (!obj || !layer) return;
-    lv_area_t a;
-    lv_obj_get_coords(obj, &a);
-    int cx = (a.x1 + a.x2) / 2;
-    int cy = (a.y1 + a.y2) / 2;
-    const ui_theme_t *th = ui_theme();
     lv_color_t accent = lv_color_hex(th->accent);
     lv_color_t second = lv_color_hex(th->accent_2);
-    float angle = (float)(s_deco_phase % 3600) * 0.1f;
+    float f = (float)idx / (float)DECO_FRAMES; /* 0..1 */
 
     if (th->skin == UI_SKIN_VINTAGE) {
-        draw_gear(layer, cx - 5, cy, 15, 10, 12, angle * 0.0174533f,
-                  accent, LV_OPA_40);
+        /* 齿轮1 12 齿（齿距 30°）每循环转 30°，齿轮2 9 齿（齿距 40°）转 40° */
+        draw_gear(layer, cx - 5, cy, 15, 10, 12,
+                  f * 30.0f * 0.0174533f, accent, LV_OPA_40);
         draw_gear(layer, cx + 11, cy + 8, 9, 6, 9,
-                  -angle * 0.0174533f * 1.6f, second, LV_OPA_30);
+                  -f * 40.0f * 0.0174533f, second, LV_OPA_30);
     } else if (th->skin == UI_SKIN_NEON) {
         draw_ring(layer, cx, cy, 18, accent, 1, LV_OPA_20);
         draw_ring(layer, cx, cy, 12, accent, 1, LV_OPA_10);
-        float rad = angle * 0.0174533f;
+        float rad = f * 6.2831853f;
         int x2 = cx + (int)(cosf(rad) * 18);
         int y2 = cy + (int)(sinf(rad) * 18);
         draw_seg(layer, cx, cy, x2, y2, accent, 2, LV_OPA_50);
         draw_seg(layer, cx, cy, cx, cy, accent, 4, LV_OPA_60);
     } else if (th->skin == UI_SKIN_VITAL) {
-        float pulse = fabsf(sinf((float)s_deco_phase * 0.06f));
+        float pulse = fabsf(sinf(f * 6.2831853f));
         lv_opa_t opa = (lv_opa_t)(20 + 35 * pulse);
         draw_ring(layer, cx, cy, 17, accent, 2, opa);
         draw_ring(layer, cx, cy, 11, second, 1, LV_OPA_20);
@@ -952,21 +959,38 @@ static void deco_draw_cb(lv_event_t *e)
         }
 #endif
     } else {
-        float pulse = fabsf(sinf((float)s_deco_phase * 0.04f));
+        float pulse = fabsf(sinf(f * 6.2831853f));
         draw_seg(layer, cx, cy, cx, cy, second, 3,
                  (lv_opa_t)(40 + 60 * pulse));
     }
 }
 
+/* 屏幕 load 后调用：一次性把 36 帧渲染进 PSRAM（约 100ms，热更新可接受） */
+static void deco_prerender(dyn_view_t *v)
+{
+    if (!v || !v->deco || !v->deco_bufs) return;
+    const ui_theme_t *th = ui_theme();
+    for (int i = 0; i < DECO_FRAMES; i++) {
+        lv_canvas_set_draw_buf(v->deco, &v->deco_bufs[i]);
+        lv_canvas_fill_bg(v->deco, lv_color_black(), LV_OPA_TRANSP);
+        lv_layer_t layer;
+        lv_canvas_init_layer(v->deco, &layer);
+        deco_draw_into(&layer, DECO_W / 2, DECO_H / 2, i, th);
+        lv_canvas_finish_layer(v->deco, &layer);
+    }
+    v->deco_idx = 0;
+    lv_canvas_set_draw_buf(v->deco, &v->deco_bufs[0]);
+}
+
 static void deco_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    if (!s_view || !s_view->deco) return;
-    s_deco_phase += 4;
-    lv_obj_invalidate(s_view->deco);
+    if (!s_view || !s_view->deco || !s_view->deco_bufs) return;
+    s_view->deco_idx = (uint8_t)((s_view->deco_idx + 1) % DECO_FRAMES);
+    lv_canvas_set_draw_buf(s_view->deco, &s_view->deco_bufs[s_view->deco_idx]);
 }
 
-/* 装饰不再浮在屏幕角落，而是作为服务器卡右下角的水印，随卡片一起布局。 */
+/* 装饰作为服务器卡右下角的水印，随卡片一起布局。 */
 static void deco_create(dyn_view_t *v)
 {
     if (!v || !v->screen) return;
@@ -980,13 +1004,30 @@ static void deco_create(dyn_view_t *v)
         }
     }
     if (!host) return;
-    lv_obj_t *deco = lv_obj_create(host);
-    lv_obj_remove_style_all(deco);
-    lv_obj_set_size(deco, 44, 44);
+
+    const uint32_t fsize = DECO_W * DECO_H * 4;
+    v->deco_data = heap_caps_malloc((size_t)fsize * DECO_FRAMES,
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    v->deco_bufs = calloc(DECO_FRAMES, sizeof(lv_draw_buf_t));
+    if (!v->deco_data || !v->deco_bufs) {
+        heap_caps_free(v->deco_data);
+        free(v->deco_bufs);
+        v->deco_data = NULL;
+        v->deco_bufs = NULL;
+        return;
+    }
+    for (int i = 0; i < DECO_FRAMES; i++) {
+        lv_draw_buf_init(&v->deco_bufs[i], DECO_W, DECO_H,
+                         LV_COLOR_FORMAT_ARGB8888, DECO_W * 4,
+                         v->deco_data + (size_t)fsize * i, fsize);
+    }
+
+    lv_obj_t *deco = lv_canvas_create(host);
+    lv_obj_set_size(deco, DECO_W, DECO_H);
     lv_obj_align(deco, LV_ALIGN_BOTTOM_RIGHT, -4, -4);
     lv_obj_remove_flag(deco, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(deco, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(deco, deco_draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
+    lv_canvas_set_draw_buf(deco, &v->deco_bufs[0]);
     lv_obj_move_background(deco);
     v->deco = deco;
 }
@@ -995,7 +1036,7 @@ static void deco_timer_sync(void)
 {
     bool any = s_view && s_view->deco;
     if (any && !s_deco_timer) {
-        s_deco_timer = lv_timer_create(deco_timer_cb, 60, NULL);
+        s_deco_timer = lv_timer_create(deco_timer_cb, 33, NULL);
     } else if (!any && s_deco_timer) {
         lv_timer_delete(s_deco_timer);
         s_deco_timer = NULL;
@@ -1714,6 +1755,15 @@ static void free_view(dyn_view_t *v, bool delete_screen)
     } else if (delete_screen && v->screen) {
         lv_obj_del(v->screen);
     }
+    /* canvas 已随屏幕删除，再释放它引用的帧缓冲 */
+    if (v->deco_bufs) {
+        free(v->deco_bufs);
+        v->deco_bufs = NULL;
+    }
+    if (v->deco_data) {
+        heap_caps_free(v->deco_data);
+        v->deco_data = NULL;
+    }
     if (v->widgets) {
         for (int i = 0; i < v->widget_count; i++) {
             if (v->widgets[i].mini) ui_mini_destroy(v->widgets[i].mini);
@@ -1776,6 +1826,7 @@ void ui_dynamic_commit(void)
     dyn_view_t *old = s_view;
     s_view = s_staging;
     s_staging = NULL;
+    deco_prerender(s_view); /* 屏幕已 load，帧序列一次性预渲染 */
     if (old) {
         free_view(old, true);
         ESP_LOGI(TAG, "layout committed atomically");
