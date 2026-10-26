@@ -40,6 +40,8 @@ server/data/forward.json
 server/.launcher-server.log
 server/.launcher-server.pid
 server/.launcher-error.log
+/.launcher-server.pid
+/.launcher-server.log
 
 # 本地抓帧与调试图片（保留文档截图）
 *.png
