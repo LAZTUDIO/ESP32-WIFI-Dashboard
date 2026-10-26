@@ -444,6 +444,76 @@ async def forward_api(path: str, request: Request) -> Response:
     )
 
 
+# 各服务类型对应的健康/状态端点候选；auto 时按通用顺序试探。
+_API_TEST_PROBES: dict[str, list[str]] = {
+    "halogen": ["/api/status"],
+    "gufo": ["/api/status"],
+    "panel": ["/api/status"],
+    "strata": ["/v1/status", "/metrics"],
+    "lmstudio": ["/v1/models"],
+    "ollama": ["/api/tags", "/v1/models"],
+    "openai": ["/v1/models"],
+}
+_API_TEST_AUTO: list[str] = ["/api/status", "/v1/status", "/v1/models", "/health"]
+
+
+@router.post("/api-test")
+async def api_test(payload: dict[str, Any]) -> dict[str, Any]:
+    """探测传统 API 连通性：按服务类型试探健康端点，返回是否可达与识别信息。"""
+    url = str(payload.get("url") or "").strip().rstrip("/")
+    key = str(payload.get("key") or "")
+    provider = str(payload.get("provider") or "auto").strip() or "auto"
+    if not url:
+        raise HTTPException(status_code=400, detail="请先填写 API 地址")
+    if urlparse(url).scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="API 地址需以 http:// 或 https:// 开头")
+    headers = {"Accept": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    candidates = (
+        _API_TEST_AUTO
+        if provider in ("", "auto")
+        else _API_TEST_PROBES.get(provider, _API_TEST_AUTO)
+    )
+    last_status: int | None = None
+    last_error = ""
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            for path in candidates:
+                try:
+                    resp = await client.get(f"{url}{path}", headers=headers)
+                except Exception as exc:  # noqa: BLE001
+                    last_error = f"{type(exc).__name__}"
+                    continue
+                last_status = resp.status_code
+                if resp.status_code < 300:
+                    return {
+                        "ok": True,
+                        "provider": provider,
+                        "endpoint": path,
+                        "status_code": resp.status_code,
+                        "message": f"连通成功（{path} · {resp.status_code}）",
+                    }
+                if resp.status_code in (401, 403):
+                    return {
+                        "ok": False,
+                        "provider": provider,
+                        "endpoint": path,
+                        "status_code": resp.status_code,
+                        "message": f"已到达服务但鉴权失败（{resp.status_code}），请检查 API Key",
+                    }
+                last_error = f"HTTP {resp.status_code}"
+    except Exception as exc:  # noqa: BLE001
+        last_error = f"{type(exc).__name__}: {exc}"
+    detail = f"HTTP {last_status}" if last_status else (last_error or "无法连接")
+    return {
+        "ok": False,
+        "provider": provider,
+        "status_code": last_status,
+        "message": f"连接失败：{detail}",
+    }
+
+
 @router.get("/devices")
 def list_devices(request: Request) -> dict[str, Any]:
     registry = _devices(request)

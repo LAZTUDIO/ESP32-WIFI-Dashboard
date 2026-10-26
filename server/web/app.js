@@ -4085,6 +4085,8 @@
     $('dev-api-key').value = isForward ? '' : apiCfg.key || '';
     $('dev-provider').value = isForward ? 'auto' : apiCfg.provider || 'auto';
     $('dev-rot180').checked = !!(device && device.rot180);
+    $('dev-api-test-msg').textContent = '';
+    $('dev-api-test-msg').className = 'api-test-msg';
     applyConnectMode();
     $('device-reboot-btn').classList.toggle('hidden', mode !== 'settings');
     $('device-delete-btn').classList.toggle('hidden', mode !== 'settings');
@@ -4135,6 +4137,40 @@
       key: $('dev-api-key').value,
       provider: $('dev-provider').value,
     };
+  }
+
+  async function testDeviceApi() {
+    const btn = $('dev-api-test');
+    const msg = $('dev-api-test-msg');
+    const url = $('dev-api-url').value.trim();
+    if (!url) {
+      msg.textContent = '请先填写 API 地址';
+      msg.className = 'api-test-msg err';
+      return;
+    }
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '测试中…';
+    msg.textContent = '';
+    msg.className = 'api-test-msg';
+    try {
+      const data = await api('/api/v1/api-test', {
+        method: 'POST',
+        body: JSON.stringify({
+          url,
+          key: $('dev-api-key').value,
+          provider: $('dev-provider').value,
+        }),
+      });
+      msg.textContent = data.message || (data.ok ? '连通成功' : '连接失败');
+      msg.className = `api-test-msg ${data.ok ? 'ok' : 'err'}`;
+    } catch (error) {
+      msg.textContent = error.message;
+      msg.className = 'api-test-msg err';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
   }
 
   async function submitDeviceModal() {
@@ -4392,6 +4428,16 @@
     });
     $('device-modal-save').addEventListener('click', submitDeviceModal);
     $('dev-mode').addEventListener('change', applyConnectMode);
+    $('dev-api-test').addEventListener('click', testDeviceApi);
+    document.querySelectorAll('.key-eye').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.dataset.target);
+        if (!input) return;
+        const reveal = input.type === 'password';
+        input.type = reveal ? 'text' : 'password';
+        btn.classList.toggle('on', reveal);
+      });
+    });
     $('device-reboot-btn').addEventListener('click', rebootDevice);
     $('device-delete-btn').addEventListener('click', deleteDevice);
     document.addEventListener('keydown', (event) => {

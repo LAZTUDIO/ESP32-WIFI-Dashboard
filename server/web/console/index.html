@@ -180,6 +180,23 @@
     }
     .form-grid input:disabled { color: #9aa4b2; background: #f2f4f7; }
     .form-grid input[type="checkbox"] { width: auto; }
+    .key-field { position: relative; display: flex; }
+    .key-field input { padding-right: 36px; }
+    .key-eye {
+      position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; padding: 0; border: none; border-radius: 6px;
+      background: transparent; color: #8a93a1; cursor: pointer;
+    }
+    .key-eye:hover { background: #eef1f5; color: #374151; }
+    .key-eye .eye-off { display: none; }
+    .key-eye.on .eye-open { display: none; }
+    .key-eye.on .eye-off { display: inline-flex; }
+    .api-test-row { display: flex; align-items: center; gap: 10px; }
+    .api-test-row .btn { padding: 7px 12px; font-size: 12px; }
+    .api-test-msg { font-size: 12px; color: #6b7280; line-height: 1.45; }
+    .api-test-msg.ok { color: #16a34a; }
+    .api-test-msg.err { color: #dc2626; }
     .modal-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
     .modal-actions .primary { margin-left: auto; }
     .modal-error { color: #dc2626; font-size: 12px; flex: 1; line-height: 1.45; }
@@ -258,14 +275,12 @@
       <div class="form-grid">
         <label>设备 IP<input id="dev-ip" placeholder="192.168.1.50" autocomplete="off"></label>
         <label>备注名<input id="dev-name" placeholder="主屏" maxlength="32"></label>
-        <label class="span2">连接模式
+        <label>连接模式
           <select id="dev-mode">
             <option value="direct">直连模式（设备直连 API）</option>
             <option value="forward">转发模式（经控制台转发）</option>
           </select>
         </label>
-        <label class="span2 direct-only">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
-        <label class="direct-only">API Key<input id="dev-api-key" type="password" autocomplete="new-password"></label>
         <label class="direct-only">服务类型
           <select id="dev-provider">
             <option value="auto">auto（自动探测）</option>
@@ -277,6 +292,20 @@
             <option value="openai">OpenAI 兼容</option>
           </select>
         </label>
+        <label class="span2 direct-only">传统 API 地址<input id="dev-api-url" placeholder="http://192.168.1.100:8000"></label>
+        <label class="span2 direct-only">API Key
+          <span class="key-field">
+            <input id="dev-api-key" type="password" autocomplete="new-password">
+            <button type="button" class="key-eye" data-target="dev-api-key" title="显示/隐藏明文" aria-label="显示明文">
+              <svg class="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </span>
+        </label>
+        <div class="span2 direct-only api-test-row">
+          <button type="button" class="btn" id="dev-api-test">测试连通性</button>
+          <span class="api-test-msg" id="dev-api-test-msg"></span>
+        </div>
         <div class="span2 hidden" id="dev-forward-note" style="color:#6b7280;font-size:12px;line-height:1.55"></div>
         <label class="check span2"><input id="dev-rot180" type="checkbox"> 屏幕 180° 翻转</label>
       </div>
@@ -301,8 +330,20 @@
       <div class="form-grid">
         <label class="check span2"><input id="forward-enabled" type="checkbox"> 启用服务端转发</label>
         <label class="span2">上游 API 地址<input id="forward-url" placeholder="http://127.0.0.1:8000"></label>
-        <label>API Key<input id="forward-key" type="password" autocomplete="new-password"></label>
-        <label>服务类型
+        <label class="span2">API Key
+          <span class="key-field">
+            <input id="forward-key" type="password" autocomplete="new-password">
+            <button type="button" class="key-eye" data-target="forward-key" title="显示/隐藏明文" aria-label="显示明文">
+              <svg class="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20C5 20 1 12 1 12a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </span>
+        </label>
+        <div class="span2 api-test-row">
+          <button type="button" class="btn" id="forward-api-test">测试连通性</button>
+          <span class="api-test-msg" id="forward-api-test-msg"></span>
+        </div>
+        <label class="span2">服务类型
           <select id="forward-provider">
             <option value="auto">auto（自动探测）</option>
             <option value="halogen">halogen</option>
@@ -492,6 +533,8 @@
         $('dev-api-key').value = forwardMode ? '' : cfg.key || '';
         $('dev-provider').value = forwardMode ? 'auto' : cfg.provider || 'auto';
         $('dev-rot180').checked = !!(device && device.rot180);
+        $('dev-api-test-msg').textContent = '';
+        $('dev-api-test-msg').className = 'api-test-msg';
         state.directDraft = {
           url: forwardMode ? '' : cfg.url || '',
           key: forwardMode ? '' : cfg.key || '',
@@ -555,6 +598,40 @@
         };
       }
 
+      async function testApi(urlId, keyId, providerId, btnId, msgId) {
+        const btn = $(btnId);
+        const msg = $(msgId);
+        const url = $(urlId).value.trim();
+        if (!url) {
+          msg.textContent = '请先填写 API 地址';
+          msg.className = 'api-test-msg err';
+          return;
+        }
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '测试中…';
+        msg.textContent = '';
+        msg.className = 'api-test-msg';
+        try {
+          const data = await api('/api/v1/api-test', {
+            method: 'POST',
+            body: JSON.stringify({
+              url,
+              key: $(keyId).value,
+              provider: $(providerId).value,
+            }),
+          });
+          msg.textContent = data.message || (data.ok ? '连通成功' : '连接失败');
+          msg.className = 'api-test-msg ' + (data.ok ? 'ok' : 'err');
+        } catch (error) {
+          msg.textContent = error.message;
+          msg.className = 'api-test-msg err';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      }
+
       async function saveDevice() {
         const btn = $('device-save');
         const errorEl = $('device-error');
@@ -616,6 +693,8 @@
 
       async function openForwardModal() {
         $('forward-error').textContent = '';
+        $('forward-api-test-msg').textContent = '';
+        $('forward-api-test-msg').className = 'api-test-msg';
         try {
           const data = await api('/api/v1/forward');
           state.forward = { ...state.forward, ...data };
@@ -710,6 +789,19 @@
       });
       $('device-save').addEventListener('click', saveDevice);
       $('dev-mode').addEventListener('change', () => applyConnectMode());
+      $('dev-api-test').addEventListener('click', () =>
+        testApi('dev-api-url', 'dev-api-key', 'dev-provider', 'dev-api-test', 'dev-api-test-msg'));
+      $('forward-api-test').addEventListener('click', () =>
+        testApi('forward-url', 'forward-key', 'forward-provider', 'forward-api-test', 'forward-api-test-msg'));
+      document.querySelectorAll('.key-eye').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const input = document.getElementById(btn.dataset.target);
+          if (!input) return;
+          const reveal = input.type === 'password';
+          input.type = reveal ? 'text' : 'password';
+          btn.classList.toggle('on', reveal);
+        });
+      });
       $('nav-forward').addEventListener('click', openForwardModal);
       $('forward-close').addEventListener('click', () => $('forward-modal').classList.add('hidden'));
       $('forward-modal').addEventListener('click', (event) => {
